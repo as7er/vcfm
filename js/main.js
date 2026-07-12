@@ -50,6 +50,18 @@ import {
   promoteYouth,
   releaseYouth,
   upgradeYouthAcademy,
+  startFacilityUpgrade,
+  ensureFacilities,
+  stadiumInfo,
+  trainingFacilityInfo,
+  youthFacilityInfo,
+  facilitySummaryLine,
+  isBuilding,
+  getProject,
+  FACILITY_MAX,
+  STADIUM_LEVELS,
+  TRAINING_FACILITY_LEVELS,
+  FACILITY_LABELS,
   startNextSeason,
   ensureStaff,
   ROLES,
@@ -317,6 +329,7 @@ function migrateWorld(w) {
     ensureKit(c);
     assignSquadNumbers(c);
     ensureTraining(c);
+    ensureFacilities(c);
     if (!c.youth.players.length) fillYouthSquad(c);
     for (const p of c.players || []) {
       if (p.potential == null) p.potential = Math.min(20, (p.ovr || 10) + 1);
@@ -443,6 +456,23 @@ function bindMainOnce() {
     }
   };
 
+  // 设施页按钮用事件委托（动态渲染）
+  const facGrid = $("#facilities-grid");
+  if (facGrid && !facGrid._bound) {
+    facGrid._bound = true;
+    facGrid.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-upgrade-facility]");
+      if (!btn || !world) return;
+      const kind = btn.dataset.upgradeFacility;
+      const res = startFacilityUpgrade(world, world.userClubId, kind);
+      toast(res.msg);
+      if (res.ok) {
+        saveGame(world);
+        refreshAll();
+      }
+    });
+  }
+
   $("#btn-refresh-staff").onclick = () => {
     refreshStaffMarket(world);
     // 刷新费
@@ -487,6 +517,7 @@ function refreshAll() {
   renderDashboard();
   renderSquad();
   renderYouth();
+  renderFacilities();
   renderStaff();
   renderTraining();
   renderTactics();
@@ -797,6 +828,25 @@ function renderDashboard() {
   if (trainDash) {
     trainDash.textContent = trainingSummary(club).line + " · 在「训练」页调整";
   }
+  // 设施摘要
+  let facDash = document.querySelector("#facilities-dash");
+  if (!facDash) {
+    const trainEl = document.querySelector("#training-dash");
+    if (trainEl && trainEl.parentElement) {
+      const h = document.createElement("h3");
+      h.textContent = "俱乐部设施";
+      facDash = document.createElement("div");
+      facDash.id = "facilities-dash";
+      facDash.className = "muted";
+      facDash.style.marginBottom = "0.5rem";
+      trainEl.parentElement.insertBefore(h, trainEl);
+      trainEl.parentElement.insertBefore(facDash, trainEl);
+    }
+  }
+  if (facDash) {
+    ensureFacilities(club);
+    facDash.textContent = facilitySummaryLine(club) + " · 在「设施」页扩建/升级";
+  }
 
   // 转会窗
   ensureTransferWindow(world);
@@ -1067,29 +1117,139 @@ function showPlayerModal(playerId) {
   $("#modal").classList.remove("hidden");
 }
 
+function renderFacilities() {
+  const club = getUserClub(world);
+  if (!club) return;
+  ensureFacilities(club);
+  const grid = $("#facilities-grid");
+  if (!grid) return;
+
+  const items = [
+    {
+      kind: "stadium",
+      icon: "🏟️",
+      info: stadiumInfo(club),
+      effect: (i) =>
+        `容量约 ${i.capacity.toLocaleString()} · 主场收入约 ${formatMoney(i.matchday)}/场 · 周维护 ${formatMoney(i.upkeep)}`,
+      nextEffect: (lv) => {
+        const n = STADIUM_LEVELS[lv];
+        return n
+          ? `→ 容量 ${n.capacity.toLocaleString()} · 收入约 ${formatMoney(n.matchday)}`
+          : "";
+      },
+    },
+    {
+      kind: "training",
+      icon: "🏋️",
+      info: trainingFacilityInfo(club),
+      effect: (i) =>
+        `成长+${Math.round((i.growth || 0) * 1000) / 10}% · 恢复+${i.heal} · 伤病×${i.injuryMod} · 周维护 ${formatMoney(i.upkeep)}`,
+      nextEffect: (lv) => {
+        const n = TRAINING_FACILITY_LEVELS[lv];
+        return n ? `→ 成长+${Math.round(n.growth * 1000) / 10}% · 恢复+${n.heal}` : "";
+      },
+    },
+    {
+      kind: "youth",
+      icon: "🌱",
+      info: youthFacilityInfo(club),
+      effect: (i) =>
+        `容量 ${i.capacity} · 招生 ${i.intake}/期 · 成长 ${i.growth} · 周维护 ${formatMoney(i.upkeep)}`,
+      nextEffect: (lv) => {
+        const n = YOUTH_LEVELS[lv];
+        return n ? `→ ${n.name} · 容量 ${n.capacity} · 招生 ${n.intake}` : "";
+      },
+    },
+  ];
+
+  const costs = {
+    stadium: { 2: 3e6, 3: 8e6, 4: 18e6, 5: 40e6 },
+    training: { 2: 1.5e6, 3: 4e6, 4: 10e6, 5: 22e6 },
+    youth: YOUTH_UPGRADE_COST,
+  };
+  const buildDays = {
+    stadium: { 2: 14, 3: 21, 4: 28, 5: 35 },
+    training: { 2: 10, 3: 14, 4: 21, 5: 28 },
+    youth: { 2: 12, 3: 18, 4: 24, 5: 30 },
+  };
+
+  grid.innerHTML = items
+    .map(({ kind, icon, info, effect, nextEffect }) => {
+      const lv = info.level;
+      const proj = getProject(club, kind);
+      const label = FACILITY_LABELS[kind] || kind;
+      let action = "";
+      if (proj) {
+        const left = Math.max(0, proj.finishDay - world.day);
+        action = `<button class="btn small" disabled>施工中 · ${left} 天后完工</button>
+          <p class="hint" style="margin:0.4rem 0 0">目标 Lv.${proj.to} ${escapeHtml(proj.name)}</p>`;
+      } else if (lv >= FACILITY_MAX) {
+        action = `<button class="btn small" disabled>已满级</button>`;
+      } else {
+        const next = lv + 1;
+        const cost = costs[kind][next];
+        const days = buildDays[kind][next];
+        const verb = kind === "stadium" ? (next >= 4 ? "新建" : "扩建") : "升级";
+        action = `<button class="btn small primary" data-upgrade-facility="${kind}">${verb}至 Lv.${next}（${formatMoney(cost)} · ${days}天）</button>
+          <p class="hint" style="margin:0.4rem 0 0">${escapeHtml(nextEffect(next))}</p>`;
+      }
+      return `<div class="facility-card">
+        <div class="facility-title">${icon} ${label}</div>
+        <div class="facility-level">Lv.${lv} · ${escapeHtml(info.name)}</div>
+        <p class="facility-effect">${escapeHtml(effect(info))}</p>
+        ${action}
+      </div>`;
+    })
+    .join("");
+
+  const hint = $("#facilities-hint");
+  if (hint) {
+    hint.textContent =
+      facilitySummaryLine(club) +
+      " · 主场比赛自动收门票；训练等级影响日常训练与伤病。";
+  }
+}
+
 function renderYouth() {
   const club = getUserClub(world);
+  ensureFacilities(club);
   const ya = ensureYouthAcademy(club);
+  // 与设施同步
+  if (club.facilities?.youth && club.facilities.youth !== ya.level) {
+    ya.level = Math.max(ya.level, club.facilities.youth);
+  }
   const cfg = YOUTH_LEVELS[ya.level] || YOUTH_LEVELS[1];
   const nextLv = ya.level + 1;
   const nextCost = YOUTH_UPGRADE_COST[nextLv];
   const daysLeft = Math.max(0, 30 - (ya.daysSinceIntake || 0));
+  const building = isBuilding(club, "youth");
+  const proj = getProject(club, "youth");
 
   $("#youth-info").innerHTML = `
     <div><strong>Lv.${ya.level}</strong> ${cfg.name}</div>
     <div class="muted">容量 ${ya.players.length}/${cfg.capacity} · 每期招生 ${cfg.intake} 人</div>
     <div class="muted">周维护费 ${formatMoney(cfg.upkeep)} · 下次招生约 ${daysLeft} 天</div>
+    ${
+      building
+        ? `<div class="muted">🚧 升级施工中 · 约第 ${proj.finishDay} 天完工</div>`
+        : ""
+    }
   `;
 
   const upBtn = $("#btn-youth-upgrade");
   if (ya.level >= 5) {
     upBtn.disabled = true;
     upBtn.textContent = "已满级";
-    $("#youth-hint").textContent = "学院已是世界级，专心培养好苗子吧。";
+    $("#youth-hint").textContent = "学院已是世界级，专心培养好苗子吧。也可在「设施」页查看球场与训练。";
+  } else if (building) {
+    upBtn.disabled = true;
+    const left = Math.max(0, proj.finishDay - world.day);
+    upBtn.textContent = `施工中（${left} 天）`;
+    $("#youth-hint").textContent = `正在升级至 Lv.${proj.to} ${proj.name}，完工后自动生效。`;
   } else {
     upBtn.disabled = false;
-    upBtn.textContent = `升级至 Lv.${nextLv}（${formatMoney(nextCost)}）`;
-    $("#youth-hint").textContent = `下级：${YOUTH_LEVELS[nextLv].name} · 容量 ${YOUTH_LEVELS[nextLv].capacity} · 成长更快`;
+    upBtn.textContent = `升级至 Lv.${nextLv}（${formatMoney(nextCost)} · 有工期）`;
+    $("#youth-hint").textContent = `下级：${YOUTH_LEVELS[nextLv].name} · 容量 ${YOUTH_LEVELS[nextLv].capacity} · 成长更快（「设施」页可一并管理球场/训练）`;
   }
 
   $("#youth-count").textContent = `${ya.players.length} 名学员`;

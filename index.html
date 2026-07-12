@@ -62,6 +62,7 @@
           <button data-tab="dashboard" class="tab active">概览</button>
           <button data-tab="squad" class="tab">阵容</button>
           <button data-tab="youth" class="tab">青训</button>
+          <button data-tab="facilities" class="tab">设施</button>
           <button data-tab="staff" class="tab">职员</button>
           <button data-tab="training" class="tab">训练</button>
           <button data-tab="tactics" class="tab">战术</button>
@@ -185,6 +186,19 @@
                   <tbody></tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 设施：球场 / 训练 / 青训 -->
+        <div id="tab-facilities" class="tab-panel">
+          <div class="grid-2">
+            <div class="card span-2">
+              <h2>俱乐部设施</h2>
+              <p class="hint" id="facilities-hint">
+                扩建球场提高主场收入；升级训练设施加快成长与恢复；青训设施提高招生与培养。升级需建设工期，期间不可重复开工。
+              </p>
+              <div id="facilities-grid" class="facilities-grid"></div>
             </div>
           </div>
         </div>

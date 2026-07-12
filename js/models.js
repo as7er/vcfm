@@ -530,11 +530,12 @@ export function createClub(template) {
     staff: null, // create 后填充，避免循环依赖 staff.js
     kit: null,
     training: { focus: "balanced", intensity: "normal" },
+    facilities: null, // ensureFacilities 时按联赛补默认
   };
   ensureKit(club);
   fillYouthSquad(club);
   assignSquadNumbers(club);
-  // staff / training 在 createWorld / 读档时 ensure
+  // staff / training / facilities 在 createWorld / 读档时 ensure
   return club;
 }
 

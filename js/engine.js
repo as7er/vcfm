@@ -12,7 +12,6 @@ import {
   createYouthPlayer,
   fillYouthSquad,
   YOUTH_LEVELS,
-  YOUTH_UPGRADE_COST,
   agePlayerOneYear,
   retireChance,
   resetSeasonStats,
@@ -100,6 +99,27 @@ import {
   processTransferWindowDay,
   assertTransferOpen,
 } from "./transfers.js";
+import {
+  ensureFacilities,
+  startFacilityUpgrade,
+  upgradeYouthAcademy,
+  processFacilityDay,
+  facilityWeeklyUpkeep,
+  matchdayIncome,
+  trainingGrowthBonus,
+  trainingHealBonus,
+  trainingInjuryMod,
+  stadiumInfo,
+  trainingFacilityInfo,
+  youthFacilityInfo,
+  facilitySummaryLine,
+  isBuilding,
+  getProject,
+  FACILITY_MAX,
+  STADIUM_LEVELS,
+  TRAINING_FACILITY_LEVELS,
+  FACILITY_LABELS,
+} from "./facilities.js";
 
 function rng() {
   return Math.random();
@@ -416,6 +436,19 @@ export function simulateMatch(world, fixture, { live = false } = {}) {
       day: world.day,
       text: `${tag}：对阵 ${opp.name} ${myG}-${opG} ${result}`,
     });
+    // 主场比赛日收入（球场等级）
+    if (isHome) {
+      const income = matchdayIncome(me, {
+        isCup,
+        won: myG > opG || (isCup && fixture.winner === userId),
+      });
+      me.money += income;
+      world.news.unshift({
+        day: world.day,
+        text: `🏟️ 主场收入 ${formatMoney(income)}（${stadiumInfo(me).name} · 容量约 ${stadiumInfo(me).capacity.toLocaleString()}）`,
+      });
+    }
+
     if (!isCup) {
       mediaAfterUserMatch(world, fixture, me, opp, myG, opG);
       narrativeAfterUserMatch(world, me, opp, myG, opG, false);
@@ -503,7 +536,7 @@ function applyResult(world, f) {
 }
 
 function drainFitness(club, isHome) {
-  const injuryMod = doctorInjuryMod(club);
+  const injuryMod = doctorInjuryMod(club) * trainingInjuryMod(club);
   for (const p of getLineupPlayers(club)) {
     const drain = 4 + Math.floor(rng() * 6) + (club.tactics.pressing > 3 ? 2 : 0);
     p.fitness = Math.max(35, p.fitness - drain);
@@ -581,7 +614,8 @@ function processYouthDay(world) {
 
   if (world.day % 7 === 0) {
       const yMult = youthTrainingMult(club);
-      const growth = (cfg.growth + coachGrowthBonus(club)) * yMult;
+      const growth =
+        (cfg.growth + coachGrowthBonus(club) + trainingGrowthBonus(club) * 0.5) * yMult;
       for (const yp of ya.players) {
         growYouthPlayer(yp, growth);
       }
@@ -692,23 +726,7 @@ export function releaseYouth(world, clubId, playerId) {
   return { ok: true, msg: `已释放 ${player.name}` };
 }
 
-export function upgradeYouthAcademy(world, clubId) {
-  const club = clubById(world, clubId);
-  if (!club) return { ok: false, msg: "球队不存在" };
-  const ya = ensureYouthAcademy(club);
-  if (ya.level >= 5) return { ok: false, msg: "青训已达最高等级" };
-  const next = ya.level + 1;
-  const cost = YOUTH_UPGRADE_COST[next];
-  if (club.money < cost) return { ok: false, msg: `资金不足，需要 ${formatMoney(cost)}` };
-  club.money -= cost;
-  ya.level = next;
-  fillYouthSquad(club, Math.min(ya.players.length + 1, YOUTH_LEVELS[next].capacity));
-  world.news.unshift({
-    day: world.day,
-    text: `🏗️ 青训设施升级至 Lv.${next} ${YOUTH_LEVELS[next].name}，花费 ${formatMoney(cost)}`,
-  });
-  return { ok: true, msg: `青训已升级至 Lv.${next}（${YOUTH_LEVELS[next].name}）` };
-}
+// 青训升级：走 facilities 工期系统（re-export 见文件底部 import）
 
 /** 推进一天：训练恢复、AI 比赛、工资 */
 export function advanceDay(world) {
@@ -721,6 +739,9 @@ export function advanceDay(world) {
   // 转会窗开/关提示
   ensureTransferWindow(world);
   processTransferWindowDay(world);
+
+  // 设施建设完工
+  processFacilityDay(world);
 
   // 训练日程：体能 / 伤愈 / 士气 / 周成长（替代原先统一恢复）
   processTrainingDay(world);
@@ -762,14 +783,16 @@ export function advanceDay(world) {
   if (world.day % 7 === 0) {
     const user = clubById(world, world.userClubId);
     ensureStaff(user);
+    ensureFacilities(user);
     const wageBill = user.players.reduce((s, p) => s + p.wage, 0);
     const youthWage = (user.youth?.players || []).reduce((s, p) => s + (p.wage || 0), 0);
     const staffWage = staffWageBill(user);
-    const total = wageBill + youthWage + staffWage;
+    const facUpkeep = facilityWeeklyUpkeep(user);
+    const total = wageBill + youthWage + staffWage + facUpkeep;
     user.money -= total;
     world.news.unshift({
       day: world.day,
-      text: `发放周薪 ${formatMoney(total)}（一线 ${formatMoney(wageBill)} + 青训 ${formatMoney(youthWage)} + 职员 ${formatMoney(staffWage)}），资金 ${formatMoney(user.money)}`,
+      text: `发放周薪 ${formatMoney(total)}（一线 ${formatMoney(wageBill)} + 青训 ${formatMoney(youthWage)} + 职员 ${formatMoney(staffWage)} + 设施 ${formatMoney(facUpkeep)}），资金 ${formatMoney(user.money)}`,
     });
   }
 
@@ -1047,6 +1070,19 @@ export {
   processTransferWindowDay,
   assertTransferOpen,
   sackManager,
+  ensureFacilities,
+  startFacilityUpgrade,
+  upgradeYouthAcademy,
+  stadiumInfo,
+  trainingFacilityInfo,
+  youthFacilityInfo,
+  facilitySummaryLine,
+  isBuilding,
+  getProject,
+  FACILITY_MAX,
+  STADIUM_LEVELS,
+  TRAINING_FACILITY_LEVELS,
+  FACILITY_LABELS,
 };
 
 /**

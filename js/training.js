@@ -2,6 +2,7 @@
 
 import { playerOverall, estimateValue, estimateWage } from "./models.js";
 import { ensureStaff, staffRating, coachGrowthBonus, doctorHealBonus, doctorInjuryMod } from "./staff.js";
+import { trainingGrowthBonus, trainingHealBonus, trainingInjuryMod } from "./facilities.js";
 
 export const TRAINING_FOCUSES = {
   recovery: {
@@ -327,12 +328,18 @@ export function processTrainingDay(world) {
     const focus = TRAINING_FOCUSES[t.focus];
     const inten = TRAINING_INTENSITIES[t.intensity];
     const coach = staffRating(club, "coach");
-    const healBase = (5 + doctorHealBonus(club)) * focus.fitnessMod * inten.fitnessMod;
+    const healBase =
+      (5 + doctorHealBonus(club) + trainingHealBonus(club)) *
+      focus.fitnessMod *
+      inten.fitnessMod;
     // 教练略提升恢复效率
     const heal = healBase * (0.95 + coach / 20 * 0.1);
     const fatigue = focus.fatigue * inten.fatigueMult;
     const injuryP =
-      focus.injuryRisk * inten.injuryMult * doctorInjuryMod(club);
+      focus.injuryRisk *
+      inten.injuryMult *
+      doctorInjuryMod(club) *
+      trainingInjuryMod(club);
     const moraleDelta = (focus.morale || 0) + (inten.morale || 0);
 
     let grewNames = [];
@@ -367,7 +374,9 @@ export function processTrainingDay(world) {
     // 每周：一线队属性成长（教练 + 训练重点）
     if (world.day % 7 === 0) {
       const growthRate =
-        focus.growth * inten.growthMult + coachGrowthBonus(club);
+        focus.growth * inten.growthMult +
+        coachGrowthBonus(club) +
+        trainingGrowthBonus(club);
       for (const p of club.players || []) {
         if (growFirstTeamPlayer(p, growthRate, focus)) {
           if (isUser) grewNames.push(p.name);

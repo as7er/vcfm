@@ -499,6 +499,41 @@ tr:hover td { background: rgba(255, 255, 255, 0.02); }
   box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.35);
   opacity: 0.95;
 }
+
+/* 设施 */
+.facilities-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.85rem;
+  margin-top: 0.75rem;
+}
+@media (max-width: 860px) {
+  .facilities-grid { grid-template-columns: 1fr; }
+}
+.facility-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.9rem 1rem;
+}
+.facility-title {
+  font-weight: 700;
+  font-size: 1.02rem;
+  margin-bottom: 0.25rem;
+}
+.facility-level {
+  color: var(--primary);
+  font-weight: 600;
+  font-size: 0.92rem;
+  margin-bottom: 0.4rem;
+}
+.facility-effect {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  margin: 0 0 0.75rem;
+  min-height: 2.6em;
+}
 .avatar-svg {
   display: block;
   width: 100%;
