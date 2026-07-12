@@ -600,9 +600,40 @@ function bindMainOnce() {
     tableDiv.onchange = () => renderTable();
   }
 
-  $("#modal-close").onclick = () => $("#modal").classList.add("hidden");
+  const clubsDiv = $("#clubs-division");
+  if (clubsDiv && !clubsDiv._bound) {
+    clubsDiv._bound = true;
+    clubsDiv.addEventListener("change", () => {
+      clubsDiv.dataset.touched = "1";
+      renderClubs();
+    });
+  }
+  const clubsSearch = $("#clubs-search");
+  if (clubsSearch && !clubsSearch._bound) {
+    clubsSearch._bound = true;
+    clubsSearch.addEventListener("input", () => renderClubs());
+  }
+  const clubsTable = $("#clubs-table");
+  if (clubsTable && !clubsTable._bound) {
+    clubsTable._bound = true;
+    clubsTable.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-open-club]");
+      if (!btn) return;
+      showClubModal(btn.dataset.openClub);
+    });
+  }
+
+  // 积分榜 / 赛程 / 数据榜等：点击队名打开俱乐部详情
+  document.body.addEventListener("click", (e) => {
+    const link = e.target.closest("[data-club-link]");
+    if (!link || !world) return;
+    e.preventDefault();
+    showClubModal(link.dataset.clubLink);
+  });
+
+  $("#modal-close").onclick = () => closeModal();
   $("#modal").onclick = (e) => {
-    if (e.target.id === "modal") $("#modal").classList.add("hidden");
+    if (e.target.id === "modal") closeModal();
   };
 
   // match buttons
@@ -651,6 +682,7 @@ function refreshAll() {
   renderTraining();
   renderTactics();
   renderTable();
+  renderClubs();
   renderStats();
   renderMedia();
   renderTransfer();
@@ -958,7 +990,7 @@ function renderDashboard() {
     box.innerHTML = `
       <div><strong>${next.competition === "cup" ? next.roundLabel || "杯赛" : `第 ${next.round} 轮`}</strong> · 第 ${next.day} 天 · ${next.home === club.id ? "主场" : "客场"}</div>
       <div style="margin-top:0.4rem;font-size:1.25rem">
-        ${escapeHtml(home.name)} <span class="muted">vs</span> ${escapeHtml(away.name)}
+        ${clubLinkHtml(home.id, home.name)} <span class="muted">vs</span> ${clubLinkHtml(away.id, away.name)}
       </div>
       <div class="muted" style="margin-top:0.35rem">
         ${ready ? "可以开赛 · 赛前简报" : `还需等待 ${next.day - world.day} 天`}
@@ -1225,6 +1257,7 @@ function showPlayerModal(playerId) {
     ensureKit(kitClub);
     ensurePlayerNumber(kitClub, player);
   }
+  $("#modal-card")?.classList.remove("wide");
   $("#modal-body").innerHTML = `
     <div class="player-modal-head">
       ${playerAvatarHtml(player, kitClub, 64)}
@@ -1565,6 +1598,271 @@ function renderTactics() {
     .join("");
 }
 
+function closeModal() {
+  $("#modal")?.classList.add("hidden");
+  $("#modal-card")?.classList.remove("wide");
+}
+
+function clubLinkHtml(clubId, label, extraClass = "") {
+  const name = label ?? world.clubs.find((c) => c.id === clubId)?.name ?? clubId;
+  return `<button type="button" class="club-link ${extraClass}" data-club-link="${escapeHtml(clubId)}">${escapeHtml(name)}</button>`;
+}
+
+function formatFormHtml(form) {
+  const list = (form || []).slice(-5);
+  if (!list.length) return `<span class="muted">—</span>`;
+  return `<span class="form-pills">${list
+    .map((r) => {
+      const cls = r === "W" ? "w" : r === "D" ? "d" : "l";
+      return `<i class="form-pill ${cls}" title="${r}">${r}</i>`;
+    })
+    .join("")}</span>`;
+}
+
+function squadAvgOvr(club) {
+  const ps = club.players || [];
+  if (!ps.length) return 0;
+  return Math.round(ps.reduce((s, p) => s + (p.ovr || 0), 0) / ps.length);
+}
+
+function renderClubs() {
+  if (!world) return;
+  const tbody = $("#clubs-table tbody");
+  if (!tbody) return;
+  const sel = $("#clubs-division");
+  const searchEl = $("#clubs-search");
+  if (sel && !sel.dataset.touched) {
+    const me = getUserClub(world);
+    if (me) sel.value = String(me.division || 3);
+  }
+  const divFilter = sel?.value || "all";
+  const q = (searchEl?.value || "").trim().toLowerCase();
+
+  // 各级积分榜排名缓存
+  const rankMap = new Map();
+  for (const d of [1, 2, 3]) {
+    getSortedTable(world, d).forEach((r, i) => {
+      rankMap.set(r.id, { rank: i + 1, pts: r.pts, row: r });
+    });
+  }
+
+  let clubs = [...(world.clubs || [])];
+  if (divFilter !== "all") {
+    const d = Number(divFilter);
+    clubs = clubs.filter((c) => (c.division || 3) === d);
+  }
+  if (q) {
+    clubs = clubs.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        (c.short || "").toLowerCase().includes(q)
+    );
+  }
+  clubs.sort((a, b) => {
+    const da = a.division || 3;
+    const db = b.division || 3;
+    if (da !== db) return da - db;
+    const ra = rankMap.get(a.id)?.rank ?? 99;
+    const rb = rankMap.get(b.id)?.rank ?? 99;
+    return ra - rb;
+  });
+
+  tbody.innerHTML = clubs.length
+    ? clubs
+        .map((c) => {
+          const me = c.id === world.userClubId;
+          const info = rankMap.get(c.id);
+          const divName = t("div." + (c.division || 3)) || DIVISIONS[c.division || 3]?.name || "";
+          const avg = squadAvgOvr(c);
+          ensureKit(c);
+          return `<tr class="${me ? "me" : ""}">
+            <td>
+              <span class="kit-chip" style="${kitBadgeStyle(c)}"></span>
+              ${clubLinkHtml(c.id, c.name)}${me ? " ★" : ""}
+            </td>
+            <td>${escapeHtml(divName)}</td>
+            <td>${info ? info.rank : "—"}</td>
+            <td><strong>${info ? info.pts : 0}</strong></td>
+            <td>${formatFormHtml(c.form)}</td>
+            <td class="${ovrClass(avg)}">${avg}</td>
+            <td>${formatMoney(c.money || 0)}</td>
+            <td><button type="button" class="btn small" data-open-club="${escapeHtml(c.id)}">${escapeHtml(t("clubs.view"))}</button></td>
+          </tr>`;
+        })
+        .join("")
+    : `<tr><td colspan="8" class="muted">${escapeHtml(t("clubs.empty"))}</td></tr>`;
+}
+
+function showClubModal(clubId) {
+  if (!world || !clubId) return;
+  const club = world.clubs.find((c) => c.id === clubId);
+  if (!club) return;
+
+  ensureKit(club);
+  ensureClubHonors(club);
+  const me = club.id === world.userClubId;
+  const div = club.division || 3;
+  const divName = t("div." + div) || DIVISIONS[div]?.name || "";
+  const table = getSortedTable(world, div);
+  const rank = table.findIndex((r) => r.id === club.id) + 1;
+  const row = table.find((r) => r.id === club.id) || {
+    played: 0,
+    w: 0,
+    d: 0,
+    l: 0,
+    gf: 0,
+    ga: 0,
+    gd: 0,
+    pts: 0,
+  };
+  const avg = squadAvgOvr(club);
+  const topPlayers = [...(club.players || [])]
+    .sort((a, b) => b.ovr - a.ovr)
+    .slice(0, 16);
+  const formation = club.tactics?.formation || "4-3-3";
+  const styleKey = club.tactics?.style || "balanced";
+  const styleLabel = t("style." + styleKey) || styleKey;
+
+  const fixtures = (world.fixtures || [])
+    .filter((f) => f.home === club.id || f.away === club.id)
+    .slice()
+    .sort((a, b) => a.day - b.day);
+  // 近期已赛 + 接下来未赛
+  const playedFx = fixtures.filter((f) => f.played).slice(-5).reverse();
+  const upcomingFx = fixtures.filter((f) => !f.played).slice(0, 6);
+
+  const honorHtml = (club.honors || []).length
+    ? `<div class="honor-list">${club.honors
+        .slice(0, 8)
+        .map(
+          (h) => `<div class="honor-item">
+            <div class="season">${h.season}</div>
+            <strong>${escapeHtml(h.title || "")}</strong>
+            ${h.detail ? ` <span class="muted">（${escapeHtml(h.detail)}）</span>` : ""}
+          </div>`
+        )
+        .join("")}</div>`
+    : `<p class="muted" style="margin:0">${escapeHtml(t("clubs.noHonors"))}</p>`;
+
+  const squadRows = topPlayers
+    .map((p) => {
+      const s = playerStats(p);
+      const isGk = p.pos === "GK";
+      return `<tr>
+        <td class="num-cell"><span class="kit-num" style="${kitBadgeStyle(club)}">${p.number ?? "—"}</span></td>
+        <td class="name-with-avatar">${playerAvatarHtml(p, club, 26)}
+          <button type="button" class="club-link" data-view-player="${escapeHtml(p.id)}">${escapeHtml(p.name)}</button>
+        </td>
+        <td><span class="badge ${p.pos}">${POS_LABEL[p.pos]}</span></td>
+        <td>${p.age}</td>
+        <td class="${ovrClass(p.ovr)}"><strong>${p.ovr}</strong></td>
+        <td>${isGk ? s.cleanSheets : s.goals}</td>
+        <td>${isGk ? s.goalsConceded : s.assists}</td>
+      </tr>`;
+    })
+    .join("");
+
+  const fxRow = (f) => {
+    const home = world.clubs.find((c) => c.id === f.home);
+    const away = world.clubs.find((c) => c.id === f.away);
+    const score = f.played ? `${f.homeGoals} - ${f.awayGoals}` : "—";
+    const homeCls = f.home === club.id ? "me-side" : "";
+    const awayCls = f.away === club.id ? "me-side" : "";
+    return `<tr>
+      <td>D${f.day}</td>
+      <td class="${homeCls}">${escapeHtml(home?.short || home?.name || "?")}</td>
+      <td>${score}</td>
+      <td class="${awayCls}">${escapeHtml(away?.short || away?.name || "?")}</td>
+      <td>${f.competition === "cup" ? escapeHtml(f.roundLabel || t("match.cup")) : `R${f.round || ""}`}</td>
+    </tr>`;
+  };
+
+  $("#modal-body").innerHTML = `
+    <div class="club-modal-head">
+      <span class="kit-chip large" style="${kitBadgeStyle(club)}"></span>
+      ${renderKitShirt(club, null, 52)}
+      <div>
+        <h2 style="margin:0 0 0.25rem">${escapeHtml(club.name)}${me ? " ★" : ""}</h2>
+        <p class="muted" style="margin:0">
+          ${escapeHtml(divName)}
+          ${rank ? ` · ${t("clubs.rank", { n: rank })}` : ""}
+          · ${t("clubs.pts", { n: row.pts || 0 })}
+          · ${escapeHtml(t("clubs.record", { w: row.w || 0, d: row.d || 0, l: row.l || 0 }))}
+        </p>
+        <p class="muted" style="margin:0.25rem 0 0">
+          ${escapeHtml(t("clubs.money"))} ${formatMoney(club.money || 0)}
+          · ${escapeHtml(t("clubs.squadAvg"))} <strong class="${ovrClass(avg)}">${avg}</strong>
+          · ${escapeHtml(t("clubs.power"))} ${club.power ?? "—"}
+          · ${escapeHtml(t("tac.formation"))} ${escapeHtml(formation)} · ${escapeHtml(styleLabel)}
+        </p>
+        <div style="margin-top:0.4rem">${formatFormHtml(club.form)} <span class="muted" style="font-size:0.8rem">${escapeHtml(t("clubs.formHint"))}</span></div>
+      </div>
+    </div>
+
+    <div class="club-modal-grid">
+      <div>
+        <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem">${escapeHtml(t("clubs.squad"))}</h3>
+        <p class="hint" style="margin:0 0 0.4rem">${escapeHtml(t("clubs.squadHint", { n: (club.players || []).length }))}</p>
+        <div class="table-wrap">
+          <table class="compact-table">
+            <thead>
+              <tr>
+                <th>#</th><th>${escapeHtml(t("th.name"))}</th><th>${escapeHtml(t("th.pos"))}</th>
+                <th>${escapeHtml(t("th.age"))}</th><th>${escapeHtml(t("th.ovr"))}</th>
+                <th>${escapeHtml(t("th.goals"))}</th><th>${escapeHtml(t("th.assists"))}</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${
+                squadRows ||
+                `<tr><td colspan="7" class="muted">${escapeHtml(t("clubs.noSquad"))}</td></tr>`
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem">${escapeHtml(t("clubs.upcoming"))}</h3>
+        <div class="table-wrap">
+          <table class="compact-table">
+            <thead><tr><th>D</th><th>${escapeHtml(t("th.home"))}</th><th></th><th>${escapeHtml(t("th.away"))}</th><th></th></tr></thead>
+            <tbody>
+              ${
+                upcomingFx.length
+                  ? upcomingFx.map(fxRow).join("")
+                  : `<tr><td colspan="5" class="muted">${escapeHtml(t("clubs.noFixtures"))}</td></tr>`
+              }
+            </tbody>
+          </table>
+        </div>
+        <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem">${escapeHtml(t("clubs.recent"))}</h3>
+        <div class="table-wrap">
+          <table class="compact-table">
+            <thead><tr><th>D</th><th>${escapeHtml(t("th.home"))}</th><th></th><th>${escapeHtml(t("th.away"))}</th><th></th></tr></thead>
+            <tbody>
+              ${
+                playedFx.length
+                  ? playedFx.map(fxRow).join("")
+                  : `<tr><td colspan="5" class="muted">${escapeHtml(t("clubs.noFixtures"))}</td></tr>`
+              }
+            </tbody>
+          </table>
+        </div>
+        <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem">${escapeHtml(t("clubs.honors"))}</h3>
+        ${honorHtml}
+      </div>
+    </div>
+  `;
+
+  // 弹窗内点球员 → 球员详情
+  $("#modal-body").querySelectorAll("[data-view-player]").forEach((btn) => {
+    btn.onclick = () => showPlayerModal(btn.dataset.viewPlayer);
+  });
+
+  $("#modal-card")?.classList.add("wide");
+  $("#modal").classList.remove("hidden");
+}
+
 function renderTable() {
   const club = getUserClub(world);
   const sel = $("#table-division");
@@ -1604,7 +1902,7 @@ function renderTable() {
           if (downN && rank > n - downN) zone = ' <span class="badge ATT">降级区</span>';
           return `<tr class="${me ? "me" : ""}">
             <td>${rank}</td>
-            <td>${escapeHtml(r.name)}${me ? " ★" : ""}${zone}</td>
+            <td>${clubLinkHtml(r.id, r.name)}${me ? " ★" : ""}${zone}</td>
             <td>${r.played}</td>
             <td>${r.w}</td>
             <td>${r.d}</td>
@@ -1632,7 +1930,7 @@ function renderStats() {
           return `<tr class="${me ? "me" : ""}">
             <td>${i + 1}</td>
             <td>${escapeHtml(p.name)}</td>
-            <td>${escapeHtml(club.short)}</td>
+            <td>${clubLinkHtml(club.id, club.short)}</td>
             <td><strong>${s.goals}</strong></td>
             <td>${s.assists}</td>
             <td>${s.apps}</td>
@@ -1650,7 +1948,7 @@ function renderStats() {
           return `<tr class="${me ? "me" : ""}">
             <td>${i + 1}</td>
             <td>${escapeHtml(p.name)}</td>
-            <td>${escapeHtml(club.short)}</td>
+            <td>${clubLinkHtml(club.id, club.short)}</td>
             <td><strong>${s.assists}</strong></td>
             <td>${s.goals}</td>
             <td>${s.apps}</td>
@@ -1668,7 +1966,7 @@ function renderStats() {
           return `<tr class="${me ? "me" : ""}">
             <td>${i + 1}</td>
             <td>${escapeHtml(p.name)}</td>
-            <td>${escapeHtml(club.short)}</td>
+            <td>${clubLinkHtml(club.id, club.short)}</td>
             <td>${s.apps}</td>
             <td><strong>${s.cleanSheets}</strong></td>
             <td>${s.goalsConceded}</td>
@@ -1851,9 +2149,9 @@ function renderFixtures() {
       return `<tr class="${f.day === world.day && !f.played ? "me" : ""}">
         <td>${f.round}</td>
         <td>D${f.day}</td>
-        <td>${escapeHtml(home.name)}</td>
+        <td>${clubLinkHtml(home.id, home.name)}</td>
         <td>${score}</td>
-        <td>${escapeHtml(away.name)}</td>
+        <td>${clubLinkHtml(away.id, away.name)}</td>
         <td>${status}</td>
       </tr>`;
     })

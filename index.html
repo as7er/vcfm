@@ -126,6 +126,7 @@
           <button data-tab="training" class="tab" data-i18n="tab.training">训练</button>
           <button data-tab="tactics" class="tab" data-i18n="tab.tactics">战术</button>
           <button data-tab="table" class="tab" data-i18n="tab.table">积分榜</button>
+          <button data-tab="clubs" class="tab" data-i18n="tab.clubs">俱乐部</button>
           <button data-tab="stats" class="tab" data-i18n="tab.stats">数据榜</button>
           <button data-tab="media" class="tab" data-i18n="tab.media">媒体</button>
           <button data-tab="transfer" class="tab" data-i18n="tab.transfer">转会</button>
@@ -396,6 +397,44 @@
           </div>
         </div>
 
+        <!-- 俱乐部浏览器 -->
+        <div id="tab-clubs" class="tab-panel">
+          <div class="card">
+            <div class="row-between" style="flex-wrap:wrap;gap:0.5rem">
+              <h2 style="margin:0" data-i18n="clubs.title">俱乐部一览</h2>
+              <div class="filters" style="margin:0;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
+                <select id="clubs-division">
+                  <option value="all" data-i18n="clubs.allDiv">全部级别</option>
+                  <option value="3" data-i18n="div.3">乙级联赛</option>
+                  <option value="2" data-i18n="div.2">甲级联赛</option>
+                  <option value="1" data-i18n="div.1">超级联赛</option>
+                </select>
+                <input id="clubs-search" type="search" data-i18n-placeholder="clubs.searchPh" placeholder="搜索队名…" style="min-width:10rem" />
+              </div>
+            </div>
+            <p class="hint" style="margin:0.5rem 0 0.75rem" data-i18n="clubs.hint">
+              浏览三级联赛全部球队：积分、阵容实力、近期赛程。也可从积分榜或赛程点击队名打开。
+            </p>
+            <div class="table-wrap">
+              <table id="clubs-table">
+                <thead>
+                  <tr>
+                    <th data-i18n="th.club">球队</th>
+                    <th data-i18n="th.div">联赛</th>
+                    <th data-i18n="th.rank">排名</th>
+                    <th data-i18n="th.pts">分</th>
+                    <th data-i18n="th.form">近况</th>
+                    <th data-i18n="th.squadAvg">阵容</th>
+                    <th data-i18n="th.money">资金</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
         <!-- 媒体 -->
         <div id="tab-media" class="tab-panel">
           <div class="grid-2">
@@ -636,7 +675,7 @@
 
     <!-- 球员详情弹窗 -->
     <div id="modal" class="modal hidden">
-      <div class="modal-card">
+      <div class="modal-card" id="modal-card">
         <button id="modal-close" class="modal-close">×</button>
         <div id="modal-body"></div>
       </div>
