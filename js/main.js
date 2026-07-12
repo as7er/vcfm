@@ -10,6 +10,7 @@ import {
 } from "./data.js";
 import { ensureMedia, mediaSeasonKickoff } from "./media.js";
 import { t, initPrefs, getLang } from "./i18n.js";
+import { getMatchView, destroyMatchView } from "./matchview.js";
 
 function nationLabel(p) {
   if (p.nationFlag && p.nationName) return `${p.nationFlag} ${p.nationName}`;
@@ -146,6 +147,8 @@ let liveRunning = false;
 /** @type {import('./match.js').createMatchSession extends Function ? any : any} */
 let matchState = null;
 let pendingSubs = []; // 中场待确认换人 {outId, inId, outName, inName}
+/** @type {import('./matchview.js').MatchView | null} */
+let matchView = null;
 
 /** 自动存档（静默，失败仅 console） */
 function autosave(msg) {
@@ -523,6 +526,8 @@ function bindMainOnce() {
   $("#btn-sim-instant").onclick = () => runMatch("instant");
   $("#btn-match-continue").onclick = () => {
     autosave("after-match");
+    destroyMatchView();
+    matchView = null;
     showScreen("main");
     pendingMatch = null;
     matchState = null;
@@ -1734,6 +1739,12 @@ function openMatch() {
   $("#match-log").innerHTML = "";
   hideHtPanel();
   hideMatchReport();
+  // 2D 球场：赛前站位
+  const pitchRoot = $("#match-pitch-root");
+  if (pitchRoot) {
+    matchView = getMatchView(pitchRoot);
+    matchView.mount(home, away);
+  }
   $("#btn-sim-fast").disabled = false;
   $("#btn-sim-live").disabled = false;
   const inst = $("#btn-sim-instant");
@@ -1762,11 +1773,27 @@ async function runMatch(mode) {
   hideMatchReport();
 
   try {
+    // 确保球场已挂载
+    ensureMatchPitch();
+
     if (mode === "instant") {
       const result = simulateMatch(world, pendingMatch);
-      for (const ev of result.events || []) {
-        if (ev.type === "tick" || !ev.text) continue;
-        appendMatchEvent(ev);
+      // 快速回放 2D（加速）
+      if (matchView) {
+        await matchView.replayEvents(result.events, pendingMatch, {
+          speed: 2.2,
+          onStep: (ev, snap) => {
+            if (ev.type === "tick" || !ev.text) return;
+            appendMatchEvent(ev);
+            $("#match-score").textContent = `${snap.homeGoals} - ${snap.awayGoals}`;
+            $("#match-minute").textContent = `${ev.minute || 90}'`;
+          },
+        });
+      } else {
+        for (const ev of result.events || []) {
+          if (ev.type === "tick" || !ev.text) continue;
+          appendMatchEvent(ev);
+        }
       }
       $("#match-score").textContent = `${result.homeGoals} - ${result.awayGoals}`;
       $("#match-minute").textContent = "90'";
@@ -1777,28 +1804,37 @@ async function runMatch(mode) {
     }
 
     matchState = createMatchSession(world, pendingMatch);
+    // 会话创建后阵容可能 autoLineup，刷新球场
+    ensureMatchPitch(true);
     const live = mode === "live";
     matchState._liveMode = live;
-    const onEvent = live
-      ? async (ev, snap) => {
-          if (ev.type === "tick") {
-            $("#match-minute").textContent = `${snap.minute}'`;
-            return;
-          }
-          if (ev.text) appendMatchEvent(ev);
-          $("#match-score").textContent = `${snap.homeGoals} - ${snap.awayGoals}`;
-          $("#match-minute").textContent = `${ev.minute}'`;
-          if (ev.type === "context") {
-            const ctx = $("#match-context");
-            if (ctx) ctx.textContent = ev.text.replace(/^情境：/, "");
-          }
-          await sleep(ev.type === "goal" ? 200 : ev.type === "kickoff" || ev.type === "ht" ? 120 : 40);
+    const onEvent = async (ev, snap) => {
+      if (ev.type === "tick") {
+        if (live) $("#match-minute").textContent = `${snap.minute}'`;
+        return;
+      }
+      if (matchView) matchView.onEvent(ev, snap, pendingMatch);
+      if (live) {
+        if (ev.text) appendMatchEvent(ev);
+        $("#match-score").textContent = `${snap.homeGoals} - ${snap.awayGoals}`;
+        $("#match-minute").textContent = `${ev.minute}'`;
+        if (ev.type === "context") {
+          const ctx = $("#match-context");
+          if (ctx) ctx.textContent = ev.text.replace(/^情境：/, "");
         }
-      : null;
+        await sleep(
+          ev.type === "goal"
+            ? 480
+            : ev.type === "kickoff" || ev.type === "ht"
+              ? 200
+              : 70
+        );
+      }
+    };
 
     await playFirstHalf(matchState, { onEvent });
 
-    // 非直播：把上半场事件刷到日志
+    // 非直播：上半场事件写入日志（画面已在 onEvent 驱动）
     if (!live) {
       for (const ev of matchState.events) {
         if (ev.type === "tick" || !ev.text) continue;
@@ -1823,6 +1859,18 @@ async function runMatch(mode) {
   }
 }
 
+function ensureMatchPitch(remount = false) {
+  const pitchRoot = $("#match-pitch-root");
+  if (!pitchRoot || !pendingMatch) return;
+  const home = world.clubs.find((c) => c.id === pendingMatch.home);
+  const away = world.clubs.find((c) => c.id === pendingMatch.away);
+  if (!home || !away) return;
+  if (!matchView || remount || !matchView._built) {
+    matchView = getMatchView(pitchRoot);
+    matchView.mount(home, away);
+  }
+}
+
 function hideHtPanel() {
   $("#match-ht-panel")?.classList.add("hidden");
 }
@@ -1833,7 +1881,7 @@ function openHalfTimePanel() {
   panel.classList.remove("hidden");
   pendingSubs = [];
   const club = matchState.userClub;
-  const t = club?.tactics || {};
+  const tac = club?.tactics || {};
   $("#match-ht-score").textContent = t("match.htScore", {
     home: matchState.home.name,
     away: matchState.away.name,
@@ -1842,13 +1890,17 @@ function openHalfTimePanel() {
     max: matchState.maxSubs,
     used: matchState.subsUsed[matchState.userSide] || 0,
   });
-  $("#ht-style").value = t.style || "balanced";
-  $("#ht-pressing").value = t.pressing ?? 3;
-  $("#ht-tempo").value = t.tempo ?? 3;
-  $("#ht-pressing-val").textContent = String(t.pressing ?? 3);
-  $("#ht-tempo-val").textContent = String(t.tempo ?? 3);
+  $("#ht-style").value = tac.style || "balanced";
+  $("#ht-pressing").value = tac.pressing ?? 3;
+  $("#ht-tempo").value = tac.tempo ?? 3;
+  $("#ht-pressing-val").textContent = String(tac.pressing ?? 3);
+  $("#ht-tempo-val").textContent = String(tac.tempo ?? 3);
   renderHtSubSelects();
   renderHtSubsList();
+  if (matchView) {
+    matchView.phase = "pause";
+    matchView.setBanner(getLang() === "en" ? "HALF-TIME" : "中场休息", "info");
+  }
   $("#btn-match-continue").disabled = true;
   $("#btn-sim-fast").disabled = true;
   $("#btn-sim-live").disabled = true;
@@ -1943,30 +1995,37 @@ async function finishHalfTime(applyOrders) {
     : {};
 
   const eventCountBefore = matchState.events.length;
-
   try {
-    const onEvent = matchState._liveMode
-      ? async (ev, snap) => {
-          if (ev.type === "tick") {
-            $("#match-minute").textContent = `${snap.minute}'`;
-            return;
-          }
-          if (ev.text) appendMatchEvent(ev);
-          $("#match-score").textContent = `${snap.homeGoals} - ${snap.awayGoals}`;
-          $("#match-minute").textContent = `${ev.minute}'`;
-          await sleep(ev.type === "goal" ? 200 : 40);
-        }
-      : null;
+    const live = !!matchState._liveMode;
+    // 先应用中场指令再刷新 2D（换人后号码/站位）
+    // continueSecondHalf 内部会 applyUserHalfTime；此处先手动应用以更新 pitch
+    const onEvent = async (ev, snap) => {
+      if (ev.type === "tick") {
+        if (live) $("#match-minute").textContent = `${snap.minute}'`;
+        return;
+      }
+      if (matchView) matchView.onEvent(ev, snap, pendingMatch);
+      if (live) {
+        if (ev.text) appendMatchEvent(ev);
+        $("#match-score").textContent = `${snap.homeGoals} - ${snap.awayGoals}`;
+        $("#match-minute").textContent = `${ev.minute}'`;
+        await sleep(ev.type === "goal" ? 480 : 70);
+      }
+    };
+
+    if (matchView) {
+      matchView.phase = "play";
+      matchView.setBanner("");
+    }
 
     const result = await continueSecondHalf(matchState, orders, { onEvent });
 
-    if (!matchState._liveMode) {
+    if (!live) {
       for (const ev of matchState.events.slice(eventCountBefore)) {
         if (ev.type === "tick" || !ev.text) continue;
         appendMatchEvent(ev);
       }
     } else {
-      // 中场战术/换人事件不经 onEvent，补进日志
       for (const ev of matchState.events.slice(eventCountBefore)) {
         if ((ev.type === "tactics" || ev.type === "sub") && ev.text) appendMatchEvent(ev);
       }
