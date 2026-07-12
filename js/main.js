@@ -1541,21 +1541,28 @@ function renderTactics() {
   pitch.innerHTML = formation.slots
     .map((slot, i) => {
       const p = players[i];
-      // 名牌：优先姓；单名则用全名；不再塞球衣号（号在头像上）
+      // 名牌：姓（单名用全名）；球衣号用角标 + 名牌前缀
       let label = "?";
       if (p) {
         const parts = String(p.name || "").trim().split(/\s+/).filter(Boolean);
         label = parts.length > 1 ? parts[parts.length - 1] : parts[0] || "?";
       }
-      const num = p && p.number != null ? p.number : p ? p.ovr : "-";
+      const shirtNo = p && p.number != null ? p.number : null;
+      const fallback = shirtNo != null ? shirtNo : p ? p.ovr : "-";
       const style = p
         ? `background:${kitBg};color:${kitNc};border-color:${kit.primary || "#fff"}`
         : "";
       const av = p ? playerAvatarHtml(p, club, 22) : "";
-      const full = p ? `${p.number != null ? `#${p.number} ` : ""}${p.name}` : "";
+      const full = p ? `${shirtNo != null ? `#${shirtNo} ` : ""}${p.name}` : "";
+      const badge =
+        shirtNo != null
+          ? `<span class="pitch-num" style="background:${kitBg};color:${kitNc};border-color:${kit.primary || "#fff"}">${shirtNo}</span>`
+          : "";
+      const nameText =
+        shirtNo != null ? `#${shirtNo} ${label}` : label;
       return `<div class="player-dot" style="left:${slot.x}%;top:${slot.y}%" title="${escapeHtml(full)}">
-        <div class="circle kit-dot" style="${style}">${av || num}</div>
-        <div class="name">${escapeHtml(label)}</div>
+        <div class="circle kit-dot" style="${style}">${av || fallback}${badge}</div>
+        <div class="name">${escapeHtml(nameText)}</div>
       </div>`;
     })
     .join("");

@@ -773,6 +773,7 @@ tr:hover td { background: var(--row-hover); }
   pointer-events: none;
 }
 .player-dot .circle {
+  position: relative;
   width: 34px; height: 34px; margin: 0 auto 2px;
   border-radius: 50%;
   background: var(--primary);
@@ -780,6 +781,28 @@ tr:hover td { background: var(--row-hover); }
   display: grid; place-items: center;
   font-size: 0.7rem; font-weight: 700;
   pointer-events: auto;
+}
+/* 球衣号角标（头像盖住圆圈内数字时仍可见） */
+.player-dot .pitch-num {
+  position: absolute;
+  right: -6px;
+  bottom: -5px;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  padding: 0 3px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1.05rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  z-index: 3;
+}
+html[data-theme="light"] .player-dot .pitch-num {
+  border-color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 .player-dot .name {
   font-size: 0.68rem;
