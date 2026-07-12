@@ -66,6 +66,10 @@ import {
   trainingSummary,
   TRAINING_FOCUSES,
   TRAINING_INTENSITIES,
+  ensureTransferWindow,
+  isTransferWindowOpen,
+  transferWindowLabel,
+  transferWindowShort,
 } from "./engine.js";
 import {
   saveGame,
@@ -86,6 +90,21 @@ import {
   boardStatusLine,
   boardTone,
 } from "./board.js";
+
+/** 解雇后回菜单（保留存档供回顾，新开局覆盖当前槽） */
+function handleSacked(result) {
+  if (!result || !result.sacked) return false;
+  autosave("sacked");
+  const msg =
+    (result.msg || result.sackedResult?.msg || "你已被董事会解雇。") +
+    "\n\n存档已保留。开新档将覆盖当前槽；也可读取其它槽。";
+  alert(msg);
+  showScreen("start");
+  refreshSlotUI();
+  $("#start-hint").textContent = `已被解雇（槽 ${getActiveSlot()}）。可开新赛季或换槽。`;
+  world = null;
+  return true;
+}
 
 let world = null;
 let pendingMatch = null;
@@ -206,6 +225,8 @@ function initStart() {
     const u = world.clubs.find((c) => c.id === clubId);
     mediaSeasonKickoff(world, u, DIVISIONS[u.division || 3]?.name || "乙级联赛");
     ensureBoardObjective(world);
+    ensureTransferWindow(world);
+    processTransferWindowDay(world);
     saveGame(world, slot);
     enterMain();
   };
@@ -270,6 +291,8 @@ function migrateWorld(w) {
   ensureMedia(w);
   if (!Array.isArray(w.staffMarket)) refreshStaffMarket(w);
   ensureBoardObjective(w);
+  ensureTransferWindow(w);
+  if (w.board && w.board.sackWarnings == null) w.board.sackWarnings = 0;
   for (const c of w.clubs || []) {
     if (!c.division) {
       c.division = c.power >= 72 ? 1 : c.power >= 60 ? 2 : 3;
@@ -669,7 +692,8 @@ function renderTopbar() {
   $("#club-name").innerHTML = `<span class="kit-chip" style="${kitBadgeStyle(club)}" title="${kit.style}"></span> ${escapeHtml(club.name)}`;
   $("#manager-name").textContent = `${world.managerName} · ${div?.short || "乙级"}`;
   $("#season-label").textContent = `赛季 ${world.season}`;
-  $("#date-label").textContent = `第 ${world.day} 天`;
+  const tw = transferWindowShort(world);
+  $("#date-label").textContent = `第 ${world.day} 天 · ${tw}`;
   $("#money-label").textContent = formatMoney(club.money);
 }
 
@@ -750,6 +774,15 @@ function renderDashboard() {
     trainDash.textContent = trainingSummary(club).line + " · 在「训练」页调整";
   }
 
+  // 转会窗
+  ensureTransferWindow(world);
+  const twDash = document.querySelector("#transfer-window-dash");
+  if (twDash) {
+    const open = isTransferWindowOpen(world);
+    twDash.textContent = transferWindowLabel(world);
+    twDash.className = open ? "transfer-window-box open" : "transfer-window-box closed";
+  }
+
   // board objective
   const boardEl = document.querySelector("#board-box");
   if (boardEl) {
@@ -758,17 +791,20 @@ function renderDashboard() {
       boardEl.className = "board-box";
       boardEl.textContent = "\u2014";
     } else {
-      if (!b.settled) {
+      if (!b.settled && !b.sacked) {
         const bPlayed = row.played || 0;
         if (bPlayed < 6) b.status = "active";
-        else if (pos <= b.targetPos) b.status = "ok";
-        else if (pos <= b.targetPos + 2) b.status = "warn";
+        else if (pos <= b.targetPos) b.status = "met";
+        else if (pos <= b.targetPos + 2) b.status = "active";
         else b.status = "danger";
       }
       const tone = boardTone(b);
       boardEl.className = "board-box" + (tone ? " " + tone : "");
       const played = row.played || 0;
-      boardEl.textContent = boardStatusLine(b) + (b.settled ? "" : " (" + pos + "/" + b.targetPos + ", " + played + " games)");
+      const warn = !b.settled && (b.sackWarnings || 0) > 0 ? ` 警告${b.sackWarnings}/3` : "";
+      boardEl.textContent =
+        boardStatusLine(b) +
+        (b.settled || b.sacked ? "" : ` · 现第${pos}/目标${b.targetPos} · ${played}场${warn}`);
     }
   }
   $("#news-list").innerHTML = world.news
@@ -1235,11 +1271,20 @@ function renderStats() {
 }
 
 function renderTransfer() {
+  ensureTransferWindow(world);
+  const open = isTransferWindowOpen(world);
+  const statusEl = $("#transfer-window-status");
+  if (statusEl) {
+    statusEl.textContent = transferWindowLabel(world);
+    statusEl.className = open ? "transfer-window-box open" : "transfer-window-box closed";
+  }
+
   const pos = $("#filter-pos").value;
   const market = getMarketPlayers(world, pos);
   const mt = $("#market-table tbody");
   const userClub = getUserClub(world);
   ensureStaff(userClub);
+  const buyDisabled = !open || world.sacked;
   mt.innerHTML = market
     .map(({ player: p, club }) => {
       const valTxt = formatScoutValue(world, p);
@@ -1254,7 +1299,9 @@ function renderTransfer() {
         <td title="真实身价仅作参考区间">${valTxt}</td>
         <td>
           <button class="btn small" data-view="${p.id}">详情</button>
-          <button class="btn small primary" data-buy="${p.id}" data-from="${club.id}">买入</button>
+          <button class="btn small primary" data-buy="${p.id}" data-from="${club.id}" ${
+            buyDisabled ? "disabled" : ""
+          }>${open ? "买入" : "窗关"}</button>
         </td>
       </tr>`;
     })
@@ -1285,7 +1332,9 @@ function renderTransfer() {
       <td><span class="badge ${p.pos}">${POS_LABEL[p.pos]}</span></td>
       <td class="${ovrClass(p.ovr)}">${p.ovr}</td>
       <td>${formatMoney(p.value)}</td>
-      <td><button class="btn small danger" data-sell="${p.id}">出售</button></td>
+      <td><button class="btn small danger" data-sell="${p.id}" ${
+        buyDisabled ? "disabled" : ""
+      }>${open ? "出售" : "窗关"}</button></td>
     </tr>`
     )
     .join("");
@@ -1330,6 +1379,10 @@ function renderFixtures() {
 
 // ---------- Day / Match ----------
 function onAdvance() {
+  if (world.sacked) {
+    handleSacked({ sacked: true, msg: world.sackedReason || "你已被解雇" });
+    return;
+  }
   if (world.seasonOver || (world.fixtures.length && world.fixtures.every((f) => f.played))) {
     toast("赛季已结束，请进入下一赛季");
     return;
@@ -1339,24 +1392,35 @@ function onAdvance() {
     toast("今天有比赛，请先进入比赛！");
     return;
   }
-  const { userMatches } = advanceDay(world);
-  if (userMatches.length) {
+  const res = advanceDay(world);
+  if (handleSacked(res)) return;
+  const { userMatches } = res;
+  if (userMatches && userMatches.length) {
     pendingMatch = userMatches[0];
     const label = pendingMatch.roundLabel || `第 ${pendingMatch.round} 轮`;
     toast(`${label} · 比赛日到了！`);
   } else if (world.seasonOver) {
     toast("赛季结束！查看新闻中的退役与年龄变化");
+    if (world.sacked) handleSacked({ sacked: true, msg: world.sackedReason });
   }
   autosave("advance");
   refreshAll();
 }
 
 function onAdvanceToMatchday() {
+  if (world.sacked) {
+    handleSacked({ sacked: true, msg: world.sackedReason || "你已被解雇" });
+    return;
+  }
   if (world.seasonOver || (world.fixtures.length && world.fixtures.every((f) => f.played))) {
     toast("赛季已结束，请进入下一赛季");
     return;
   }
   const res = advanceToNextMatchDay(world);
+  if (world.sacked || res.sacked) {
+    handleSacked(res.sackedResult || { sacked: true, msg: world.sackedReason });
+    return;
+  }
   if (!res.ok && !res.days) {
     toast(res.msg || "无法推进");
     return;
@@ -1367,6 +1431,7 @@ function onAdvanceToMatchday() {
     toast(`推进 ${res.days} 天 · ${label}`);
   } else if (world.seasonOver) {
     toast(`推进 ${res.days} 天 · 赛季结束`);
+    if (world.sacked) handleSacked({ sacked: true, msg: world.sackedReason });
   } else {
     toast(res.msg || `推进 ${res.days} 天`);
   }
@@ -1376,6 +1441,10 @@ function onAdvanceToMatchday() {
 
 /** 推进到赛季末：遇我方比赛停下（无「连推 N 天」） */
 function onAdvanceToSeasonEnd() {
+  if (world.sacked) {
+    handleSacked({ sacked: true, msg: world.sackedReason || "你已被解雇" });
+    return;
+  }
   if (world.seasonOver || (world.fixtures.length && world.fixtures.every((f) => f.played))) {
     toast("赛季已结束，请进入下一赛季");
     return;
@@ -1388,6 +1457,10 @@ function onAdvanceToSeasonEnd() {
     return;
   }
   const res = advanceToSeasonEnd(world, { stopOnUserMatch: true });
+  if (world.sacked || res.sacked) {
+    handleSacked(res.sackedResult || { sacked: true, msg: world.sackedReason });
+    return;
+  }
   if (!res.ok && !res.days) {
     toast(res.msg || "无法推进");
     if (res.userMatches?.length) pendingMatch = res.userMatches[0];
@@ -1400,6 +1473,7 @@ function onAdvanceToSeasonEnd() {
     toast(`${res.msg || `推进 ${res.days} 天`} · ${label}`);
   } else if (world.seasonOver) {
     toast(res.msg || `推进 ${res.days} 天 · 赛季结束`);
+    if (world.sacked) handleSacked({ sacked: true, msg: world.sackedReason });
   } else {
     toast(res.msg || `推进 ${res.days} 天`);
   }

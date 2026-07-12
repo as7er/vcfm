@@ -457,6 +457,24 @@ tr:hover td { background: rgba(255, 255, 255, 0.02); }
 .board-box.done { border-color: #3d8bfd66; }
 .scout-range { color: #94a3b8; font-size: 0.85em; }
 
+.transfer-window-box {
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  font-size: 0.9rem;
+  line-height: 1.4;
+  margin-bottom: 0.35rem;
+}
+.transfer-window-box.open {
+  border-color: #3dd68c66;
+  color: #9aefc4;
+}
+.transfer-window-box.closed {
+  border-color: #f0717866;
+  color: #f0a8ac;
+}
+
 
 /* 球衣 / 号码 */
 .kit-num {

@@ -94,6 +94,9 @@ export function generateBoardObjective(userClub, allClubs, season) {
     status: "active",
     lastCheckDay: 0,
     settled: false,
+    /** 解雇警告 0–3，满 3 中途解雇 */
+    sackWarnings: 0,
+    sacked: false,
   };
 }
 
@@ -182,52 +185,119 @@ export function evaluateBoardProgress(world, sortedTableFn) {
   };
 }
 
-/** 赛季中施压/鼓励（约每 14 天） */
-export function checkBoardMidSeason(world, sortedTableFn) {
-  if (!world || world.seasonOver) return;
+/**
+ * 执行解雇：标记存档、新闻、士气崩盘。
+ * 返回 { sacked: true, msg } 供 UI 弹回菜单。
+ */
+export function sackManager(world, reason = "") {
   const board = ensureBoardObjective(world);
-  if (!board || board.settled) return;
+  const user = world.clubs?.find((c) => c.id === world.userClubId);
+  if (!user) return { sacked: false };
+
+  if (board) {
+    board.sacked = true;
+    board.status = "failed";
+  }
+  world.sacked = true;
+  world.sackedDay = world.day;
+  world.sackedReason = reason || "董事会对成绩失去耐心";
+
+  for (const p of user.players || []) {
+    p.morale = Math.max(20, (p.morale || 70) - 12);
+  }
+
+  world.news = world.news || [];
+  world.news.unshift({
+    day: world.day,
+    text: `🚨 解雇通告：${world.managerName || "经理"} 被 ${user.name} 董事会解除职务。${world.sackedReason}`,
+  });
+
+  return {
+    sacked: true,
+    msg: `你已被 ${user.name} 解雇。${world.sackedReason}`,
+    clubName: user.name,
+  };
+}
+
+/** 赛季中施压/鼓励（约每 14 天）；危险累计警告，满 3 解雇 */
+export function checkBoardMidSeason(world, sortedTableFn) {
+  if (!world || world.seasonOver || world.sacked) return null;
+  const board = ensureBoardObjective(world);
+  if (!board || board.settled || board.sacked) return null;
 
   const prog = evaluateBoardProgress(world, sortedTableFn);
-  if (!prog || prog.played < 8) return;
-  if (world.day - (board.lastCheckDay || 0) < 14) return;
+  if (!prog || prog.played < 8) return null;
+  if (world.day - (board.lastCheckDay || 0) < 14) return null;
 
   const prev = board._lastNewsStatus || "active";
   board.lastCheckDay = world.day;
   board._lastNewsStatus = prog.status;
+  if (board.sackWarnings == null) board.sackWarnings = 0;
 
   const user = world.clubs.find((c) => c.id === world.userClubId);
-  if (!user) return;
+  if (!user) return null;
 
-  if (prog.status === "danger" && prev !== "danger") {
-    world.news.unshift({
-      day: world.day,
-      text: `董事会施压：当前第 ${prog.pos}，目标「${board.label}」。继续下滑将面临罚款 ${formatMoney(board.fine)}。`,
-    });
-    for (const p of user.players || []) {
-      p.morale = Math.max(30, (p.morale || 70) - 2);
+  if (prog.status === "danger") {
+    // 持续危险就加警告；刚进入危险也加
+    board.sackWarnings = Math.min(3, (board.sackWarnings || 0) + 1);
+    const w = board.sackWarnings;
+    if (w >= 3) {
+      return sackManager(
+        world,
+        `联赛第 ${prog.pos}，远未达到「${board.label}」，董事会忍无可忍。`
+      );
     }
-  } else if (prog.status === "met" && prev === "danger") {
-    world.news.unshift({
-      day: world.day,
-      text: `董事会认可：排名回升至第 ${prog.pos}，目标「${board.label}」重回正轨。`,
-    });
+    if (w === 2) {
+      world.news.unshift({
+        day: world.day,
+        text: `⚠️ 最后警告：当前第 ${prog.pos}，目标「${board.label}」。再无起色将被解雇！（警告 ${w}/3）`,
+      });
+    } else {
+      world.news.unshift({
+        day: world.day,
+        text: `董事会施压：当前第 ${prog.pos}，目标「${board.label}」。警告 ${w}/3 · 未完成将罚 ${formatMoney(board.fine)}。`,
+      });
+    }
     for (const p of user.players || []) {
-      p.morale = Math.min(100, (p.morale || 70) + 1);
+      p.morale = Math.max(30, (p.morale || 70) - 2 - w);
+    }
+  } else if (prog.status === "met") {
+    if ((board.sackWarnings || 0) > 0) {
+      board.sackWarnings = Math.max(0, board.sackWarnings - 1);
+      world.news.unshift({
+        day: world.day,
+        text: `董事会认可：排名回升至第 ${prog.pos}，目标重回正轨。警告降至 ${board.sackWarnings}/3。`,
+      });
+      for (const p of user.players || []) {
+        p.morale = Math.min(100, (p.morale || 70) + 2);
+      }
+    } else if (prev === "danger") {
+      world.news.unshift({
+        day: world.day,
+        text: `董事会认可：排名回升至第 ${prog.pos}，目标「${board.label}」重回正轨。`,
+      });
+      for (const p of user.players || []) {
+        p.morale = Math.min(100, (p.morale || 70) + 1);
+      }
     }
   } else if (prog.status === "danger" && world.day % 28 < 3) {
     world.news.unshift({
       day: world.day,
-      text: `目标告急：仍在第 ${prog.pos}（目标前 ${board.targetPos}）。`,
+      text: `目标告急：仍在第 ${prog.pos}（目标前 ${board.targetPos}）· 警告 ${board.sackWarnings || 0}/3`,
     });
   }
+  return null;
 }
 
-/** 赛季末结算奖金/罚款（须在已知最终排名时调用） */
+/** 赛季末结算奖金/罚款；严重未完成可能解雇 */
 export function settleBoardObjective(world, finalPos, sortedTableFn) {
   const board = world?.board;
   if (!board || board.settled) return null;
   if (board.season != null && board.season !== world.season) return null;
+  if (world.sacked || board.sacked) {
+    board.settled = true;
+    return { ok: false, status: "failed", sacked: true };
+  }
 
   const user = world.clubs.find((c) => c.id === world.userClubId);
   if (!user) return null;
@@ -246,6 +316,7 @@ export function settleBoardObjective(world, finalPos, sortedTableFn) {
   const divName = DIVISIONS[board.division || user.division || 3]?.name || "";
   if (ok) {
     user.money += board.bonus;
+    board.sackWarnings = 0;
     world.news.unshift({
       day: world.day,
       text: `董事会目标完成！${divName}第 ${pos} 名 · 「${board.label}」。奖金 ${formatMoney(board.bonus)} 已到账。`,
@@ -264,7 +335,20 @@ export function settleBoardObjective(world, finalPos, sortedTableFn) {
   for (const p of user.players || []) {
     p.morale = Math.max(25, (p.morale || 70) - 5);
   }
-  return { ok: false, status: "failed", money: -board.fine };
+
+  // 赛季末解雇：警告≥2，或名次远差于目标（+5 名以上）
+  const warnings = board.sackWarnings || 0;
+  const farMiss = pos > board.targetPos + 5;
+  const shouldSack = warnings >= 2 || farMiss;
+  if (shouldSack) {
+    const sack = sackManager(
+      world,
+      `赛季结束${divName}第 ${pos}（目标前 ${board.targetPos}），董事会不再续约。`
+    );
+    return { ok: false, status: "failed", money: -board.fine, sacked: true, sack };
+  }
+
+  return { ok: false, status: "failed", money: -board.fine, sacked: false };
 }
 
 export function boardObjectiveLabel(board) {
@@ -274,11 +358,16 @@ export function boardObjectiveLabel(board) {
 /** UI 一行摘要 */
 export function boardStatusLine(board) {
   if (!board) return "—";
+  if (board.sacked) {
+    return `${board.label} · 已解雇`;
+  }
   if (board.settled) {
     const st = board.status === "success" || board.status === "achieved" ? "已完成" : "未完成";
     return `${board.label} · ${st}（赛季末第 ${board.finalPos ?? "—"}）`;
   }
-  return `${board.label} · ${boardStatusLabel(board.status)} · 奖 ${formatMoney(board.bonus)} / 罚 ${formatMoney(board.fine)}`;
+  const w = board.sackWarnings || 0;
+  const warn = w > 0 ? ` · 警告 ${w}/3` : "";
+  return `${board.label} · ${boardStatusLabel(board.status)}${warn} · 奖 ${formatMoney(board.bonus)} / 罚 ${formatMoney(board.fine)}`;
 }
 
 /** UI 样式：ok | warn | danger | "" */

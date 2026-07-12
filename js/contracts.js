@@ -1,6 +1,7 @@
 /** 球员职业合同：年限、续约、到期 */
 
 import { estimateWage, estimateValue, formatMoney, assignSquadNumbers } from "./models.js";
+import { assertTransferOpen } from "./transfers.js";
 
 export function ensureContract(p) {
   if (p.contractYears == null || p.contractYears < 0) {
@@ -156,6 +157,9 @@ export function releaseUnrenewed(world) {
 
 /** 签自由球员 */
 export function signFreeAgent(world, playerId) {
+  if (world.sacked) return { ok: false, msg: "你已被解雇，无法签约" };
+  const win = assertTransferOpen(world);
+  if (!win.ok) return win;
   const club = world.clubs.find((c) => c.id === world.userClubId);
   if (!club) return { ok: false, msg: "无球队" };
   if (!Array.isArray(world.freeAgents)) return { ok: false, msg: "无自由球员" };
