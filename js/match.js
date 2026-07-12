@@ -351,8 +351,11 @@ function addGoal(state, minute, club, xi, { penalty = false } = {}) {
   const assister = penalty ? null : pickAssister(xi, scorer);
   if (sk === "home") state.hg++;
   else state.ag++;
-  ensureStats(scorer).goals++;
-  if (assister) ensureStats(assister).assists++;
+  // 个人赛季数据只计联赛（数据榜 / 阵容赛季列）
+  if (!state.isCup) {
+    ensureStats(scorer).goals++;
+    if (assister) ensureStats(assister).assists++;
+  }
   const st = state.stats[sk];
   st.shots++;
   st.shotsOn++;
@@ -1046,8 +1049,11 @@ function applyMatchRatings(state) {
       r += (rng() - 0.5) * 0.45;
       r = clamp(Math.round(r * 10) / 10, 3.0, 10.0);
 
-      st.ratingSum = (st.ratingSum || 0) + r;
-      st.lastRating = r;
+      // 场均/最近评分只累计联赛；杯赛仅写入本场报告
+      if (!state.isCup) {
+        st.ratingSum = (st.ratingSum || 0) + r;
+        st.lastRating = r;
+      }
       list.push({
         playerId: p.id,
         name: p.name,
@@ -1088,27 +1094,29 @@ export function finalizeMatch(state) {
   if (state.finished) return state.report;
   const { world, fixture, home, away, isCup, hg, ag, events } = state;
 
-  // 出场统计（终场仍在名单或上过场的简化：当前 lineup + 有事件的）
-  const countApps = (club) => {
-    for (const p of getLineupPlayers(club)) {
-      ensureStats(p).apps++;
+  // 出场 / 零封 / 失球只计联赛（杯赛不进数据榜与赛季个人统计）
+  if (!isCup) {
+    const countApps = (club) => {
+      for (const p of getLineupPlayers(club)) {
+        ensureStats(p).apps++;
+      }
+    };
+    countApps(home);
+    countApps(away);
+
+    const homeGk = pickGk(getLineupPlayers(home));
+    const awayGk = pickGk(getLineupPlayers(away));
+    if (homeGk) {
+      ensureStats(homeGk).goalsConceded += ag;
+      if (ag === 0) ensureStats(homeGk).cleanSheets++;
     }
-  };
-  countApps(home);
-  countApps(away);
-
-  const homeGk = pickGk(getLineupPlayers(home));
-  const awayGk = pickGk(getLineupPlayers(away));
-  if (homeGk) {
-    ensureStats(homeGk).goalsConceded += ag;
-    if (ag === 0) ensureStats(homeGk).cleanSheets++;
-  }
-  if (awayGk) {
-    ensureStats(awayGk).goalsConceded += hg;
-    if (hg === 0) ensureStats(awayGk).cleanSheets++;
+    if (awayGk) {
+      ensureStats(awayGk).goalsConceded += hg;
+      if (hg === 0) ensureStats(awayGk).cleanSheets++;
+    }
   }
 
-  // 赛后评分（依赖事件中的进球/助攻/扑救/牌）
+  // 赛后评分（报告始终生成；ratingSum/lastRating 仅联赛写入）
   const ratings = applyMatchRatings(state);
   state.matchRatings = ratings;
 

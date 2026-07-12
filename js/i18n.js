@@ -110,7 +110,7 @@ const dict = {
     "squad.astTitle": "本赛季助攻",
     "squad.csTitle": "本赛季零封（门将）",
     "squad.gaTitle": "本赛季失球（门将）",
-    "squad.seasonHint": "本赛季数据：出场 / 进球（门将为零封）/ 助攻（门将为失球）/ 场均评分 / 最近评分",
+    "squad.seasonHint": "本赛季联赛数据：出场 / 进球（门将为零封）/ 助攻（门将为失球）/ 场均评分 / 最近评分（不含杯赛）",
     "squad.avgRTitle": "本赛季场均评分",
     "squad.lastRTitle": "最近一场评分",
     "th.num": "#",
@@ -249,7 +249,8 @@ const dict = {
     "stats.goals": "射手榜",
     "stats.assists": "助攻榜",
     "stats.ratings": "评分榜",
-    "stats.ratingsHint": "本级联赛 · 至少 3 场出场 · 场均评分",
+    "stats.leagueOnly": "仅统计本级联赛（不含杯赛）",
+    "stats.ratingsHint": "本级联赛 · 至少 3 场出场 · 场均评分 · 不含杯赛",
     "stats.keepers": "门将榜（零封 / 失球）",
 
     // transfer
@@ -440,7 +441,7 @@ const dict = {
     "squad.astTitle": "Season assists",
     "squad.csTitle": "Season clean sheets (GK)",
     "squad.gaTitle": "Season goals conceded (GK)",
-    "squad.seasonHint": "Season stats: Apps / Goals (CS for GK) / Assists (GA for GK) / Avg rating / Last",
+    "squad.seasonHint": "League season stats: Apps / Goals (CS for GK) / Assists (GA for GK) / Avg rating / Last (cup excluded)",
     "squad.avgRTitle": "Season average rating",
     "squad.lastRTitle": "Last match rating",
     "th.num": "#",
@@ -570,7 +571,8 @@ const dict = {
     "stats.goals": "Top scorers",
     "stats.assists": "Assists",
     "stats.ratings": "Ratings",
-    "stats.ratingsHint": "This division · min 3 apps · average rating",
+    "stats.leagueOnly": "League only (cup excluded)",
+    "stats.ratingsHint": "This division · min 3 apps · average rating · league only",
     "stats.keepers": "Goalkeepers (clean sheets / GA)",
 
     "tr.market": "Transfer market",
