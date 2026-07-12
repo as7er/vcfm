@@ -2289,6 +2289,7 @@ function openMatch() {
   setMatchScore(0, 0);
   setMatchMinute(0);
   setMatchLiveState("pre");
+  updateLiveStats(null);
   $("#match-log").innerHTML = "";
   // 赛前简报写入日志
   const brief = buildPreMatchBriefing(world, next, user);
@@ -2371,6 +2372,57 @@ function setMatchMinute(min) {
   if (el) el.textContent = `${min ?? 0}'`;
 }
 
+/**
+ * 更新计分板下 xG / 控球 / 射门
+ * @param {null | { home?: object, away?: object } | object} snapOrReport
+ *   可传 liveSnap、match report、或 { home: {xg,possession,shots,shotsOn}, away: ... }
+ */
+function updateLiveStats(snapOrReport) {
+  const empty = { xg: 0, possession: 50, shots: 0, shotsOn: 0 };
+  let h = empty;
+  let a = empty;
+  if (snapOrReport) {
+    // liveSnap 或 report 结构
+    if (snapOrReport.home && (snapOrReport.home.xg != null || snapOrReport.home.possession != null)) {
+      h = { ...empty, ...snapOrReport.home };
+      a = { ...empty, ...snapOrReport.away };
+    }
+  }
+  const set = (id, text) => {
+    const el = $(id);
+    if (el) el.textContent = text;
+  };
+  const fmtXg = (n) => (Number(n) || 0).toFixed(2);
+  set("#stat-xg-h", fmtXg(h.xg));
+  set("#stat-xg-a", fmtXg(a.xg));
+  set("#stat-poss-h", `${Math.round(h.possession ?? 50)}%`);
+  set("#stat-poss-a", `${Math.round(a.possession ?? 50)}%`);
+  set("#stat-shots-h", `${h.shots || 0} (${h.shotsOn || 0})`);
+  set("#stat-shots-a", `${a.shots || 0} (${a.shotsOn || 0})`);
+
+  const xgH = Number(h.xg) || 0;
+  const xgA = Number(a.xg) || 0;
+  const xgT = xgH + xgA || 1;
+  const shH = Number(h.shots) || 0;
+  const shA = Number(a.shots) || 0;
+  const shT = shH + shA || 1;
+  const possH = Math.round(h.possession ?? 50);
+
+  const bar = (id, pct) => {
+    const el = $(id);
+    if (el) el.style.width = `${clampPct(pct)}%`;
+  };
+  bar("#stat-xg-bar-h", (xgH / xgT) * 100);
+  bar("#stat-xg-bar-a", (xgA / xgT) * 100);
+  bar("#stat-sh-bar-h", (shH / shT) * 100);
+  bar("#stat-sh-bar-a", (shA / shT) * 100);
+  bar("#stat-poss-bar", possH);
+}
+
+function clampPct(n) {
+  return Math.max(4, Math.min(96, n));
+}
+
 /** @param {'pre'|'live'|'ht'|'ft'} state */
 function setMatchLiveState(state) {
   const live = document.querySelector(".fm-sb-live");
@@ -2441,6 +2493,7 @@ async function runMatch(mode) {
       }
       setMatchScore(result.homeGoals, result.awayGoals);
       setMatchMinute(90);
+      updateLiveStats(result.report || pendingMatch.matchReport);
       setMatchLiveState("ft");
       showMatchReport(result.report || pendingMatch.matchReport);
       finishMatchUI();
@@ -2455,6 +2508,7 @@ async function runMatch(mode) {
     matchState._liveMode = live;
     const spd = Math.max(1, matchSpeed);
     const onEvent = async (ev, snap) => {
+      if (snap?.home) updateLiveStats(snap);
       if (ev.type === "tick") {
         if (live) setMatchMinute(snap.minute);
         return;
@@ -2489,6 +2543,33 @@ async function runMatch(mode) {
       }
       setMatchScore(matchState.hg, matchState.ag);
       setMatchMinute(45);
+      // 中场时用 session 统计刷一次条
+      if (matchState.stats) {
+        updateLiveStats({
+          home: {
+            xg: Math.round(matchState.stats.home.xg * 100) / 100,
+            shots: matchState.stats.home.shots,
+            shotsOn: matchState.stats.home.shotsOn,
+            possession: (() => {
+              const ht = matchState.stats.home.possessionTicks;
+              const at = matchState.stats.away.possessionTicks;
+              const t = ht + at || 1;
+              return Math.round((ht / t) * 100);
+            })(),
+          },
+          away: {
+            xg: Math.round(matchState.stats.away.xg * 100) / 100,
+            shots: matchState.stats.away.shots,
+            shotsOn: matchState.stats.away.shotsOn,
+            possession: (() => {
+              const ht = matchState.stats.home.possessionTicks;
+              const at = matchState.stats.away.possessionTicks;
+              const t = ht + at || 1;
+              return 100 - Math.round((ht / t) * 100);
+            })(),
+          },
+        });
+      }
       const ctxEv = matchState.events.find((e) => e.type === "context");
       if (ctxEv) {
         const ctx = $("#match-context");
@@ -2657,6 +2738,7 @@ async function finishHalfTime(applyOrders) {
     // continueSecondHalf 内部会 applyUserHalfTime；此处先手动应用以更新 pitch
     const spd = Math.max(1, matchSpeed);
     const onEvent = async (ev, snap) => {
+      if (snap?.home) updateLiveStats(snap);
       if (ev.type === "tick") {
         if (live) setMatchMinute(snap.minute);
         return;
@@ -2691,6 +2773,7 @@ async function finishHalfTime(applyOrders) {
 
     setMatchScore(result.homeGoals, result.awayGoals);
     setMatchMinute(90);
+    updateLiveStats(result.report || matchState.report);
     setMatchLiveState("ft");
     showMatchReport(result.report || matchState.report);
     finishMatchUI();

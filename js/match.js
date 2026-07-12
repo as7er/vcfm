@@ -665,21 +665,15 @@ export async function simulateMinutes(state, fromMin, toMin, { onEvent } = {}) {
     }
 
     if (onEvent) {
-      // 只回调本分钟新增事件
+      // 只回调本分钟新增事件（带实时 xG/控球）
+      const snap = liveSnap(state, minute);
       const recent = state.events.filter((e) => e.minute === minute);
       for (const ev of recent) {
-        await onEvent(ev, {
-          homeGoals: state.hg,
-          awayGoals: state.ag,
-          minute,
-        });
+        await onEvent(ev, snap);
       }
       // 无事件也推进分钟显示
       if (!recent.length) {
-        await onEvent(
-          { minute, type: "tick", text: "" },
-          { homeGoals: state.hg, awayGoals: state.ag, minute }
-        );
+        await onEvent({ minute, type: "tick", text: "" }, snap);
       }
     }
   }
@@ -694,8 +688,9 @@ export async function playFirstHalf(state, opts = {}) {
   if (bigMatch) bits.push(isCup ? "🏆 焦点杯赛" : "⭐ 焦点战");
   pushEv(state, 0, "context", `情境：${bits.join(" · ")}`);
   if (opts.onEvent) {
+    const snap0 = liveSnap(state, 0);
     for (const ev of state.events) {
-      await opts.onEvent(ev, { homeGoals: 0, awayGoals: 0, minute: 0 });
+      await opts.onEvent(ev, snap0);
     }
   }
   state.phase = "h1";
@@ -703,11 +698,7 @@ export async function playFirstHalf(state, opts = {}) {
   pushEv(state, 45, "ht", `中场休息 ${home.name} ${state.hg} - ${state.ag} ${away.name}`);
   if (opts.onEvent) {
     const ht = state.events[state.events.length - 1];
-    await opts.onEvent(ht, {
-      homeGoals: state.hg,
-      awayGoals: state.ag,
-      minute: 45,
-    });
+    await opts.onEvent(ht, liveSnap(state, 45));
   }
   state.phase = "ht";
   return state;
@@ -823,11 +814,7 @@ export async function playSecondHalf(state, opts = {}) {
   );
   if (opts.onEvent) {
     const ft = state.events[state.events.length - 1];
-    await opts.onEvent(ft, {
-      homeGoals: state.hg,
-      awayGoals: state.ag,
-      minute: 90,
-    });
+    await opts.onEvent(ft, liveSnap(state, 90));
   }
   state.phase = "ft";
   return state;
@@ -839,6 +826,30 @@ function possessionPct(state) {
   const t = h + a || 1;
   const hp = Math.round((h / t) * 100);
   return { home: hp, away: 100 - hp };
+}
+
+/** 直播/回放用的实时数据快照（xG、控球、射门） */
+function liveSnap(state, minute) {
+  const poss = possessionPct(state);
+  const hs = state.stats.home;
+  const as = state.stats.away;
+  return {
+    homeGoals: state.hg,
+    awayGoals: state.ag,
+    minute: minute ?? state.minute ?? 0,
+    home: {
+      xg: Math.round(hs.xg * 100) / 100,
+      shots: hs.shots,
+      shotsOn: hs.shotsOn,
+      possession: poss.home,
+    },
+    away: {
+      xg: Math.round(as.xg * 100) / 100,
+      shots: as.shots,
+      shotsOn: as.shotsOn,
+      possession: poss.away,
+    },
+  };
 }
 
 function buildReport(state) {

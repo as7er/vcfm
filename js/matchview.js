@@ -70,6 +70,12 @@ export class MatchView {
     this.cam = { x: 0, y: 0, tx: 0, ty: 0, scale: 1, tScale: 1 };
     this.camBoostUntil = 0;
     this.trails = []; // active trail animations
+    this.heatLayer = null;
+    this.pressLayer = null;
+    this.heatCells = []; // {x,y,w,h,home,away,el}
+    this.heatTimer = 0;
+    this.shapeTimer = 0;
+    this.touchTimer = 0;
   }
 
   /**
@@ -115,6 +121,8 @@ export class MatchView {
             <path d="M 2.5 143.5 A 4 4 0 0 1 6.5 147.5" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="0.4"/>
             <path d="M 93.5 147.5 A 4 4 0 0 1 97.5 143.5" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="0.4"/>
           </svg>
+          <div class="mp-heat" id="mp-heat" aria-hidden="true"></div>
+          <svg class="mp-press" id="mp-press" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
           <svg class="mp-trails" id="mp-trails" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
           <div class="mp-actors" id="mp-actors"></div>
           <div class="mp-fx" id="mp-fx"></div>
@@ -136,11 +144,14 @@ export class MatchView {
     const actors = wrap.querySelector("#mp-actors");
     this.fxLayer = wrap.querySelector("#mp-fx");
     this.trailSvg = wrap.querySelector("#mp-trails");
+    this.heatLayer = wrap.querySelector("#mp-heat");
+    this.pressLayer = wrap.querySelector("#mp-press");
     this.bannerEl = wrap.querySelector("#mp-banner");
     this.tipEl = wrap.querySelector("#mp-tip");
     this.cardEl = wrap.querySelector("#mp-card");
     const legH = wrap.querySelector("#mp-leg-home");
     const legA = wrap.querySelector("#mp-leg-away");
+    this._initHeatGrid();
 
     // 点空白关闭卡片
     this.fieldEl.addEventListener("click", (e) => {
@@ -260,8 +271,152 @@ export class MatchView {
         num,
         name,
         pos: p?.pos || slot.pos,
+        touchUntil: 0,
+        heatAcc: 0,
       });
       this._applyPlayer(this.players[this.players.length - 1]);
+    }
+  }
+
+  /** 6×8 热区网格（半透明叠层） */
+  _initHeatGrid() {
+    this.heatCells = [];
+    if (!this.heatLayer) return;
+    this.heatLayer.innerHTML = "";
+    const cols = 6;
+    const rows = 8;
+    const w = 100 / cols;
+    const h = 100 / rows;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const el = document.createElement("div");
+        el.className = "mp-heat-cell";
+        el.style.left = `${c * w}%`;
+        el.style.top = `${r * h}%`;
+        el.style.width = `${w}%`;
+        el.style.height = `${h}%`;
+        this.heatLayer.appendChild(el);
+        this.heatCells.push({ x: c * w, y: r * h, w, h, home: 0, away: 0, el });
+      }
+    }
+  }
+
+  _markHeat(x, y, team, amount = 1) {
+    if (!this.heatCells.length) return;
+    for (const cell of this.heatCells) {
+      if (x >= cell.x && x < cell.x + cell.w && y >= cell.y && y < cell.y + cell.h) {
+        if (team === "home") cell.home += amount;
+        else cell.away += amount;
+        break;
+      }
+    }
+  }
+
+  _refreshHeatVisual() {
+    let max = 0.01;
+    for (const c of this.heatCells) max = Math.max(max, c.home, c.away);
+    for (const c of this.heatCells) {
+      const h = c.home / max;
+      const a = c.away / max;
+      if (h < 0.08 && a < 0.08) {
+        c.el.style.background = "transparent";
+        continue;
+      }
+      // 主队偏蓝、客队偏红，重叠处偏紫
+      const hr = Math.round(61 * h);
+      const hg = Math.round(139 * h);
+      const hb = Math.round(253 * h);
+      const ar = Math.round(248 * a);
+      const ag = Math.round(113 * a);
+      const ab = Math.round(113 * a);
+      const alpha = clamp(Math.max(h, a) * 0.42, 0.04, 0.38);
+      if (h >= a) {
+        c.el.style.background = `rgba(${hr},${hg},${hb},${alpha})`;
+      } else {
+        c.el.style.background = `rgba(${ar},${ag},${ab},${alpha})`;
+      }
+    }
+  }
+
+  /** 持球触球高亮 */
+  _setTouch(pl, ms = 700) {
+    if (!pl) return;
+    pl.touchUntil = performance.now() + ms;
+    pl.el.classList.add("has-ball");
+    this._markHeat(pl.x, pl.y, pl.team, 1.2);
+  }
+
+  _updateTouchClasses(ts) {
+    for (const pl of this.players) {
+      const on = pl.touchUntil > ts;
+      pl.el.classList.toggle("has-ball", on);
+    }
+  }
+
+  /** 压迫线 / 防线：SVG 横线随队形上下移动 */
+  _updatePressLines() {
+    if (!this.pressLayer) return;
+    const homeOut = this.players.filter(
+      (p) => p.team === "home" && p.pos !== "GK" && !p.el.classList.contains("sent-off")
+    );
+    const awayOut = this.players.filter(
+      (p) => p.team === "away" && p.pos !== "GK" && !p.el.classList.contains("sent-off")
+    );
+    const avgY = (list) =>
+      list.length ? list.reduce((s, p) => s + p.y, 0) / list.length : 50;
+    const homeDefs = homeOut.filter((p) => p.pos === "DEF");
+    const awayDefs = awayOut.filter((p) => p.pos === "DEF");
+    const hy = avgY(homeOut);
+    const ay = avgY(awayOut);
+    const hDefY = avgY(homeDefs.length ? homeDefs : homeOut);
+    const aDefY = avgY(awayDefs.length ? awayDefs : awayOut);
+
+    // 持球方压迫线更靠前、更亮
+    const homePress = this.possession === "home";
+    this.pressLayer.innerHTML = `
+      <line class="mp-press-line home ${homePress ? "active" : ""}" x1="6" y1="${hy.toFixed(1)}" x2="94" y2="${hy.toFixed(1)}" />
+      <line class="mp-def-line home" x1="10" y1="${hDefY.toFixed(1)}" x2="90" y2="${hDefY.toFixed(1)}" />
+      <line class="mp-press-line away ${!homePress ? "active" : ""}" x1="6" y1="${ay.toFixed(1)}" x2="94" y2="${ay.toFixed(1)}" />
+      <line class="mp-def-line away" x1="10" y1="${aDefY.toFixed(1)}" x2="90" y2="${aDefY.toFixed(1)}" />
+    `;
+  }
+
+  /**
+   * 阵型游走：持球方前压，无球方收缩；中场三角轻微联动
+   */
+  _shapeDrift() {
+    if (this.phase === "pause" || this.phase === "goal") return;
+    const dirHome = this.possession === "home" ? -1 : 0.35;
+    const dirAway = this.possession === "away" ? 1 : -0.35;
+    for (const pl of this.players) {
+      if (pl.el.classList.contains("sent-off")) continue;
+      const dir = pl.team === "home" ? dirHome : dirAway;
+      let spread = 5;
+      let push = 3;
+      if (pl.pos === "GK") {
+        spread = 1.5;
+        push = 0.5;
+      } else if (pl.pos === "DEF") {
+        spread = 3.5;
+        push = 2.2;
+      } else if (pl.pos === "MID") {
+        spread = 6;
+        push = 4;
+      } else {
+        spread = 7;
+        push = 5.5;
+      }
+      // 持球方前场更散、无球方内收
+      const hasBall = pl.team === this.possession;
+      if (!hasBall) {
+        spread *= 0.7;
+        push *= 0.55;
+        // 向中路收缩
+        pl.tx = clamp(pl.baseX * 0.55 + 50 * 0.45 + (Math.random() - 0.5) * spread, 6, 94);
+      } else {
+        pl.tx = clamp(pl.baseX + (Math.random() - 0.5) * spread, 6, 94);
+      }
+      pl.ty = clamp(pl.baseY + dir * push + (Math.random() - 0.5) * (spread * 0.5), 5, 95);
     }
   }
 
@@ -447,17 +602,43 @@ export class MatchView {
     if (this.phase === "idle" || this.phase === "play") {
       this.passTimer -= dt;
       if (this.passTimer <= 0) {
-        this.passTimer = 1.2 + Math.random() * 1.8;
+        this.passTimer = 0.75 + Math.random() * 1.1;
         this._idlePass();
       }
+      // 阵型游走：持球前压 / 无球收缩
+      this.shapeTimer -= dt;
+      if (this.shapeTimer <= 0) {
+        this.shapeTimer = 1.6 + Math.random() * 1.4;
+        this._shapeDrift();
+      }
       for (const pl of this.players) {
-        if (this.phase === "idle" && Math.random() < 0.008) {
-          pl.tx = clamp(pl.baseX + (Math.random() - 0.5) * 8, 5, 95);
-          pl.ty = clamp(pl.baseY + (Math.random() - 0.5) * 6, 5, 95);
+        // 更频繁的微步移动
+        if (Math.random() < (this.phase === "play" ? 0.035 : 0.02)) {
+          const hasBall = pl.team === this.possession;
+          const jx = hasBall ? 5 : 3;
+          const jy = hasBall ? 4 : 2.5;
+          pl.tx = clamp(pl.tx + (Math.random() - 0.5) * jx, 5, 95);
+          pl.ty = clamp(pl.ty + (Math.random() - 0.5) * jy, 5, 95);
         }
-        pl.x = lerp(pl.x, pl.tx, 1 - Math.pow(0.02, dt));
-        pl.y = lerp(pl.y, pl.ty, 1 - Math.pow(0.02, dt));
+        // 无球方靠近持球人压迫
+        if (
+          pl.team !== this.possession &&
+          pl.pos !== "GK" &&
+          !pl.el.classList.contains("sent-off") &&
+          Math.random() < 0.012
+        ) {
+          pl.tx = clamp(pl.tx * 0.7 + this.ball.tx * 0.3, 6, 94);
+          pl.ty = clamp(pl.ty * 0.7 + this.ball.ty * 0.3, 6, 94);
+        }
+        pl.x = lerp(pl.x, pl.tx, 1 - Math.pow(0.015, dt));
+        pl.y = lerp(pl.y, pl.ty, 1 - Math.pow(0.015, dt));
         this._applyPlayer(pl);
+        // 持续采样热区
+        pl.heatAcc = (pl.heatAcc || 0) + dt;
+        if (pl.heatAcc > 0.45) {
+          pl.heatAcc = 0;
+          this._markHeat(pl.x, pl.y, pl.team, 0.35);
+        }
       }
     } else {
       for (const pl of this.players) {
@@ -470,6 +651,8 @@ export class MatchView {
     this.ball.x = lerp(this.ball.x, this.ball.tx, 1 - Math.pow(0.0008, dt));
     this.ball.y = lerp(this.ball.y, this.ball.ty, 1 - Math.pow(0.0008, dt));
     this._applyBall();
+    // 球附近采样热区
+    this._markHeat(this.ball.x, this.ball.y, this.possession, 0.08 * (dt * 60));
 
     this._updateCameraTarget();
     this.cam.x = lerp(this.cam.x, this.cam.tx, 1 - Math.pow(0.05, dt));
@@ -478,6 +661,14 @@ export class MatchView {
     this._applyCamera();
 
     this._updateTrails(dt);
+    this._updateTouchClasses(ts);
+
+    this.heatTimer -= dt;
+    if (this.heatTimer <= 0) {
+      this.heatTimer = 0.5;
+      this._refreshHeatVisual();
+      this._updatePressLines();
+    }
 
     if (this.highlightId && ts > this.flashUntil) {
       this._clearHighlight();
@@ -487,28 +678,77 @@ export class MatchView {
   _idlePass() {
     if (this.phase === "pause") return;
     const side = this.possession;
-    const pool = this.players.filter((p) => p.team === side && p.pos !== "GK" && !p.el.classList.contains("sent-off"));
+    const pool = this.players.filter(
+      (p) => p.team === side && p.pos !== "GK" && !p.el.classList.contains("sent-off")
+    );
     if (pool.length < 2) return;
-    const a = pool[Math.floor(Math.random() * pool.length)];
-    let b = pool[Math.floor(Math.random() * pool.length)];
-    if (b === a) b = pool[(pool.indexOf(a) + 1) % pool.length];
-    a.tx = clamp(a.baseX + (Math.random() - 0.5) * 4, 6, 94);
-    a.ty = clamp(a.baseY + (this.possession === "home" ? -2 : 2) + (Math.random() - 0.5) * 3, 6, 94);
+    // 优先靠近球的球员接应
+    pool.sort(
+      (a, b) =>
+        Math.hypot(a.x - this.ball.x, a.y - this.ball.y) -
+        Math.hypot(b.x - this.ball.x, b.y - this.ball.y)
+    );
+    const a = pool[Math.floor(Math.random() * Math.min(4, pool.length))];
+    // 三角传球：选另一名同队较近的
+    const others = pool.filter((p) => p !== a);
+    others.sort(
+      (p, q) => Math.hypot(p.x - a.x, p.y - a.y) - Math.hypot(q.x - a.x, q.y - a.y)
+    );
+    const b = others[Math.floor(Math.random() * Math.min(3, others.length))] || others[0];
+    if (!b) return;
+
+    const push = this.possession === "home" ? -1 : 1;
+    a.tx = clamp(a.baseX + (Math.random() - 0.5) * 5, 6, 94);
+    a.ty = clamp(a.baseY + push * 2.5 + (Math.random() - 0.5) * 3, 6, 94);
+    this._setTouch(a, 500);
+
+    // 无球方 1–2 人上抢
+    const pressers = this.players.filter(
+      (p) =>
+        p.team !== side &&
+        p.pos !== "GK" &&
+        !p.el.classList.contains("sent-off")
+    );
+    for (const pr of pressers.slice(0, 2)) {
+      if (Math.random() < 0.55) {
+        pr.tx = clamp(a.x + (Math.random() - 0.5) * 8, 6, 94);
+        pr.ty = clamp(a.y + (Math.random() - 0.5) * 6, 6, 94);
+      }
+    }
+
     const from = { x: this.ball.x, y: this.ball.y };
     this.ball.tx = a.x;
     this.ball.ty = a.y;
-    this._addTrail(from.x, from.y, a.x, a.y, "pass", 0.35);
+    this._addTrail(from.x, from.y, a.x, a.y, "pass", 0.32);
+    this._markHeat(a.x, a.y, side, 0.8);
+
     setTimeout(() => {
       if (!this._built) return;
       const fx = this.ball.x;
       const fy = this.ball.y;
-      this.ball.tx = b.x + (Math.random() - 0.5) * 3;
-      this.ball.ty = b.y + (Math.random() - 0.5) * 3;
-      this._addTrail(fx, fy, this.ball.tx, this.ball.ty, "pass", 0.4);
-      b.tx = clamp(b.baseX + (Math.random() - 0.5) * 5, 6, 94);
-      b.ty = clamp(b.baseY + (this.possession === "home" ? -3 : 3), 6, 94);
-    }, 280);
-    if (Math.random() < 0.22) {
+      this.ball.tx = b.x + (Math.random() - 0.5) * 2.5;
+      this.ball.ty = b.y + (Math.random() - 0.5) * 2.5;
+      this._addTrail(fx, fy, this.ball.tx, this.ball.ty, "pass", 0.38);
+      this._setTouch(b, 650);
+      this._markHeat(b.x, b.y, side, 1);
+      b.tx = clamp(b.baseX + (Math.random() - 0.5) * 6, 6, 94);
+      b.ty = clamp(b.baseY + push * 3.5, 6, 94);
+      // 偶发一脚转移给第三名
+      if (Math.random() < 0.28 && others.length > 1) {
+        const c = others[Math.min(others.length - 1, 1 + Math.floor(Math.random() * 2))];
+        setTimeout(() => {
+          if (!this._built || !c) return;
+          const fx2 = this.ball.x;
+          const fy2 = this.ball.y;
+          this.ball.tx = c.x;
+          this.ball.ty = c.y;
+          this._addTrail(fx2, fy2, c.x, c.y, "pass", 0.35);
+          this._setTouch(c, 600);
+        }, 260);
+      }
+    }, 240);
+
+    if (Math.random() < 0.2) {
       this.possession = this.possession === "home" ? "away" : "home";
     }
   }
@@ -624,11 +864,14 @@ export class MatchView {
           scorer.el.classList.add("highlight", "scorer");
           this.highlightId = scorer.id;
           this.flashUntil = performance.now() + 2200;
+          this._setTouch(scorer, 1800);
           // 从射手位置起脚
           this.ball.x = scorer.x;
           this.ball.y = scorer.y;
+          this._markHeat(scorer.x, scorer.y, scorer.team, 3);
         }
         this._shootBall(gx, gy, "goal");
+        this._markHeat(gx, gy, attHome ? "home" : "away", 4);
         for (const pl of this.players.filter(
           (p) => p.team === (attHome ? "home" : "away") && p.id !== ev.playerId
         )) {
@@ -638,6 +881,7 @@ export class MatchView {
           }
         }
         this._burst(gx, gy, "goal");
+        this._refreshHeatVisual();
         this.setBanner(`⚽ ${snap.homeGoals} - ${snap.awayGoals}`, "goal");
         setTimeout(() => {
           this.phase = "play";
@@ -657,8 +901,14 @@ export class MatchView {
         const tx = 40 + Math.random() * 20;
         const ty = attHome ? 10 + Math.random() * 12 : 78 + Math.random() * 12;
         this._pushAttack(attHome ? "home" : "away");
+        const shooter = this.players
+          .filter((p) => p.team === (attHome ? "home" : "away") && p.pos === "ATT")
+          .sort(() => Math.random() - 0.5)[0];
+        if (shooter) this._setTouch(shooter, 900);
         this._shootBall(tx, ty, ev.type === "woodwork" ? "wood" : "shot");
+        this._markHeat(tx, ty, attHome ? "home" : "away", 2.5);
         if (ev.type === "woodwork") this._burst(tx, ty, "wood");
+        this._refreshHeatVisual();
         break;
       }
 
@@ -676,8 +926,11 @@ export class MatchView {
           gk.el.classList.add("highlight");
           this.highlightId = gk.id;
           this.flashUntil = performance.now() + 1000;
+          this._setTouch(gk, 800);
         }
+        this._markHeat(tx, ty, saveHome ? "home" : "away", 2);
         this._burst(tx, ty, "save");
+        this._refreshHeatVisual();
         break;
       }
 
