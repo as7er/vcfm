@@ -2198,14 +2198,32 @@ html[data-theme="light"] .slot-delete {
 /* ===== 日间模式补丁：表单/进度条/弹层/提示 ===== */
 html[data-theme="light"] .btn {
   background: #ffffff;
+  color: var(--text);
   box-shadow: 0 1px 2px rgba(30, 50, 90, 0.06);
 }
 html[data-theme="light"] .btn:hover:not(:disabled) {
   background: #f8fafc;
 }
+/* primary 必须覆盖上面的白底，否则变成「白底白字」看不见 */
 html[data-theme="light"] .btn.primary {
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.25);
+  background: var(--primary) !important;
+  border-color: var(--primary) !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.28);
+}
+html[data-theme="light"] .btn.primary:hover:not(:disabled) {
+  background: var(--primary-hover) !important;
+  border-color: var(--primary-hover) !important;
+  color: #ffffff !important;
+}
+html[data-theme="light"] .btn.danger {
+  background: #ffffff;
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 45%, var(--border));
+}
+html[data-theme="light"] .btn.ghost {
+  background: transparent;
+  box-shadow: none;
 }
 html[data-theme="light"] .topbar {
   background: rgba(255, 255, 255, 0.92);
