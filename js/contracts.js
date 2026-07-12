@@ -1,6 +1,6 @@
 /** 球员职业合同：年限、续约、到期 */
 
-import { estimateWage, estimateValue, formatMoney } from "./models.js";
+import { estimateWage, estimateValue, formatMoney, assignSquadNumbers } from "./models.js";
 
 export function ensureContract(p) {
   if (p.contractYears == null || p.contractYears < 0) {
@@ -175,7 +175,9 @@ export function signFreeAgent(world, playerId) {
   p.wage = offer.newWage;
   p._needsRenew = false;
   p.morale = Math.min(100, (p.morale || 60) + 8);
+  p.number = null;
   club.players.push(p);
+  assignSquadNumbers(club);
   return {
     ok: true,
     msg: `免费签下 ${p.name}，合同 ${offer.years} 年，周薪 ${formatMoney(offer.newWage)}`,

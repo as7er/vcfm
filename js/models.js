@@ -259,6 +259,8 @@ export function createPlayer(pos, power = 65, clubId = null, opts = {}) {
     intl: { caps: 0, goals: 0, assists: 0, cleanSheets: 0, goalsConceded: 0 },
     // 个人荣誉
     honors: [],
+    // 球衣号（入队时由 assignSquadNumbers 分配）
+    number: null,
   };
   p.ovr = playerOverall(p);
   // 潜力：青年略高于当前，成年接近当前
@@ -328,7 +330,163 @@ export function fillYouthSquad(club, count = null) {
   while (ya.players.length < target) {
     ya.players.push(createYouthPlayer(club));
   }
+  assignSquadNumbers(club);
   return ya.players;
+}
+
+
+/** 球衣样式：solid / stripes / hoops / halves / sash */
+export const KIT_STYLES = ["solid", "stripes", "hoops", "halves", "sash"];
+
+function hashStr(s) {
+  let h = 0;
+  const str = String(s || "");
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+function contrastText(hex) {
+  if (!hex || typeof hex !== "string") return "#fff";
+  const h = hex.replace("#", "");
+  if (h.length < 6) return "#fff";
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return lum > 0.62 ? "#0f172a" : "#ffffff";
+}
+
+function shiftHex(hex, delta) {
+  if (!hex || typeof hex !== "string") return "#64748b";
+  const h = hex.replace("#", "");
+  if (h.length < 6) return hex;
+  const clamp255 = (n) => Math.max(0, Math.min(255, n));
+  const r = clamp255(parseInt(h.slice(0, 2), 16) + delta);
+  const g = clamp255(parseInt(h.slice(2, 4), 16) + delta);
+  const b = clamp255(parseInt(h.slice(4, 6), 16) + delta);
+  return (
+    "#" +
+    [r, g, b]
+      .map((x) => x.toString(16).padStart(2, "0"))
+      .join("")
+  );
+}
+
+/** 为俱乐部生成/补齐球衣配置 */
+export function ensureKit(club) {
+  if (!club) return null;
+  if (club.kit && club.kit.primary && club.kit.style) {
+    if (!club.kit.numberColor) club.kit.numberColor = contrastText(club.kit.primary);
+    return club.kit;
+  }
+  const primary = club.color || "#3d8bfd";
+  const h = hashStr(club.id || club.name || "club");
+  const style = KIT_STYLES[h % KIT_STYLES.length];
+  const secondary =
+    style === "solid" ? shiftHex(primary, 40) : shiftHex(primary, h % 2 === 0 ? -55 : 70);
+  club.kit = {
+    style,
+    primary,
+    secondary,
+    numberColor: contrastText(primary),
+  };
+  return club.kit;
+}
+
+/** CSS background for kit preview */
+export function kitBackground(kit) {
+  if (!kit) return "#3d8bfd";
+  const a = kit.primary || "#3d8bfd";
+  const b = kit.secondary || "#1e293b";
+  switch (kit.style) {
+    case "stripes":
+      return `repeating-linear-gradient(90deg, ${a} 0 6px, ${b} 6px 12px)`;
+    case "hoops":
+      return `repeating-linear-gradient(0deg, ${a} 0 6px, ${b} 6px 12px)`;
+    case "halves":
+      return `linear-gradient(90deg, ${a} 50%, ${b} 50%)`;
+    case "sash":
+      return `linear-gradient(135deg, ${a} 40%, ${b} 40%, ${b} 55%, ${a} 55%)`;
+    default:
+      return a;
+  }
+}
+
+/** 位置默认号段偏好 */
+function preferredNumbers(pos) {
+  if (pos === "GK") return [1, 13, 23, 25, 31];
+  if (pos === "DEF") return [2, 3, 4, 5, 6, 12, 14, 15, 16, 22, 24, 26, 32];
+  if (pos === "MID") return [6, 7, 8, 10, 11, 14, 16, 17, 18, 20, 21, 28, 30];
+  return [7, 9, 10, 11, 14, 17, 18, 19, 21, 27, 29, 33, 99];
+}
+
+/** 给俱乐部全员分配不重复球衣号（缺号才补） */
+export function assignSquadNumbers(club) {
+  if (!club || !Array.isArray(club.players)) return;
+  ensureKit(club);
+  const used = new Set();
+  for (const p of club.players) {
+    if (p.number != null && p.number >= 1 && p.number <= 99) used.add(p.number);
+  }
+  // 已有号的不动；缺号按能力优先占号
+  const need = club.players
+    .filter((p) => p.number == null || p.number < 1 || p.number > 99)
+    .sort((a, b) => (b.ovr || 0) - (a.ovr || 0));
+
+  for (const p of need) {
+    let num = null;
+    for (const cand of preferredNumbers(p.pos)) {
+      if (!used.has(cand)) {
+        num = cand;
+        break;
+      }
+    }
+    if (num == null) {
+      for (let n = 1; n <= 99; n++) {
+        if (!used.has(n)) {
+          num = n;
+          break;
+        }
+      }
+    }
+    p.number = num || 99;
+    used.add(p.number);
+  }
+  // 青训也补号（可与一线重复显示，但尽量不重复本队）
+  const ya = club.youth?.players;
+  if (Array.isArray(ya)) {
+    for (const p of ya) {
+      if (p.number != null && p.number >= 1 && p.number <= 99) continue;
+      let num = null;
+      for (const cand of preferredNumbers(p.pos)) {
+        if (!used.has(cand)) {
+          num = cand;
+          break;
+        }
+      }
+      if (num == null) {
+        for (let n = 40; n <= 99; n++) {
+          if (!used.has(n)) {
+            num = n;
+            break;
+          }
+        }
+      }
+      p.number = num || (40 + Math.floor(Math.random() * 50));
+      used.add(p.number);
+    }
+  }
+}
+
+export function ensurePlayerNumber(club, player) {
+  if (!player) return null;
+  if (player.number != null && player.number >= 1 && player.number <= 99) return player.number;
+  if (club) assignSquadNumbers(club);
+  if (player.number != null) return player.number;
+  // 无俱乐部上下文：按位置给个默认
+  const prefs = preferredNumbers(player.pos);
+  player.number = prefs[0] || 99;
+  return player.number;
 }
 
 const SQUAD_SHAPE = [
@@ -370,8 +528,11 @@ export function createClub(template) {
       daysSinceIntake: rand(0, 20),
     },
     staff: null, // create 后填充，避免循环依赖 staff.js
+    kit: null,
   };
+  ensureKit(club);
   fillYouthSquad(club);
+  assignSquadNumbers(club);
   // staff 在 createWorld / 读档时 ensureStaff
   return club;
 }

@@ -23,6 +23,9 @@ import {
   clubsInDivision,
   createPlayer,
   DIVISIONS,
+  ensureKit,
+  assignSquadNumbers,
+  ensurePlayerNumber,
 } from "./models.js";
 import { STYLE_MOD, FORMATIONS, POS_LABEL } from "./data.js";
 import {
@@ -527,6 +530,7 @@ function processYouthDay(world) {
         ya.players.push(kid);
         newcomers.push(kid);
       }
+      if (newcomers.length) assignSquadNumbers(club);
       if (club.id === world.userClubId && newcomers.length) {
         const names = newcomers.map((p) => p.name).join("、");
         world.news.unshift({
@@ -573,7 +577,10 @@ export function promoteYouth(world, clubId, playerId, { silent = false } = {}) {
   player.wage = estimateWage(player);
   player.value = estimateValue(player);
   ensurePlayerHistory(player);
+  // 换队后清旧号再分配，避免撞号
+  player.number = null;
   club.players.push(player);
+  assignSquadNumbers(club);
   autoLineup(club);
 
   if (!silent && clubId === world.userClubId) {
@@ -1133,7 +1140,9 @@ function transferBetween(world, buyer, seller, player) {
   seller.players.splice(idx, 1);
   player.clubId = buyer.id;
   player.morale = Math.min(100, (player.morale || 70) + 5);
+  player.number = null;
   buyer.players.push(player);
+  assignSquadNumbers(buyer);
   autoLineup(buyer);
   autoLineup(seller);
   return { ok: true, price, player };
@@ -1277,7 +1286,9 @@ export function buyPlayer(world, playerId, fromClubId) {
   from.players.splice(idx, 1);
   player.clubId = user.id;
   player.morale = Math.min(100, player.morale + 8);
+  player.number = null; // 新队重新占号
   user.players.push(player);
+  assignSquadNumbers(user);
   autoLineup(from);
   autoLineup(user);
 
@@ -1313,8 +1324,10 @@ export function sellPlayer(world, playerId) {
   user.players.splice(idx, 1);
   user.money += price;
   player.clubId = buyer.id;
+  player.number = null;
   buyer.players.push(player);
   buyer.money = Math.max(0, buyer.money - price);
+  assignSquadNumbers(buyer);
   autoLineup(user);
   autoLineup(buyer);
 

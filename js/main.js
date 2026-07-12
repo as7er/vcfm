@@ -30,6 +30,10 @@ import {
   emptyMatchStats,
   YOUTH_LEVELS,
   YOUTH_UPGRADE_COST,
+  ensureKit,
+  assignSquadNumbers,
+  kitBackground,
+  ensurePlayerNumber,
 } from "./models.js";
 import {
   advanceDay,
@@ -80,6 +84,23 @@ function autosave(msg) {
   const ok = saveGame(world);
   if (!ok) console.warn("autosave failed", msg || "");
   return ok;
+}
+
+
+/** 球衣号码徽章的 inline style */
+function kitBadgeStyle(club) {
+  const kit = ensureKit(club);
+  const bg = kitBackground(kit);
+  const color = kit.numberColor || "#fff";
+  return `background:${bg};color:${color};border-color:${kit.primary || "#fff"}`;
+}
+
+function renderKitShirt(club, number, size = 48) {
+  const kit = ensureKit(club);
+  const bg = kitBackground(kit);
+  const color = kit.numberColor || "#fff";
+  const n = number != null ? number : "—";
+  return `<span class="kit-shirt" style="width:${size}px;height:${Math.round(size * 1.15)}px;background:${bg};color:${color};border-color:${kit.primary || "#334155"}"><span class="kit-shirt-num">${n}</span></span>`;
 }
 
 // ---------- DOM ----------
@@ -194,6 +215,8 @@ function migrateWorld(w) {
     }
     ensureStaff(c);
     ensureYouthAcademy(c);
+    ensureKit(c);
+    assignSquadNumbers(c);
     if (!c.youth.players.length) fillYouthSquad(c);
     for (const p of c.players || []) {
       if (p.potential == null) p.potential = Math.min(20, (p.ovr || 10) + 1);
@@ -477,7 +500,8 @@ function careerStats(p) {
 function renderTopbar() {
   const club = getUserClub(world);
   const div = DIVISIONS[club.division || 3];
-  $("#club-name").textContent = club.name;
+  const kit = ensureKit(club);
+  $("#club-name").innerHTML = `<span class="kit-chip" style="${kitBadgeStyle(club)}" title="${kit.style}"></span> ${escapeHtml(club.name)}`;
   $("#manager-name").textContent = `${world.managerName} · ${div?.short || "乙级"}`;
   $("#season-label").textContent = `赛季 ${world.season}`;
   $("#date-label").textContent = `第 ${world.day} 天`;
@@ -600,7 +624,9 @@ function renderSquad() {
         p.pos === "GK"
           ? `零封 ${s.cleanSheets} · 失球 ${s.goalsConceded}`
           : `进球 ${s.goals} · 助攻 ${s.assists}`;
+      const num = p.number != null ? p.number : "—";
       return `<tr class="${xi.has(p.id) ? "me" : ""}">
+        <td class="num-cell"><span class="kit-num" style="${kitBadgeStyle(club)}">${num}</span></td>
         <td>${escapeHtml(p.name)}${xi.has(p.id) ? ' <span class="badge">首发</span>' : ""}${
           p.injured > 0 ? ' <span class="badge ATT">伤</span>' : ""
         }</td>
@@ -717,8 +743,16 @@ function showPlayerModal(playerId) {
         .join("")}</div>`
     : `<p class="muted" style="margin:0">暂无荣誉，赛季末金靴/助攻王/最佳阵容/冠军等会写入此处</p>`;
 
+  const kitClub = fromOther || club;
+  if (kitClub) {
+    ensureKit(kitClub);
+    ensurePlayerNumber(kitClub, player);
+  }
   $("#modal-body").innerHTML = `
-    <h2 style="margin:0 0 0.25rem">${escapeHtml(player.name)}</h2>
+    <div class="player-modal-head">
+      ${kitClub ? renderKitShirt(kitClub, player.number, 56) : ""}
+      <div>
+    <h2 style="margin:0 0 0.25rem">${escapeHtml(player.name)}${player.number != null ? ` <span class="muted">#${player.number}</span>` : ""}</h2>
     <p class="muted">
       <span class="badge ${player.pos}">${POS_LABEL[player.pos]}</span>
       · ${nationLabel(player)}
@@ -727,6 +761,8 @@ function showPlayerModal(playerId) {
       ${player.fromYouth ? ' · <span class="badge MID">青训</span>' : ""}
       ${fromOther ? ` · ${escapeHtml(fromOther.name)}` : ""}
     </p>
+      </div>
+    </div>
     <p>身价 ${fromOther ? formatScoutValue(world, player) : formatMoney(player.value)} · 周薪 ${formatMoney(player.wage)} · 体能 ${player.fitness}% · 士气 ${player.morale}</p>
 
     <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem">本赛季（俱乐部）</h3>
@@ -825,12 +861,16 @@ function renderYouth() {
     (a, b) => (b.potential || 0) - (a.potential || 0) || b.ovr - a.ovr
   );
   const tbody = $("#youth-table tbody");
+  ensureKit(club);
+  assignSquadNumbers(club);
   tbody.innerHTML = sorted.length
     ? sorted
         .map((p) => {
           const pot = p.potential ?? p.ovr;
           const potClass = pot >= 16 ? "stat-high" : pot >= 13 ? "stat-mid" : "stat-low";
+          const num = p.number != null ? p.number : "—";
           return `<tr>
+            <td class="num-cell"><span class="kit-num" style="${kitBadgeStyle(club)}">${num}</span></td>
             <td>${escapeHtml(p.name)}</td>
             <td>${nationLabel(p)}</td>
             <td><span class="badge ${p.pos}">${POS_LABEL[p.pos]}</span></td>
@@ -845,7 +885,7 @@ function renderYouth() {
           </tr>`;
         })
         .join("")
-    : `<tr><td colspan="8" class="muted">暂无青训球员，推进日程等待招生</td></tr>`;
+    : `<tr><td colspan="9" class="muted">暂无青训球员，推进日程等待招生</td></tr>`;
 
   tbody.querySelectorAll("[data-promote]").forEach((btn) => {
     btn.onclick = () => {
@@ -884,13 +924,21 @@ function renderTactics() {
   const formation = FORMATIONS[t.formation] || FORMATIONS["4-3-3"];
   const players = getLineupPlayers(club);
   const pitch = $("#pitch");
+  ensureKit(club);
+  assignSquadNumbers(club);
+  const kit = ensureKit(club);
+  const kitBg = kitBackground(kit);
+  const kitNc = kit.numberColor || "#fff";
   pitch.innerHTML = formation.slots
     .map((slot, i) => {
       const p = players[i];
       const label = p ? p.name.split(/\s+/).pop() : "?";
-      const num = p ? p.ovr : "-";
+      const num = p && p.number != null ? p.number : p ? p.ovr : "-";
+      const style = p
+        ? `background:${kitBg};color:${kitNc};border-color:${kit.primary || "#fff"}`
+        : "";
       return `<div class="player-dot" style="left:${slot.x}%;top:${slot.y}%">
-        <div class="circle">${num}</div>
+        <div class="circle kit-dot" style="${style}">${num}</div>
         <div class="name">${escapeHtml(label)}</div>
       </div>`;
     })
