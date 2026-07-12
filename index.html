@@ -487,13 +487,61 @@
           <div class="scoreboard">
             <div id="match-score" class="score">0 - 0</div>
             <div id="match-minute" class="minute">0'</div>
+            <div id="match-context" class="match-context"></div>
           </div>
           <div id="match-away" class="team-side right"></div>
         </header>
         <div id="match-log" class="match-log"></div>
-        <div class="match-actions">
-          <button id="btn-sim-fast" class="btn primary">快速模拟</button>
-          <button id="btn-sim-live" class="btn">直播模拟</button>
+
+        <!-- 中场休息：战术 + 换人 -->
+        <div id="match-ht-panel" class="match-ht-panel hidden">
+          <h3>中场休息 · 调整</h3>
+          <p class="hint" id="match-ht-score">—</p>
+          <div class="ht-tactics">
+            <label>风格
+              <select id="ht-style">
+                <option value="balanced">均衡</option>
+                <option value="attack">进攻</option>
+                <option value="defend">防守</option>
+                <option value="possession">控球</option>
+                <option value="counter">反击</option>
+              </select>
+            </label>
+            <label>压迫 <span id="ht-pressing-val">3</span>
+              <input type="range" id="ht-pressing" min="1" max="5" value="3" />
+            </label>
+            <label>节奏 <span id="ht-tempo-val">3</span>
+              <input type="range" id="ht-tempo" min="1" max="5" value="3" />
+            </label>
+          </div>
+          <div class="ht-subs">
+            <div class="ht-sub-col">
+              <div class="ht-sub-title">下场（在场）</div>
+              <select id="ht-sub-out" size="6"></select>
+            </div>
+            <div class="ht-sub-col">
+              <div class="ht-sub-title">上场（替补）</div>
+              <select id="ht-sub-in" size="6"></select>
+            </div>
+            <div class="ht-sub-actions">
+              <button type="button" id="btn-ht-add-sub" class="btn small">确认换人</button>
+              <p class="hint" id="ht-subs-left">剩余换人 3 次</p>
+              <ul id="ht-subs-list" class="ht-subs-list"></ul>
+            </div>
+          </div>
+          <div class="match-actions">
+            <button id="btn-ht-continue" class="btn primary">下半场开始</button>
+            <button id="btn-ht-skip" class="btn">不调整，直接踢</button>
+          </div>
+        </div>
+
+        <!-- 赛后报告 -->
+        <div id="match-report" class="match-report hidden"></div>
+
+        <div class="match-actions" id="match-main-actions">
+          <button id="btn-sim-fast" class="btn primary">快速模拟（中场可调）</button>
+          <button id="btn-sim-live" class="btn">直播（中场可调）</button>
+          <button id="btn-sim-instant" class="btn">一键完赛</button>
           <button id="btn-match-continue" class="btn" disabled>赛后继续</button>
         </div>
       </div>

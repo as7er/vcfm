@@ -286,8 +286,121 @@ tr:hover td { background: rgba(255, 255, 255, 0.02); }
 }
 .match-log .event.goal { color: var(--good); font-weight: 600; }
 .match-log .event.card { color: var(--warn); }
-.match-log .event.kickoff, .match-log .event.ht, .match-log .event.ft { color: var(--text); }
+.match-log .event.red { color: #f87171; font-weight: 600; }
+.match-log .event.injury { color: #fb923c; }
+.match-log .event.penalty, .match-log .event.pen_miss { color: #fbbf24; font-weight: 600; }
+.match-log .event.save { color: #38bdf8; }
+.match-log .event.woodwork { color: #a78bfa; }
+.match-log .event.sub, .match-log .event.tactics { color: #94a3b8; }
+.match-log .event.context { color: var(--muted); font-style: italic; }
+.match-log .event.kickoff, .match-log .event.ht, .match-log .event.ft { color: var(--text); font-weight: 600; }
 .match-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.match-context {
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  min-height: 1.1em;
+}
+
+/* 中场调整 */
+.match-ht-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.match-ht-panel.hidden { display: none; }
+.match-ht-panel h3 { margin: 0; font-size: 1.05rem; }
+.ht-tactics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+  align-items: end;
+}
+.ht-tactics label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.ht-tactics select, .ht-tactics input[type="range"] { width: 100%; }
+.ht-subs {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 0.75rem;
+  align-items: start;
+}
+@media (max-width: 640px) {
+  .ht-subs { grid-template-columns: 1fr; }
+}
+.ht-sub-title { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.3rem; }
+.ht-subs select {
+  width: 100%;
+  min-height: 8rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.35rem;
+  font-size: 0.85rem;
+}
+.ht-sub-actions { display: flex; flex-direction: column; gap: 0.4rem; min-width: 8rem; }
+.ht-subs-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.ht-subs-list li { padding: 0.15rem 0; }
+
+/* 赛后报告 */
+.match-report {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.1rem;
+}
+.match-report.hidden { display: none; }
+.match-report h3 { margin: 0 0 0.6rem; font-size: 1.05rem; }
+.match-report-meta {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 0.75rem;
+}
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.report-table th, .report-table td {
+  padding: 0.4rem 0.5rem;
+  text-align: center;
+  border-bottom: 1px solid rgba(42, 54, 80, 0.5);
+}
+.report-table th { color: var(--muted); font-weight: 500; font-size: 0.8rem; }
+.report-table td.stat-label { text-align: left; color: var(--muted); font-size: 0.85rem; }
+.report-table .num { font-weight: 600; font-variant-numeric: tabular-nums; }
+.report-bar-wrap {
+  display: flex;
+  height: 6px;
+  background: rgba(42, 54, 80, 0.6);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 0.2rem;
+}
+.report-bar-h { background: var(--accent, #3b82f6); height: 100%; }
+.report-bar-a { background: #f59e0b; height: 100%; margin-left: auto; }
+.report-scorers {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.report-scorers strong { color: var(--text); }
 
 /* Modal */
 .modal {

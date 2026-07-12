@@ -120,6 +120,35 @@ import {
   TRAINING_FACILITY_LEVELS,
   FACILITY_LABELS,
 } from "./facilities.js";
+import {
+  simulateMatch,
+  simulateMatchSync,
+  createMatchSession,
+  playFirstHalf,
+  playSecondHalf,
+  continueSecondHalf,
+  applyUserHalfTime,
+  applySubstitution,
+  finalizeMatch,
+  getBenchPlayers,
+  getOnFieldPlayers,
+  simulateMatchFull,
+} from "./match.js";
+
+export {
+  simulateMatch,
+  simulateMatchSync,
+  createMatchSession,
+  playFirstHalf,
+  playSecondHalf,
+  continueSecondHalf,
+  applyUserHalfTime,
+  applySubstitution,
+  finalizeMatch,
+  getBenchPlayers,
+  getOnFieldPlayers,
+  simulateMatchFull,
+};
 
 function rng() {
   return Math.random();
@@ -131,439 +160,6 @@ function chance(p) {
 
 function clubById(world, id) {
   return world.clubs.find((c) => c.id === id);
-}
-
-function applyStyle(strength, tactics, side /* 'atk'|'def' */) {
-  const mod = STYLE_MOD[tactics.style] || STYLE_MOD.balanced;
-  const press = 1 + (tactics.pressing - 3) * 0.03;
-  const tempo = 1 + (tactics.tempo - 3) * 0.025;
-  if (side === "atk") return strength * mod.atk * tempo * (0.97 + press * 0.03);
-  return strength * mod.def * press;
-}
-
-/** 生成 90 分钟事件流（联赛或杯赛；cup 不改积分榜） */
-
-/** 近况：最近 n 场 W/D/L */
-function formScore(club, n = 5) {
-  const f = club.form || [];
-  const slice = f.slice(-n);
-  let s = 0;
-  for (const x of slice) {
-    if (x === "W") s += 1;
-    else if (x === "L") s -= 1;
-  }
-  return { score: s, len: slice.length, last: slice };
-}
-
-/**
- * AI 赛前微调战术（用户队不改）
- * 连败偏守 / 连胜偏攻 / 实力差大则反击或强压
- */
-function aiTuneTactics(club, opponent) {
-  if (!club || !club.tactics || club.id === undefined) return;
-  const t = club.tactics;
-  const fs = formScore(club, 5);
-  const myP = club.power || 50;
-  const opP = opponent?.power || 50;
-  const diff = myP - opP;
-
-  // 默认别天天乱跳：有信号才改
-  if (fs.len >= 3 && fs.score <= -2) {
-    t.style = chance(0.5) ? "defend" : "counter";
-    t.pressing = Math.max(1, Math.min(3, (t.pressing || 3) - 1));
-    t.tempo = Math.max(1, Math.min(3, (t.tempo || 3) - 1));
-  } else if (fs.len >= 3 && fs.score >= 2) {
-    t.style = chance(0.55) ? "attack" : "balanced";
-    t.pressing = Math.min(5, Math.max(3, (t.pressing || 3) + 1));
-    t.tempo = Math.min(5, Math.max(3, (t.tempo || 3) + 1));
-  } else if (diff <= -12) {
-    t.style = "counter";
-    t.pressing = 2;
-    t.tempo = 2;
-  } else if (diff >= 12) {
-    t.style = chance(0.4) ? "attack" : "possession";
-    t.pressing = 4;
-    t.tempo = 3;
-  }
-
-  // 阵容：伤兵多时自动重排
-  const xi = getLineupPlayers(club);
-  const hurt = xi.filter((p) => p && (p.injured > 0 || (p.fitness || 100) < 55)).length;
-  if (hurt >= 2 || !t.lineup?.length) {
-    autoLineup(club);
-  }
-}
-
-export function simulateMatch(world, fixture, { live = false } = {}) {
-  const home = clubById(world, fixture.home);
-  const away = clubById(world, fixture.away);
-  if (!home || !away) throw new Error("invalid fixture clubs");
-
-  ensureStaff(home);
-  ensureStaff(away);
-  // AI 赛前微调（用户队不改）
-  if (home.id !== world.userClubId) aiTuneTactics(home, away);
-  if (away.id !== world.userClubId) aiTuneTactics(away, home);
-
-  autoLineup(home);
-  autoLineup(away);
-  const isCup = fixture.competition === "cup";
-
-  let homeAtk = applyStyle(teamStrength(home), home.tactics, "atk");
-  let homeDef = applyStyle(teamStrength(home), home.tactics, "def");
-  let awayAtk = applyStyle(teamStrength(away), away.tactics, "atk");
-  let awayDef = applyStyle(teamStrength(away), away.tactics, "def");
-
-  // 教练影响
-  const hCoach = coachMatchMod(home);
-  const aCoach = coachMatchMod(away);
-  homeAtk *= hCoach;
-  homeDef *= hCoach;
-  awayAtk *= aCoach;
-  awayDef *= aCoach;
-
-  // 主场优势
-  homeAtk *= 1.06;
-  homeDef *= 1.04;
-
-  const events = [];
-  let hg = 0;
-  let ag = 0;
-
-  const push = (minute, type, text, extra = {}) => {
-    events.push({ minute, type, text, ...extra });
-  };
-
-  push(0, "kickoff", "比赛开始！");
-
-  const homeXi = getLineupPlayers(home);
-  const awayXi = getLineupPlayers(away);
-
-  const ensureStats = (p) => {
-    ensurePlayerHistory(p);
-    return p.stats;
-  };
-
-  const weightedPick = (pool, weightFn) => {
-    let total = 0;
-    const weights = pool.map((p) => {
-      const w = weightFn(p);
-      total += w;
-      return w;
-    });
-    let r = rng() * total;
-    for (let i = 0; i < pool.length; i++) {
-      r -= weights[i];
-      if (r <= 0) return pool[i];
-    }
-    return pool[pool.length - 1];
-  };
-
-  const pickScorer = (xi) => {
-    const attackers = xi.filter((p) => p.pos === "ATT" || p.pos === "MID");
-    const pool = attackers.length ? attackers : xi;
-    return weightedPick(
-      pool,
-      (p) =>
-        (p.attrs.finishing || p.attrs.shooting || 10) +
-        (p.pos === "ATT" ? 6 : p.pos === "MID" ? 2 : 0) +
-        rng() * 3
-    );
-  };
-
-  const pickAssister = (xi, scorer) => {
-    const pool = xi.filter((p) => p.id !== scorer.id && p.pos !== "GK");
-    if (!pool.length || chance(0.28)) return null; // 约 28% 无助攻（个人能力进球）
-    return weightedPick(
-      pool,
-      (p) =>
-        (p.attrs.passing || 10) +
-        (p.attrs.vision || 8) +
-        (p.pos === "MID" ? 5 : p.pos === "ATT" ? 2 : 1) +
-        rng() * 2
-    );
-  };
-
-  // 期望进球
-  const homeXG = Math.max(0.2, (homeAtk / Math.max(awayDef, 1)) * 1.15);
-  const awayXG = Math.max(0.15, (awayAtk / Math.max(homeDef, 1)) * 1.0);
-
-  for (let minute = 1; minute <= 90; minute++) {
-    // 半场
-    if (minute === 46) {
-      push(45, "ht", `中场休息 ${hg} - ${ag}`);
-    }
-
-    // 每分钟尝试一次进攻（泊松近似）
-    const homeChance = homeXG / 90;
-    const awayChance = awayXG / 90;
-
-    if (chance(homeChance * 1.8)) {
-      // 有威胁
-      if (chance(0.42 + homeAtk / (homeAtk + awayDef) * 0.2)) {
-        const scorer = pickScorer(homeXi);
-        const assister = pickAssister(homeXi, scorer);
-        hg++;
-        ensureStats(scorer).goals++;
-        if (assister) ensureStats(assister).assists++;
-        const assistText = assister ? `（助攻：${assister.name}）` : "";
-        push(minute, "goal", `⚽ ${minute}' ${home.short} ${scorer.name} 破门！${assistText}`, {
-          teamId: home.id,
-          playerId: scorer.id,
-          assistId: assister?.id || null,
-        });
-      } else if (chance(0.15)) {
-        push(minute, "chance", `${minute}' ${home.short} 错失良机`);
-      }
-    }
-
-    if (chance(awayChance * 1.8)) {
-      if (chance(0.42 + awayAtk / (awayAtk + homeDef) * 0.2)) {
-        const scorer = pickScorer(awayXi);
-        const assister = pickAssister(awayXi, scorer);
-        ag++;
-        ensureStats(scorer).goals++;
-        if (assister) ensureStats(assister).assists++;
-        const assistText = assister ? `（助攻：${assister.name}）` : "";
-        push(minute, "goal", `⚽ ${minute}' ${away.short} ${scorer.name} 破门！${assistText}`, {
-          teamId: away.id,
-          playerId: scorer.id,
-          assistId: assister?.id || null,
-        });
-      } else if (chance(0.15)) {
-        push(minute, "chance", `${minute}' ${away.short} 错失良机`);
-      }
-    }
-
-    // 偶发黄牌
-    if (chance(0.012)) {
-      const side = chance(0.5) ? home : away;
-      const xi = side === home ? homeXi : awayXi;
-      const p = xi[Math.floor(rng() * xi.length)];
-      if (p) push(minute, "card", `🟨 ${minute}' ${side.short} ${p.name} 吃到黄牌`);
-    }
-  }
-
-  push(90, "ft", `全场结束 ${home.name} ${hg} - ${ag} ${away.name}`);
-
-  fixture.homeGoals = hg;
-  fixture.awayGoals = ag;
-  fixture.played = true;
-  fixture.events = events;
-
-  // 出场 + 门将数据
-  for (const p of homeXi) {
-    ensureStats(p).apps++;
-  }
-  for (const p of awayXi) {
-    ensureStats(p).apps++;
-  }
-  const homeGk = homeXi.find((p) => p.pos === "GK") || homeXi[0];
-  const awayGk = awayXi.find((p) => p.pos === "GK") || awayXi[0];
-  if (homeGk) {
-    ensureStats(homeGk).goalsConceded += ag;
-    if (ag === 0) ensureStats(homeGk).cleanSheets++;
-  }
-  if (awayGk) {
-    ensureStats(awayGk).goalsConceded += hg;
-    if (hg === 0) ensureStats(awayGk).cleanSheets++;
-  }
-
-  // 联赛更新积分榜；杯赛平局点球决胜
-  if (!isCup) {
-    applyResult(world, fixture);
-  } else if (hg === ag) {
-    // 杯赛淘汰：点球简化
-    const penHome = chance(0.5);
-    if (penHome) {
-      fixture.homeGoals = hg;
-      fixture.awayGoals = ag;
-      fixture.winner = home.id;
-      fixture.penalties = true;
-      events.push({
-        minute: 90,
-        type: "ft",
-        text: `点球大战！${home.name} 晋级（原 90 分钟 ${hg}-${ag}）`,
-      });
-    } else {
-      fixture.winner = away.id;
-      fixture.penalties = true;
-      events.push({
-        minute: 90,
-        type: "ft",
-        text: `点球大战！${away.name} 晋级（原 90 分钟 ${hg}-${ag}）`,
-      });
-    }
-  } else {
-    fixture.winner = hg > ag ? home.id : away.id;
-  }
-
-  // 体能/士气
-  drainFitness(home, true);
-  drainFitness(away, false);
-  if (!isCup) {
-    updateMorale(home, hg, ag, true);
-    updateMorale(away, ag, hg, false);
-  } else {
-    // 杯赛晋级士气
-    const winId = fixture.winner;
-    for (const c of [home, away]) {
-      const won = c.id === winId;
-      for (const p of c.players) {
-        p.morale = Math.max(20, Math.min(100, p.morale + (won ? 4 : -2)));
-      }
-    }
-  }
-
-  // 新闻 + 媒体（用户场次）
-  const userId = world.userClubId;
-  if (fixture.home === userId || fixture.away === userId) {
-    const isHome = fixture.home === userId;
-    const myG = isHome ? hg : ag;
-    const opG = isHome ? ag : hg;
-    const opp = isHome ? away : home;
-    const me = isHome ? home : away;
-    let result = "战平";
-    if (isCup) {
-      const won = fixture.winner === userId;
-      result = won ? (fixture.penalties ? "点球晋级" : "晋级") : fixture.penalties ? "点球出局" : "出局";
-    } else {
-      if (myG > opG) result = "获胜";
-      else if (myG < opG) result = "落败";
-    }
-    const tag = isCup ? `🏆 ${fixture.roundLabel || "联赛杯"}` : `第 ${fixture.round} 轮`;
-    world.news.unshift({
-      day: world.day,
-      text: `${tag}：对阵 ${opp.name} ${myG}-${opG} ${result}`,
-    });
-    // 主场比赛日收入（球场等级）
-    if (isHome) {
-      const income = matchdayIncome(me, {
-        isCup,
-        won: myG > opG || (isCup && fixture.winner === userId),
-      });
-      me.money += income;
-      world.news.unshift({
-        day: world.day,
-        text: `🏟️ 主场收入 ${formatMoney(income)}（${stadiumInfo(me).name} · 容量约 ${stadiumInfo(me).capacity.toLocaleString()}）`,
-      });
-    }
-
-    if (!isCup) {
-      mediaAfterUserMatch(world, fixture, me, opp, myG, opG);
-      narrativeAfterUserMatch(world, me, opp, myG, opG, false);
-    } else {
-      pushMedia(world, {
-        outlet: "VC体育",
-        headline: `${tag}：${me.name} ${myG}-${opG} ${opp.name}，${result}`,
-        body: fixture.penalties
-          ? "90 分钟难解难分，最终在点球大战中分出胜负。联赛杯永远充满戏剧性。"
-          : `一场跨级别的较量吸引了媒体目光。${result.includes("晋级") ? "赢家笑到最后。" : "苦主只能专注联赛。"}`,
-        tone: result.includes("晋级") ? "positive" : "negative",
-        category: "cup",
-      });
-    }
-  }
-
-  if (isCup) {
-    advanceCupBracket(world);
-    // 决赛冠军荣誉
-    if (world.cup?.stage === "done" && world.cup.champion) {
-      const champ = clubById(world, world.cup.champion);
-      if (champ) {
-        for (const p of champ.players) {
-          if ((p.stats?.apps || 0) >= 1 || true) {
-            grantHonor(p, {
-              season: world.season,
-              type: "cup_winner",
-              title: "VC 联赛杯冠军",
-              detail: champ.name,
-              clubId: champ.id,
-              clubName: champ.name,
-              division: champ.division,
-            });
-          }
-        }
-        if (champ.id === world.userClubId) {
-          pushMedia(world, {
-            outlet: "联赛日报",
-            headline: `金杯！${champ.name} 问鼎 VC 联赛杯`,
-            body: "三级别球队同场竞技的舞台上，他们站到了最高领奖台。",
-            tone: "positive",
-            category: "cup",
-          });
-        }
-      }
-    }
-  }
-
-  return { homeGoals: hg, awayGoals: ag, events };
-}
-
-function applyResult(world, f) {
-  const ht = world.table[f.home];
-  const at = world.table[f.away];
-  ht.played++;
-  at.played++;
-  ht.gf += f.homeGoals;
-  ht.ga += f.awayGoals;
-  at.gf += f.awayGoals;
-  at.ga += f.homeGoals;
-
-  if (f.homeGoals > f.awayGoals) {
-    ht.w++;
-    ht.pts += 3;
-    at.l++;
-    clubById(world, f.home).form.push("W");
-    clubById(world, f.away).form.push("L");
-  } else if (f.homeGoals < f.awayGoals) {
-    at.w++;
-    at.pts += 3;
-    ht.l++;
-    clubById(world, f.home).form.push("L");
-    clubById(world, f.away).form.push("W");
-  } else {
-    ht.d++;
-    at.d++;
-    ht.pts++;
-    at.pts++;
-    clubById(world, f.home).form.push("D");
-    clubById(world, f.away).form.push("D");
-  }
-  for (const c of world.clubs) {
-    if (c.form.length > 5) c.form = c.form.slice(-5);
-  }
-}
-
-function drainFitness(club, isHome) {
-  const injuryMod = doctorInjuryMod(club) * trainingInjuryMod(club);
-  for (const p of getLineupPlayers(club)) {
-    const drain = 4 + Math.floor(rng() * 6) + (club.tactics.pressing > 3 ? 2 : 0);
-    p.fitness = Math.max(35, p.fitness - drain);
-    // 偶发受伤（队医降低概率）
-    if (chance(0.02 * injuryMod)) {
-      p.injured = 1 + Math.floor(rng() * 3);
-      p.fitness = Math.min(p.fitness, 50);
-    }
-  }
-  // 替补轻微恢复
-  const xi = new Set(club.tactics.lineup);
-  for (const p of club.players) {
-    if (!xi.has(p.id)) {
-      p.fitness = Math.min(100, p.fitness + 3);
-      if (p.injured > 0) p.injured = Math.max(0, p.injured - 0); // 比赛日不减伤
-    }
-  }
-}
-
-function updateMorale(club, gf, ga, isHome) {
-  let delta = 0;
-  if (gf > ga) delta = 6;
-  else if (gf < ga) delta = -5;
-  else delta = 1;
-  for (const p of club.players) {
-    p.morale = Math.max(20, Math.min(100, p.morale + delta + Math.floor(rng() * 3 - 1)));
-  }
 }
 
 const ATTR_KEYS = [
@@ -610,9 +206,7 @@ function processYouthDay(world) {
     ya.daysSinceIntake = (ya.daysSinceIntake || 0) + 1;
 
     // 每周成长 + 维护（教练加成）
-    checkMidSeasonBoard(world);
-
-  if (world.day % 7 === 0) {
+    if (world.day % 7 === 0) {
       const yMult = youthTrainingMult(club);
       const growth =
         (cfg.growth + coachGrowthBonus(club) + trainingGrowthBonus(club) * 0.5) * yMult;
@@ -1768,32 +1362,19 @@ export function getMarketPlayers(world, posFilter = "") {
   return list.slice(0, 40);
 }
 
-/** 直播模拟：逐步回调 */
+/** 直播模拟：完整踢完并逐步回调（无中场暂停） */
 export async function simulateMatchLive(world, fixture, onEvent, delayMs = 80) {
-  // 重新模拟但用逐步方式——先跑完整模拟再回放 events
-  // 为了可中断显示，先清空并实时版：
-  const home = clubById(world, fixture.home);
-  const away = clubById(world, fixture.away);
-  autoLineup(home);
-  autoLineup(away);
-
-  // 使用完整模拟拿结果，然后回放（保证与快速模拟算法一致）
-  // 但 simulateMatch 会直接写结果——所以 live 路径自己实现回放前不调用 apply
-
-  // 简化：调用 simulate 但先备份 table——不优雅。直接 simulate 后回放 events。
-  const result = simulateMatch(world, fixture);
-  // 回放时比分动画
-  let hg = 0;
-  let ag = 0;
-  // 撤销已经 apply 的比分显示用 events 重放
-  for (const ev of result.events) {
-    if (ev.type === "goal") {
-      if (ev.teamId === fixture.home) hg++;
-      else ag++;
-    }
-    await onEvent(ev, { homeGoals: hg, awayGoals: ag });
-    await sleep(delayMs);
-  }
+  const result = await simulateMatchFull(world, fixture, {
+    onEvent: async (ev, snap) => {
+      if (ev.type === "tick") {
+        await onEvent(ev, snap);
+        await sleep(Math.min(delayMs, 20));
+        return;
+      }
+      await onEvent(ev, snap);
+      await sleep(ev.type === "goal" ? delayMs * 2.5 : delayMs);
+    },
+  });
   return result;
 }
 
