@@ -90,6 +90,7 @@ import {
   isTransferWindowOpen,
   transferWindowLabel,
   transferWindowShort,
+  processTransferWindowDay,
   ensureManagerCareer,
   managerWinRate,
   ensureClubHonors,
@@ -279,26 +280,34 @@ function initStart() {
   }
 
   $("#btn-new-game").onclick = () => {
-    const manager = $("#input-manager").value.trim() || t("start.manager.placeholder");
-    const clubId = $("#select-club").value;
-    const tpl = CLUB_TEMPLATES.find((c) => c.id === clubId);
-    if (!tpl || (tpl.division || 3) !== START_DIVISION) {
-      $("#start-hint").textContent = t("start.div3Only");
-      return;
+    try {
+      const manager = $("#input-manager").value.trim() || t("start.manager.placeholder");
+      const clubId = $("#select-club").value;
+      const tpl = CLUB_TEMPLATES.find((c) => c.id === clubId);
+      if (!tpl || (tpl.division || 3) !== START_DIVISION) {
+        $("#start-hint").textContent = t("start.div3Only");
+        return;
+      }
+      const slot = getActiveSlot();
+      if (hasSave(slot) && !confirm(t("start.overwriteConfirm", { n: slot }))) return;
+      world = createWorld(clubId, manager);
+      ensureMedia(world);
+      for (const c of world.clubs) ensureStaff(c);
+      refreshStaffMarket(world);
+      const u = world.clubs.find((c) => c.id === clubId);
+      mediaSeasonKickoff(world, u, DIVISIONS[u.division || 3]?.name || "乙级联赛");
+      ensureBoardObjective(world);
+      ensureTransferWindow(world);
+      processTransferWindowDay(world);
+      ensureManagerCareer(world);
+      saveGame(world, slot);
+      enterMain();
+    } catch (err) {
+      console.error(err);
+      const msg = err?.message || String(err);
+      $("#start-hint").textContent = getLang() === "en" ? `Failed to start: ${msg}` : `开局失败：${msg}`;
+      toast(getLang() === "en" ? `Start failed: ${msg}` : `开局失败：${msg}`);
     }
-    const slot = getActiveSlot();
-    if (hasSave(slot) && !confirm(t("start.overwriteConfirm", { n: slot }))) return;
-    world = createWorld(clubId, manager);
-    ensureMedia(world);
-    for (const c of world.clubs) ensureStaff(c);
-    refreshStaffMarket(world);
-    const u = world.clubs.find((c) => c.id === clubId);
-    mediaSeasonKickoff(world, u, DIVISIONS[u.division || 3]?.name || "乙级联赛");
-    ensureBoardObjective(world);
-    ensureTransferWindow(world);
-    processTransferWindowDay(world);
-    saveGame(world, slot);
-    enterMain();
   };
 
   $("#btn-load-game").onclick = () => {
