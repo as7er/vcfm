@@ -1739,12 +1739,8 @@ function openMatch() {
   $("#match-log").innerHTML = "";
   hideHtPanel();
   hideMatchReport();
-  // 2D 球场：赛前站位
-  const pitchRoot = $("#match-pitch-root");
-  if (pitchRoot) {
-    matchView = getMatchView(pitchRoot);
-    matchView.mount(home, away);
-  }
+  // 2D 球场：赛前站位（可点球员）
+  ensureMatchPitch(true);
   $("#btn-sim-fast").disabled = false;
   $("#btn-sim-live").disabled = false;
   const inst = $("#btn-sim-instant");
@@ -1865,9 +1861,15 @@ function ensureMatchPitch(remount = false) {
   const home = world.clubs.find((c) => c.id === pendingMatch.home);
   const away = world.clubs.find((c) => c.id === pendingMatch.away);
   if (!home || !away) return;
+  const onPlayerClick = (playerId) => {
+    // 完整资料弹窗（暂停时最合适，进行中也可点）
+    showPlayerModal(playerId);
+  };
   if (!matchView || remount || !matchView._built) {
     matchView = getMatchView(pitchRoot);
-    matchView.mount(home, away);
+    matchView.mount(home, away, { onPlayerClick });
+  } else {
+    matchView.setOnPlayerClick(onPlayerClick);
   }
 }
 
@@ -1900,6 +1902,7 @@ function openHalfTimePanel() {
   if (matchView) {
     matchView.phase = "pause";
     matchView.setBanner(getLang() === "en" ? "HALF-TIME" : "中场休息", "info");
+    matchView._syncClickable?.();
   }
   $("#btn-match-continue").disabled = true;
   $("#btn-sim-fast").disabled = true;

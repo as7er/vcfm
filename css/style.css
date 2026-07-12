@@ -816,16 +816,27 @@ html[data-theme="light"] .mp-boards {
 .mp-field {
   position: relative;
   width: 100%;
-  /* 竖向球场约 2:3，上限高度避免占满屏 */
   aspect-ratio: 68 / 105;
   max-height: min(48vh, 420px);
   margin: 0 auto;
   overflow: hidden;
-  background: #1a6b3c;
+  background: #0d3d24;
+  cursor: default;
+}
+.mp-field.mp-clickable { cursor: crosshair; }
+.mp-field.mp-paused { box-shadow: inset 0 0 0 2px rgba(61, 139, 253, 0.35); }
+
+/* 镜头层：平移+缩放跟随球 */
+.mp-camera {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 50%;
+  will-change: transform;
+  transition: none;
 }
 .mp-grass {
   position: absolute;
-  inset: 0;
+  inset: -8%;
   background:
     repeating-linear-gradient(
       90deg,
@@ -834,7 +845,6 @@ html[data-theme="light"] .mp-boards {
       #1f7544 28px,
       #1f7544 56px
     );
-  opacity: 1;
 }
 .mp-lines {
   position: absolute;
@@ -844,15 +854,53 @@ html[data-theme="light"] .mp-boards {
   z-index: 1;
   pointer-events: none;
 }
+/* 轨迹层 */
+.mp-trails {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  pointer-events: none;
+  overflow: visible;
+}
+.mp-trail {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+  opacity: 0.95;
+  filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.35));
+}
+.mp-trail-pass {
+  stroke: rgba(255, 255, 255, 0.55);
+  stroke-width: 0.55;
+}
+.mp-trail-shot {
+  stroke: rgba(251, 191, 36, 0.95);
+  stroke-width: 0.85;
+}
+.mp-trail-goal {
+  stroke: rgba(61, 214, 140, 1);
+  stroke-width: 1.1;
+  filter: drop-shadow(0 0 3px rgba(61, 214, 140, 0.8));
+}
+.mp-trail-save {
+  stroke: rgba(56, 189, 248, 0.9);
+  stroke-width: 0.8;
+}
+.mp-trail-wood {
+  stroke: rgba(167, 139, 250, 0.95);
+  stroke-width: 0.9;
+}
 .mp-actors {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  z-index: 3;
 }
 .mp-fx {
   position: absolute;
   inset: 0;
-  z-index: 3;
+  z-index: 4;
   pointer-events: none;
 }
 .mp-banner {
@@ -860,7 +908,7 @@ html[data-theme="light"] .mp-boards {
   left: 50%;
   top: 42%;
   transform: translate(-50%, -50%);
-  z-index: 4;
+  z-index: 6;
   padding: 0.45rem 1rem;
   border-radius: 8px;
   background: rgba(15, 23, 42, 0.82);
@@ -891,9 +939,27 @@ html[data-theme="light"] .mp-boards {
 .mp-player {
   position: absolute;
   transform: translate(-50%, -50%);
-  z-index: 2;
+  z-index: 3;
   transition: none;
   will-change: left, top;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.mp-player.clickable:hover .mp-dot,
+.mp-player.clickable:focus-visible .mp-dot {
+  transform: scale(1.12);
+  box-shadow: 0 0 0 2px #fff, 0 0 10px 2px rgba(255, 255, 255, 0.35);
+}
+.mp-player.selected .mp-dot {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px rgba(61, 139, 253, 0.85), 0 0 16px 4px rgba(61, 139, 253, 0.45);
+  transform: scale(1.15);
+}
+.mp-player.pause-glow .mp-dot {
+  animation: mp-idle-pulse 1.6s ease-in-out infinite;
+}
+@keyframes mp-idle-pulse {
+  0%, 100% { box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); }
+  50% { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.5), 0 0 10px rgba(61, 139, 253, 0.35); }
 }
 .mp-player.highlight { z-index: 5; }
 .mp-player.highlight .mp-dot {
@@ -903,8 +969,137 @@ html[data-theme="light"] .mp-boards {
   box-shadow: 0 0 0 2px #fff, 0 0 14px 4px rgba(61, 214, 140, 0.95);
   animation: mp-score-pulse 0.5s ease-in-out 3;
 }
-.mp-player.sent-off { opacity: 0.25; }
+.mp-player.sent-off { opacity: 0.25; pointer-events: none; }
 .mp-player.injured .mp-dot { outline: 2px solid #fb923c; }
+.mp-dot { transition: transform 0.12s ease, box-shadow 0.12s ease; }
+
+/* 中场提示 */
+.mp-tip {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  z-index: 7;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.75);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.72rem;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  white-space: nowrap;
+}
+.mp-tip.show { opacity: 1; }
+
+/* 场内球员小卡片 */
+.mp-card {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  z-index: 8;
+  width: min(220px, 72%);
+  max-height: calc(100% - 16px);
+  overflow-y: auto;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(61, 139, 253, 0.35);
+  border-radius: 10px;
+  padding: 0.65rem 0.7rem 0.55rem;
+  color: #e8eefc;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  font-size: 0.8rem;
+  animation: mp-card-in 0.2s ease-out;
+}
+html[data-theme="light"] .mp-card {
+  background: rgba(255, 255, 255, 0.95);
+  color: #1a2438;
+  border-color: rgba(37, 99, 235, 0.3);
+}
+.mp-card.hidden { display: none; }
+@keyframes mp-card-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.mp-card-close {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 1.1rem;
+  line-height: 1;
+  opacity: 0.7;
+  padding: 0.15rem 0.35rem;
+}
+.mp-card-close:hover { opacity: 1; }
+.mp-card-head {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  padding-right: 1.2rem;
+  margin-bottom: 0.4rem;
+}
+.mp-card-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.7);
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.mp-card-sub {
+  font-size: 0.72rem;
+  opacity: 0.75;
+  margin-top: 0.1rem;
+}
+.mp-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.55rem;
+  font-size: 0.72rem;
+  margin-bottom: 0.45rem;
+  opacity: 0.9;
+}
+.mp-card-meta .bad { color: #fb923c; font-weight: 600; }
+.mp-card-row {
+  display: grid;
+  grid-template-columns: 2.2rem 1fr 1.2rem;
+  gap: 0.3rem;
+  align-items: center;
+  margin-bottom: 0.22rem;
+  font-size: 0.72rem;
+}
+.mp-card-row em { font-style: normal; text-align: right; font-variant-numeric: tabular-nums; }
+.mp-card-bar {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+html[data-theme="light"] .mp-card-bar { background: rgba(0, 0, 0, 0.08); }
+.mp-card-bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #3d8bfd, #3dd68c);
+  border-radius: 3px;
+}
+.mp-card-season {
+  margin-top: 0.4rem;
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+.mp-card-more {
+  width: 100%;
+  margin-top: 0.45rem;
+}
+.mp-leg-hint {
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-align: center;
+  flex: 1;
+}
 @keyframes mp-score-pulse {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.18); }
@@ -1014,8 +1209,11 @@ html[data-theme="light"] .mp-boards {
 
 @media (prefers-reduced-motion: reduce) {
   .mp-player.scorer .mp-dot,
+  .mp-player.pause-glow .mp-dot,
   .mp-burst,
-  .mp-banner.goal { animation: none; }
+  .mp-banner.goal,
+  .mp-card { animation: none; }
+  .mp-camera { transform: none !important; }
 }
 .match-log .event {
   padding: 0.35rem 0;
