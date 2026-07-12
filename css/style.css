@@ -437,3 +437,22 @@ tr:hover td { background: rgba(255, 255, 255, 0.02); }
   border-left: 3px solid var(--warn);
 }
 .honor-item .season { color: var(--muted); font-size: 0.75rem; }
+
+
+/* 董事会目标 */
+.board-box {
+  margin: 0.5rem 0 0.75rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(30, 41, 59, 0.85);
+  border: 1px solid #334155;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+.board-box .board-title { font-weight: 600; margin-bottom: 0.2rem; }
+.board-box .board-meta { color: #94a3b8; font-size: 0.85rem; }
+.board-box.ok { border-color: #3dd68c55; }
+.board-box.warn { border-color: #e6b45088; }
+.board-box.danger { border-color: #f0717888; }
+.board-box.done { border-color: #3d8bfd66; }
+.scout-range { color: #94a3b8; font-size: 0.85em; }

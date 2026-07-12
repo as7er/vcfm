@@ -70,6 +70,12 @@ import {
   STAGE_LABEL,
 } from "./cup.js";
 import { pushMedia } from "./media.js";
+import {
+  ensureBoardObjective,
+  evaluateBoardProgress,
+  checkBoardMidSeason,
+  settleBoardObjective,
+} from "./board.js";
 
 function rng() {
   return Math.random();
@@ -490,7 +496,9 @@ function processYouthDay(world) {
     ya.daysSinceIntake = (ya.daysSinceIntake || 0) + 1;
 
     // 每周成长 + 维护（教练加成）
-    if (world.day % 7 === 0) {
+    checkMidSeasonBoard(world);
+
+  if (world.day % 7 === 0) {
       const growth = cfg.growth + coachGrowthBonus(club);
       for (const yp of ya.players) {
         growYouthPlayer(yp, growth);
@@ -663,6 +671,9 @@ export function advanceDay(world) {
   const userClub = clubById(world, world.userClubId);
   if (userClub && !world.seasonOver) mediaDailyPulse(world, userClub);
 
+  // 董事会中期评估（约半程一次）
+  if (userClub && !world.seasonOver) evaluateBoardMidSeason(world);
+
   // 每周发工资（每 7 天）
   if (world.day % 7 === 0) {
     const user = clubById(world, world.userClubId);
@@ -684,8 +695,9 @@ export function advanceDay(world) {
     finishSeason(world);
   }
 
-  // 极简 AI 转会（休赛日也跑；低频，避免刷屏）
+  // 董事会中期检查 + 极简 AI 转会
   if (!world.seasonOver) {
+    checkBoardMidSeason(world, getSortedTable);
     processAiTransfers(world);
   }
 
@@ -717,6 +729,7 @@ export function finishSeason(world) {
     text: `🏆 ${world.season} 赛季结束！${userClub.name} 在${divName}排名第 ${pos} 名。可进入下一赛季。`,
   });
   mediaSeasonAwards(world, userClub, pos, divName);
+  settleBoardObjective(world, pos, getSortedTable);
   for (const t of promoNews) {
     world.news.unshift({ day: world.day, text: t });
   }
@@ -859,6 +872,7 @@ export function startNextSeason(world) {
     text: `📅 ${world.season} 赛季开始！${user.name} 征战${divName}。联赛 + VC联赛杯赛程已生成。`,
   });
   mediaSeasonKickoff(world, user, divName);
+  ensureBoardObjective(world);
 
   return { ok: true, msg: `${world.season} 赛季 · ${divName} 已开始` };
 }
@@ -1411,6 +1425,41 @@ export function fireStaffForUser(world, role) {
 }
 
 export { ensureStaff, ROLES, ensureIntl, ensureHonors };
+
+/** 球探模糊估值区间（对方球员） */
+export function scoutValueRange(world, player) {
+  const user = getUserClub(world);
+  ensureStaff(user);
+  const r = staffRatingSafe(user, "scout");
+  // rating 6–18 → 误差约 ±35% 到 ±8%
+  const err = Math.max(0.06, 0.42 - (r / 20) * 0.38);
+  const v = player.value || estimateValue(player);
+  // 用球员 id 做稳定抖动，避免每次刷新数字乱跳
+  let h = 0;
+  const id = String(player.id || "");
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  const bias = ((h % 1000) / 1000 - 0.5) * err * 0.5;
+  const center = Math.round(v * (1 + bias));
+  const lo = Math.max(50_000, Math.round(center * (1 - err) / 10_000) * 10_000);
+  const hi = Math.round(center * (1 + err) / 10_000) * 10_000;
+  return { lo, hi, err, rating: r };
+}
+
+export function formatScoutValue(world, player) {
+  const { lo, hi, rating } = scoutValueRange(world, player);
+  if (rating >= 16) return formatMoney(player.value || estimateValue(player));
+  return formatMoney(lo) + "–" + formatMoney(hi);
+}
+
+export function formatScoutOvr(world, player) {
+  const user = getUserClub(world);
+  ensureStaff(user);
+  const r = staffRatingSafe(user, "scout");
+  const ovr = player.ovr || playerOverall(player);
+  if (r >= 16) return String(ovr);
+  const band = r >= 12 ? 1 : r >= 9 ? 2 : 3;
+  return Math.max(1, ovr - band) + "–" + Math.min(20, ovr + band);
+}
 
 export function getMarketPlayers(world, posFilter = "") {
   const user = getUserClub(world);

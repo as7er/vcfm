@@ -53,6 +53,9 @@ import {
   fireStaffForUser,
   ensureIntl,
   ensureHonors,
+  scoutValueRange,
+  formatScoutValue,
+  formatScoutOvr,
 } from "./engine.js";
 import {
   saveGame,
@@ -61,6 +64,11 @@ import {
   exportSaveDownload,
   importSaveText,
 } from "./save.js";
+import {
+  ensureBoardObjective,
+  boardStatusLine,
+  boardTone,
+} from "./board.js";
 
 let world = null;
 let pendingMatch = null;
@@ -120,6 +128,7 @@ function initStart() {
     refreshStaffMarket(world);
     const u = world.clubs.find((c) => c.id === clubId);
     mediaSeasonKickoff(world, u, DIVISIONS[u.division || 3]?.name || "乙级联赛");
+    ensureBoardObjective(world);
     saveGame(world);
     enterMain();
   };
@@ -178,6 +187,7 @@ function migrateWorld(w) {
   if (!w.retiredPlayers) w.retiredPlayers = [];
   ensureMedia(w);
   if (!Array.isArray(w.staffMarket)) refreshStaffMarket(w);
+  ensureBoardObjective(w);
   for (const c of w.clubs || []) {
     if (!c.division) {
       c.division = c.power >= 72 ? 1 : c.power >= 60 ? 2 : 3;
@@ -541,14 +551,27 @@ function renderDashboard() {
         : "（后 3 名降甲级）";
   $("#my-rank").textContent = `${divName} 第 ${pos} 名 · ${row.pts} 分（${row.w}胜 ${row.d}平 ${row.l}负）${promoHint}`;
 
-  $("#form-strip").innerHTML = (club.form.length ? club.form : ["—"])
-    .map((f) =>
-      f === "—"
-        ? `<span class="form-dot" style="opacity:.4">-</span>`
-        : `<span class="form-dot ${f}">${f}</span>`
-    )
-    .join("");
-
+  // board objective
+  const boardEl = document.querySelector("#board-box");
+  if (boardEl) {
+    const b = ensureBoardObjective(world);
+    if (!b) {
+      boardEl.className = "board-box";
+      boardEl.textContent = "\u2014";
+    } else {
+      if (!b.settled) {
+        const bPlayed = row.played || 0;
+        if (bPlayed < 6) b.status = "active";
+        else if (pos <= b.targetPos) b.status = "ok";
+        else if (pos <= b.targetPos + 2) b.status = "warn";
+        else b.status = "danger";
+      }
+      const tone = boardTone(b);
+      boardEl.className = "board-box" + (tone ? " " + tone : "");
+      const played = row.played || 0;
+      boardEl.textContent = boardStatusLine(b) + (b.settled ? "" : " (" + pos + "/" + b.targetPos + ", " + played + " games)");
+    }
+  }
   $("#news-list").innerHTML = world.news
     .slice(0, 12)
     .map((n) => `<li><strong>D${n.day}</strong> ${escapeHtml(n.text)}</li>`)
@@ -704,7 +727,7 @@ function showPlayerModal(playerId) {
       ${player.fromYouth ? ' · <span class="badge MID">青训</span>' : ""}
       ${fromOther ? ` · ${escapeHtml(fromOther.name)}` : ""}
     </p>
-    <p>身价 ${formatMoney(player.value)} · 周薪 ${formatMoney(player.wage)} · 体能 ${player.fitness}% · 士气 ${player.morale}</p>
+    <p>身价 ${fromOther ? formatScoutValue(world, player) : formatMoney(player.value)} · 周薪 ${formatMoney(player.wage)} · 体能 ${player.fitness}% · 士气 ${player.morale}</p>
 
     <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem">本赛季（俱乐部）</h3>
     <p class="muted" style="margin:0">出场 ${season.apps}
@@ -992,16 +1015,20 @@ function renderTransfer() {
   const pos = $("#filter-pos").value;
   const market = getMarketPlayers(world, pos);
   const mt = $("#market-table tbody");
+  const userClub = getUserClub(world);
+  ensureStaff(userClub);
   mt.innerHTML = market
     .map(({ player: p, club }) => {
+      const valTxt = formatScoutValue(world, p);
+      const ovrTxt = formatScoutOvr(world, p);
       return `<tr>
         <td>${escapeHtml(p.name)}</td>
         <td>${nationLabel(p)}</td>
         <td><span class="badge ${p.pos}">${POS_LABEL[p.pos]}</span></td>
-        <td class="${ovrClass(p.ovr)}">${p.ovr}</td>
+        <td class="${ovrClass(p.ovr)}">${ovrTxt}</td>
         <td>${p.age}</td>
         <td>${escapeHtml(club.short)}</td>
-        <td>${formatMoney(p.value)}</td>
+        <td title="真实身价仅作参考区间">${valTxt}</td>
         <td>
           <button class="btn small" data-view="${p.id}">详情</button>
           <button class="btn small primary" data-buy="${p.id}" data-from="${club.id}">买入</button>

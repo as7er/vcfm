@@ -472,7 +472,7 @@ export function createWorld(userClubId, managerName) {
   const divName = DIVISIONS[user.division]?.name || "乙级联赛";
 
   const world = {
-    version: 4,
+    version: 5,
     season: 2026,
     day: 1,
     managerName,
