@@ -46,7 +46,6 @@ import {
   scoutSellMod,
   scoutYouthPotBonus,
   doctorInjuryMod,
-  doctorHealBonus,
   staffWageBill,
   generateStaffMarket,
   hireStaff,
@@ -79,6 +78,15 @@ import {
   checkBoardMidSeason,
   settleBoardObjective,
 } from "./board.js";
+import {
+  ensureTraining,
+  setTraining,
+  processTrainingDay,
+  trainingSummary,
+  youthTrainingMult,
+  TRAINING_FOCUSES,
+  TRAINING_INTENSITIES,
+} from "./training.js";
 
 function rng() {
   return Math.random();
@@ -502,7 +510,8 @@ function processYouthDay(world) {
     checkMidSeasonBoard(world);
 
   if (world.day % 7 === 0) {
-      const growth = cfg.growth + coachGrowthBonus(club);
+      const yMult = youthTrainingMult(club);
+      const growth = (cfg.growth + coachGrowthBonus(club)) * yMult;
       for (const yp of ya.players) {
         growYouthPlayer(yp, growth);
       }
@@ -631,23 +640,12 @@ export function upgradeYouthAcademy(world, clubId) {
   return { ok: true, msg: `青训已升级至 Lv.${next}（${YOUTH_LEVELS[next].name}）` };
 }
 
-/** 推进一天：恢复、AI 比赛、工资 */
+/** 推进一天：训练恢复、AI 比赛、工资 */
 export function advanceDay(world) {
   world.day += 1;
 
-  // 恢复（队医加成）
-  for (const club of world.clubs) {
-    ensureStaff(club);
-    const heal = 5 + doctorHealBonus(club);
-    for (const p of club.players) {
-      p.fitness = Math.min(100, p.fitness + heal + Math.floor(rng() * 4));
-      if (p.injured > 0) {
-        // 队医加速伤愈
-        const extra = staffRatingSafe(club, "doctor") >= 14 && chance(0.25) ? 1 : 0;
-        p.injured = Math.max(0, p.injured - 1 - extra);
-      }
-    }
-  }
+  // 训练日程：体能 / 伤愈 / 士气 / 周成长（替代原先统一恢复）
+  processTrainingDay(world);
 
   // 青训
   processYouthDay(world);
@@ -931,6 +929,11 @@ export {
   ensureContract,
   signFreeAgent,
   createLeagueCup,
+  ensureTraining,
+  setTraining,
+  trainingSummary,
+  TRAINING_FOCUSES,
+  TRAINING_INTENSITIES,
 };
 
 /**

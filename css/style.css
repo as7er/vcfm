@@ -511,3 +511,88 @@ tr:hover td { background: rgba(255, 255, 255, 0.02); }
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
   font-variant-numeric: tabular-nums;
 }
+
+/* 训练日程 */
+.training-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.training-opt {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 0.65rem 0.8rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  color: var(--text);
+  transition: border-color 0.15s, background 0.15s;
+}
+.training-opt:hover {
+  border-color: #3d8bfd88;
+}
+.training-opt.active {
+  border-color: var(--primary);
+  background: rgba(61, 139, 253, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(61, 139, 253, 0.25);
+}
+.training-opt .opt-title {
+  font-weight: 650;
+  margin-bottom: 0.15rem;
+}
+.training-opt .opt-desc {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+.training-options.intensity {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+.training-options.intensity .training-opt {
+  flex: 1 1 30%;
+  min-width: 6.5rem;
+  text-align: center;
+}
+.training-summary {
+  margin: 1rem 0 0.5rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 10px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  line-height: 1.5;
+  font-size: 0.95rem;
+}
+.training-fitness {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+.training-fit-row {
+  display: grid;
+  grid-template-columns: 1fr 3.2rem 5.5rem;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: 0.85rem;
+}
+.training-fit-row .bar {
+  height: 8px;
+  border-radius: 99px;
+  background: #1e293b;
+  overflow: hidden;
+}
+.training-fit-row .bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, #3dd68c, #3d8bfd);
+}
+.training-fit-row.low .bar > i {
+  background: linear-gradient(90deg, #f07178, #e6b450);
+}
+.training-fit-row .fit-val {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}

@@ -50,6 +50,7 @@
           <button data-tab="squad" class="tab">阵容</button>
           <button data-tab="youth" class="tab">青训</button>
           <button data-tab="staff" class="tab">职员</button>
+          <button data-tab="training" class="tab">训练</button>
           <button data-tab="tactics" class="tab">战术</button>
           <button data-tab="table" class="tab">积分榜</button>
           <button data-tab="stats" class="tab">数据榜</button>
@@ -81,6 +82,8 @@
               <div id="my-rank" class="rank-box">—</div>
               <h3>董事会目标</h3>
               <div id="board-box" class="board-box">—</div>
+              <h3>训练日程</h3>
+              <div id="training-dash" class="muted" style="margin-bottom:0.5rem">—</div>
               <h3>近期战绩</h3>
               <div id="form-strip" class="form-strip"></div>
             </div>
@@ -197,6 +200,25 @@
                   <tbody></tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 训练日程 -->
+        <div id="tab-training" class="tab-panel">
+          <div class="grid-2">
+            <div class="card">
+              <h2>训练重点</h2>
+              <p class="hint">每日推进时生效；高强度更易成长也更易受伤。教练能力影响成长与恢复。</p>
+              <div id="training-focus-list" class="training-options"></div>
+            </div>
+            <div class="card">
+              <h2>训练强度</h2>
+              <div id="training-intensity-list" class="training-options intensity"></div>
+              <div id="training-summary" class="training-summary"></div>
+              <h3>阵容体能一览</h3>
+              <div id="training-fitness-bar" class="training-fitness"></div>
+              <p class="hint" id="training-hint" style="margin-top:0.75rem"></p>
             </div>
           </div>
         </div>

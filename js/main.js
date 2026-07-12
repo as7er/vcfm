@@ -60,6 +60,11 @@ import {
   scoutValueRange,
   formatScoutValue,
   formatScoutOvr,
+  ensureTraining,
+  setTraining,
+  trainingSummary,
+  TRAINING_FOCUSES,
+  TRAINING_INTENSITIES,
 } from "./engine.js";
 import {
   saveGame,
@@ -217,6 +222,7 @@ function migrateWorld(w) {
     ensureYouthAcademy(c);
     ensureKit(c);
     assignSquadNumbers(c);
+    ensureTraining(c);
     if (!c.youth.players.length) fillYouthSquad(c);
     for (const p of c.players || []) {
       if (p.potential == null) p.potential = Math.min(20, (p.ovr || 10) + 1);
@@ -383,12 +389,110 @@ function refreshAll() {
   renderSquad();
   renderYouth();
   renderStaff();
+  renderTraining();
   renderTactics();
   renderTable();
   renderStats();
   renderMedia();
   renderTransfer();
   renderFixtures();
+}
+
+function renderTraining() {
+  const club = getUserClub(world);
+  if (!club) return;
+  const t = ensureTraining(club);
+  const sum = trainingSummary(club);
+
+  const focusBox = $("#training-focus-list");
+  if (focusBox) {
+    focusBox.innerHTML = Object.values(TRAINING_FOCUSES)
+      .map(
+        (f) => `<button type="button" class="training-opt${
+          t.focus === f.key ? " active" : ""
+        }" data-focus="${f.key}">
+          <div class="opt-title">${escapeHtml(f.label)}</div>
+          <div class="opt-desc">${escapeHtml(f.desc)}</div>
+        </button>`
+      )
+      .join("");
+    focusBox.querySelectorAll("[data-focus]").forEach((btn) => {
+      btn.onclick = () => {
+        setTraining(club, { focus: btn.dataset.focus });
+        autosave("training-focus");
+        renderTraining();
+        toast(`训练重点：${TRAINING_FOCUSES[btn.dataset.focus].label}`);
+      };
+    });
+  }
+
+  const intBox = $("#training-intensity-list");
+  if (intBox) {
+    intBox.innerHTML = Object.values(TRAINING_INTENSITIES)
+      .map(
+        (i) => `<button type="button" class="training-opt${
+          t.intensity === i.key ? " active" : ""
+        }" data-intensity="${i.key}">
+          <div class="opt-title">${escapeHtml(i.label)}</div>
+        </button>`
+      )
+      .join("");
+    intBox.querySelectorAll("[data-intensity]").forEach((btn) => {
+      btn.onclick = () => {
+        setTraining(club, { intensity: btn.dataset.intensity });
+        autosave("training-intensity");
+        renderTraining();
+        toast(`训练强度：${TRAINING_INTENSITIES[btn.dataset.intensity].label}`);
+      };
+    });
+  }
+
+  const sumEl = $("#training-summary");
+  if (sumEl) {
+    const coach = club.staff?.coach;
+    const coachTxt = coach ? `教练 ${coach.name}（${coach.rating}）` : "教练 —";
+    sumEl.innerHTML = `<strong>当前：</strong>${escapeHtml(sum.line)}<br>
+      <span class="muted">${escapeHtml(sum.desc)}</span><br>
+      <span class="muted">${escapeHtml(coachTxt)} · 每周结算属性成长 · 每日影响体能与伤病风险</span>`;
+  }
+
+  const players = [...(club.players || [])].sort(
+    (a, b) => (a.fitness || 0) - (b.fitness || 0)
+  );
+  const avg =
+    players.length > 0
+      ? Math.round(players.reduce((s, p) => s + (p.fitness || 0), 0) / players.length)
+      : 0;
+  const injured = players.filter((p) => p.injured > 0).length;
+  const low = players.filter((p) => (p.fitness || 0) < 65 && !(p.injured > 0)).length;
+
+  const fitBox = $("#training-fitness-bar");
+  if (fitBox) {
+    const show = players.slice(0, 12);
+    fitBox.innerHTML =
+      show
+        .map((p) => {
+          const fit = Math.round(p.fitness || 0);
+          const lowCls = fit < 65 || p.injured > 0 ? " low" : "";
+          const tag = p.injured > 0 ? " 伤" : "";
+          return `<div class="training-fit-row${lowCls}">
+            <span>${escapeHtml(p.name.split(/\s+/).pop() || p.name)}${tag}</span>
+            <div class="bar"><i style="width:${fit}%"></i></div>
+            <span class="fit-val">${fit}%</span>
+          </div>`;
+        })
+        .join("") || `<span class="muted">暂无球员</span>`;
+  }
+
+  const hint = $("#training-hint");
+  if (hint) {
+    let tip = `平均体能 ${avg}% · 伤病 ${injured} 人 · 低体能 ${low} 人。`;
+    if (avg < 70) tip += " 建议改「恢复调整」或「轻松」强度。";
+    else if (t.intensity === "hard" && avg < 80) tip += " 高强度下体能偏紧，小心训练伤。";
+    else if (t.focus === "youth") tip += " 青训侧重时本周青训成长加快，一线队成长偏慢。";
+    else tip += " 比赛日前可切「赛前准备」。";
+    hint.textContent = tip;
+  }
 }
 
 function renderStaff() {
@@ -574,6 +678,12 @@ function renderDashboard() {
         ? "（前 3 升超联 · 后 3 降乙级）"
         : "（后 3 名降甲级）";
   $("#my-rank").textContent = `${divName} 第 ${pos} 名 · ${row.pts} 分（${row.w}胜 ${row.d}平 ${row.l}负）${promoHint}`;
+
+  // 当前训练（概览一眼可见）
+  const trainDash = document.querySelector("#training-dash");
+  if (trainDash) {
+    trainDash.textContent = trainingSummary(club).line + " · 在「训练」页调整";
+  }
 
   // board objective
   const boardEl = document.querySelector("#board-box");
