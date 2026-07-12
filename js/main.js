@@ -9,6 +9,7 @@ import {
   START_DIVISION,
 } from "./data.js";
 import { ensureMedia, mediaSeasonKickoff } from "./media.js";
+import { t, initPrefs, getLang } from "./i18n.js";
 
 function nationLabel(p) {
   if (p.nationFlag && p.nationName) return `${p.nationFlag} ${p.nationName}`;
@@ -191,7 +192,7 @@ function refreshSlotUI() {
   migrateLegacySave();
   const active = getActiveSlot();
   const label = $("#active-slot-label");
-  if (label) label.textContent = `当前：槽 ${active}`;
+  if (label) label.textContent = t("start.slotCurrent", { n: active });
   const box = $("#save-slots");
   if (!box) return;
   const slots = listSlots();
@@ -201,8 +202,8 @@ function refreshSlotUI() {
       const emptyCls = s.empty ? " empty" : "";
       const title = formatSlotLabel(s);
       const sub = s.empty
-        ? "点击选中，再「开始新赛季」"
-        : `经理 ${escapeHtml(s.manager || "—")}`;
+        ? t("start.slotEmptyClick")
+        : t("start.slotManager", { name: escapeHtml(s.manager || "—") });
       return `<button type="button" class="slot-card${activeCls}${emptyCls}" data-slot="${s.slot}">
         <div class="slot-title">${escapeHtml(title)}</div>
         <div class="slot-sub">${sub}</div>
@@ -215,45 +216,51 @@ function refreshSlotUI() {
       refreshSlotUI();
       const info = listSlots().find((x) => x.slot === +btn.dataset.slot);
       $("#start-hint").textContent = info?.empty
-        ? `已选槽 ${btn.dataset.slot}（空），可开始新赛季`
-        : `已选槽 ${btn.dataset.slot}，可读取或覆盖`;
+        ? t("start.slotEmpty", { n: btn.dataset.slot })
+        : t("start.slotReady", { n: btn.dataset.slot });
     };
   });
 
   if (hasAnySave()) {
     const filled = slots.filter((s) => !s.empty).length;
     if (!$("#start-hint").textContent) {
-      $("#start-hint").textContent = `共 ${filled}/${SLOT_COUNT} 个存档 · 换设备请导出`;
+      $("#start-hint").textContent = t("start.filled", { filled, total: SLOT_COUNT });
     }
   }
 }
 
-function initStart() {
+function fillClubSelect() {
   const sel = $("#select-club");
-  // 开局只能选最低级（乙级）
+  if (!sel) return;
+  const prev = sel.value;
   const starters = CLUB_TEMPLATES.filter((c) => (c.division || 3) === START_DIVISION);
   sel.innerHTML = starters
     .map(
       (c) =>
-        `<option value="${c.id}">${c.name} · 乙级（实力 ${c.power}）</option>`
+        `<option value="${c.id}">${t("start.clubOption", { name: c.name, power: c.power })}</option>`
     )
     .join("");
+  if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;
+}
+
+function initStart() {
+  fillClubSelect();
 
   refreshSlotUI();
   if (hasAnySave()) {
-    $("#start-hint").textContent = `检测到存档（当前槽 ${getActiveSlot()}），可读取继续。换设备请先导出。`;
+    $("#start-hint").textContent = t("start.detectSave", { n: getActiveSlot() });
   }
 
   $("#btn-new-game").onclick = () => {
-    const manager = $("#input-manager").value.trim() || "教练";
+    const manager = $("#input-manager").value.trim() || t("start.manager.placeholder");
     const clubId = $("#select-club").value;
     const tpl = CLUB_TEMPLATES.find((c) => c.id === clubId);
     if (!tpl || (tpl.division || 3) !== START_DIVISION) {
-      $("#start-hint").textContent = "只能选择乙级联赛球队开局。";
+      $("#start-hint").textContent = t("start.div3Only");
       return;
     }
     const slot = getActiveSlot();
-    if (hasSave(slot) && !confirm(`开始新赛季将覆盖「槽 ${slot}」存档，确定？`)) return;
+    if (hasSave(slot) && !confirm(t("start.overwriteConfirm", { n: slot }))) return;
     world = createWorld(clubId, manager);
     ensureMedia(world);
     for (const c of world.clubs) ensureStaff(c);
@@ -271,7 +278,7 @@ function initStart() {
     const slot = getActiveSlot();
     const data = loadGame(slot);
     if (!data) {
-      $("#start-hint").textContent = `槽 ${slot} 没有存档。`;
+      $("#start-hint").textContent = t("start.noSave", { n: slot });
       return;
     }
     world = data;
@@ -282,13 +289,13 @@ function initStart() {
   $("#btn-export-save").onclick = () => {
     const slot = getActiveSlot();
     if (!hasSave(slot)) {
-      $("#start-hint").textContent = `槽 ${slot} 没有可导出的存档。`;
+      $("#start-hint").textContent = t("start.noExport", { n: slot });
       return;
     }
     const data = loadGame(slot);
     if (exportSaveDownload(data)) {
-      toast("存档已下载 · 请保存到网盘/文件，换设备可导入");
-    } else toast("导出失败");
+      toast(t("toast.exportedOk"));
+    } else toast(t("toast.exportFail"));
   };
 
   $("#btn-import-save").onclick = () => {
@@ -303,20 +310,20 @@ function initStart() {
       const text = await file.text();
       const data = importSaveText(text);
       if (!data) {
-        toast("存档文件无效");
+        toast(t("toast.importBad"));
         return;
       }
       const slot = getActiveSlot();
-      if (hasSave(slot) && !confirm(`导入将覆盖「槽 ${slot}」，确定？`)) return;
+      if (hasSave(slot) && !confirm(t("start.overwriteConfirm", { n: slot }))) return;
       world = data;
       migrateWorld(world);
       saveGame(world, slot);
-      toast(`已导入到槽 ${slot}`);
+      toast(t("toast.imported", { n: slot }));
       refreshSlotUI();
       enterMain();
     } catch (err) {
       console.error(err);
-      toast("导入失败");
+      toast(t("toast.importFail"));
     }
   };
 }
@@ -385,24 +392,26 @@ function bindMainOnce() {
   });
 
   $("#btn-save").onclick = () => {
-    if (saveGame(world)) toast(`已存到槽 ${getActiveSlot()}`);
-    else toast("存档失败");
+    if (saveGame(world)) toast(t("toast.saved", { n: getActiveSlot() }));
+    else toast(t("toast.saveFail"));
   };
 
   $("#btn-export-save-main").onclick = () => {
     if (!world) return;
-    if (exportSaveDownload(world)) toast("存档已下载 · 换设备请导入此文件");
-    else toast("导出失败");
+    if (exportSaveDownload(world)) toast(t("toast.exported"));
+    else toast(t("toast.exportFail"));
   };
 
   $("#btn-menu").onclick = () => {
     autosave("menu");
-    if (confirm(`返回主菜单？（已自动存到槽 ${getActiveSlot()}）`)) {
+    if (confirm(getLang() === "en"
+      ? `Return to menu? (auto-saved to slot ${getActiveSlot()})`
+      : `返回主菜单？（已自动存到槽 ${getActiveSlot()}）`)) {
       showScreen("start");
       refreshSlotUI();
       $("#start-hint").textContent = hasAnySave()
-        ? `已存档（槽 ${getActiveSlot()}）。换设备请导出备份。`
-        : "";
+        ? t("start.backMenu")
+        : t("start.backMenuEmpty");
     }
   };
 
@@ -450,7 +459,7 @@ function bindMainOnce() {
     autoLineup(getUserClub(world));
     renderTactics();
     renderSquad();
-    toast("已自动排出最佳十一人");
+    toast(t("toast.autoXi"));
   };
 
   $("#btn-refresh-market").onclick = () => renderTransfer();
@@ -489,9 +498,9 @@ function bindMainOnce() {
     const fee = 50_000;
     if (club.money >= fee) {
       club.money -= fee;
-      toast(`已刷新职员市场（-€50K）`);
+      toast(t("toast.staffRefresh"));
     } else {
-      toast("资金不足，仍已刷新列表");
+      toast(t("toast.staffRefreshFree"));
     }
     saveGame(world);
     renderStaff();
@@ -728,7 +737,7 @@ function renderMedia() {
   const feed = $("#media-feed");
   if (!feed) return;
   const list = world.media || [];
-  $("#media-count").textContent = `${list.length} 篇报道`;
+  $("#media-count").textContent = t("media.count", { n: list.length });
   feed.innerHTML = list.length
     ? list
         .map((a) => {
@@ -775,9 +784,9 @@ function renderTopbar() {
     { role: "manager", size: 28 }
   );
   $("#manager-name").innerHTML = `${mgrAv} <span>${escapeHtml(world.managerName)} · ${div?.short || "乙级"}</span>`;
-  $("#season-label").textContent = `赛季 ${world.season}`;
+  $("#season-label").textContent = t("top.season", { n: world.season });
   const tw = transferWindowShort(world);
-  $("#date-label").textContent = `第 ${world.day} 天 · ${tw}`;
+  $("#date-label").textContent = `${t("top.day", { n: world.day })} · ${tw}`;
   $("#money-label").textContent = formatMoney(club.money);
 }
 
@@ -805,13 +814,13 @@ function renderDashboard() {
       </div>
     `;
     playBtn.disabled = true;
-    playBtn.textContent = "赛季已结束";
+    playBtn.textContent = t("dash.seasonOver");
     advanceBtn.disabled = true;
     if (advanceMatchBtn) advanceMatchBtn.disabled = true;
     if (advanceSeasonBtn) advanceSeasonBtn.disabled = true;
     nextSeasonBtn.style.display = "inline-block";
   } else if (!next) {
-    box.textContent = "暂无下场比赛，可推进日程。";
+    box.textContent = t("dash.noNext");
     playBtn.disabled = true;
     advanceBtn.disabled = false;
     if (advanceMatchBtn) advanceMatchBtn.disabled = false;
@@ -831,7 +840,7 @@ function renderDashboard() {
       </div>
     `;
     playBtn.disabled = !ready;
-    playBtn.textContent = ready ? "进入比赛" : "尚未到比赛日";
+    playBtn.textContent = ready ? t("dash.play") : t("dash.notMatchday");
     advanceBtn.disabled = false;
     // 比赛日当天：应先踢比赛，禁用跳到下场 / 赛季末
     if (advanceMatchBtn) advanceMatchBtn.disabled = ready;
@@ -855,7 +864,7 @@ function renderDashboard() {
   // 当前训练（概览一眼可见）
   const trainDash = document.querySelector("#training-dash");
   if (trainDash) {
-    trainDash.textContent = trainingSummary(club).line + " · 在「训练」页调整";
+    trainDash.textContent = trainingSummary(club).line + t("dash.trainHint");
   }
   // 设施摘要
   let facDash = document.querySelector("#facilities-dash");
@@ -874,7 +883,7 @@ function renderDashboard() {
   }
   if (facDash) {
     ensureFacilities(club);
-    facDash.textContent = facilitySummaryLine(club) + " · 在「设施」页扩建/升级";
+    facDash.textContent = facilitySummaryLine(club) + t("dash.facHint");
   }
 
   // 转会窗
@@ -928,7 +937,7 @@ function renderSquad() {
   const tbody = $("#squad-table tbody");
   const sorted = [...club.players].sort((a, b) => b.ovr - a.ovr);
 
-  $("#squad-count").textContent = `${sorted.length} 名球员`;
+  $("#squad-count").textContent = t("squad.count", { n: sorted.length });
 
   tbody.innerHTML = sorted
     .map((p) => {
@@ -1210,16 +1219,21 @@ function renderFacilities() {
       let action = "";
       if (proj) {
         const left = Math.max(0, proj.finishDay - world.day);
-        action = `<button class="btn small" disabled>施工中 · ${left} 天后完工</button>
+        action = `<button class="btn small" disabled>${t("fac.building", { n: left })}</button>
           <p class="hint" style="margin:0.4rem 0 0">目标 Lv.${proj.to} ${escapeHtml(proj.name)}</p>`;
       } else if (lv >= FACILITY_MAX) {
-        action = `<button class="btn small" disabled>已满级</button>`;
+        action = `<button class="btn small" disabled>${t("fac.maxed")}</button>`;
       } else {
         const next = lv + 1;
         const cost = costs[kind][next];
         const days = buildDays[kind][next];
-        const verb = kind === "stadium" ? (next >= 4 ? "新建" : "扩建") : "升级";
-        action = `<button class="btn small primary" data-upgrade-facility="${kind}">${verb}至 Lv.${next}（${formatMoney(cost)} · ${days}天）</button>
+        const verbKey =
+          kind === "stadium" ? (next >= 4 ? "fac.buildNew" : "fac.expand") : "fac.upgrade";
+        action = `<button class="btn small primary" data-upgrade-facility="${kind}">${t(verbKey, {
+          lv: next,
+          cost: formatMoney(cost),
+          days,
+        })}</button>
           <p class="hint" style="margin:0.4rem 0 0">${escapeHtml(nextEffect(next))}</p>`;
       }
       return `<div class="facility-card">
@@ -1281,7 +1295,7 @@ function renderYouth() {
     $("#youth-hint").textContent = `下级：${YOUTH_LEVELS[nextLv].name} · 容量 ${YOUTH_LEVELS[nextLv].capacity} · 成长更快（「设施」页可一并管理球场/训练）`;
   }
 
-  $("#youth-count").textContent = `${ya.players.length} 名学员`;
+  $("#youth-count").textContent = t("youth.count", { n: ya.players.length });
   const sorted = [...ya.players].sort(
     (a, b) => (b.potential || 0) - (a.potential || 0) || b.ovr - a.ovr
   );
@@ -1390,7 +1404,7 @@ function renderTable() {
   const table = getSortedTable(world, div);
   const n = table.length;
 
-  $("#table-title").textContent = `${info.name}积分榜`;
+  $("#table-title").textContent = t("table.titleNamed", { name: t("div." + div) || info.name });
   let hint = "";
   if (div === 1) hint = `20 支球队 · 后 ${info.relegate} 名降入甲级联赛`;
   else if (div === 2) hint = `20 支球队 · 前 ${info.promote} 名升超级联赛 · 后 ${info.relegate} 名降乙级联赛`;
@@ -1576,10 +1590,10 @@ function renderFixtures() {
       const home = world.clubs.find((c) => c.id === f.home);
       const away = world.clubs.find((c) => c.id === f.away);
       const score = f.played ? `${f.homeGoals} - ${f.awayGoals}` : "-";
-      let status = "未赛";
-      if (f.played) status = "已完赛";
-      else if (f.day === world.day) status = "今日";
-      else if (f.day < world.day) status = "待踢";
+      let status = t("fix.pending");
+      if (f.played) status = t("fix.played");
+      else if (f.day === world.day) status = getLang() === "en" ? "Today" : "今日";
+      else if (f.day < world.day) status = getLang() === "en" ? "Due" : "待踢";
       return `<tr class="${f.day === world.day && !f.played ? "me" : ""}">
         <td>${f.round}</td>
         <td>D${f.day}</td>
@@ -1599,12 +1613,12 @@ function onAdvance() {
     return;
   }
   if (world.seasonOver || (world.fixtures.length && world.fixtures.every((f) => f.played))) {
-    toast("赛季已结束，请进入下一赛季");
+    toast(t("toast.seasonOver"));
     return;
   }
   const next = getNextUserMatch(world);
   if (next && next.day === world.day && !next.played) {
-    toast("今天有比赛，请先进入比赛！");
+    toast(t("toast.playFirst"));
     return;
   }
   const res = advanceDay(world);
@@ -1615,7 +1629,7 @@ function onAdvance() {
     const label = pendingMatch.roundLabel || `第 ${pendingMatch.round} 轮`;
     toast(`${label} · 比赛日到了！`);
   } else if (world.seasonOver) {
-    toast("赛季结束！查看新闻中的退役与年龄变化");
+    toast(t("toast.seasonEndNews"));
     if (world.sacked) handleSacked({ sacked: true, msg: world.sackedReason });
   }
   autosave("advance");
@@ -1628,7 +1642,7 @@ function onAdvanceToMatchday() {
     return;
   }
   if (world.seasonOver || (world.fixtures.length && world.fixtures.every((f) => f.played))) {
-    toast("赛季已结束，请进入下一赛季");
+    toast(t("toast.seasonOver"));
     return;
   }
   const res = advanceToNextMatchDay(world);
@@ -1661,7 +1675,7 @@ function onAdvanceToSeasonEnd() {
     return;
   }
   if (world.seasonOver || (world.fixtures.length && world.fixtures.every((f) => f.played))) {
-    toast("赛季已结束，请进入下一赛季");
+    toast(t("toast.seasonOver"));
     return;
   }
   if (
@@ -1699,11 +1713,11 @@ function onAdvanceToSeasonEnd() {
 function openMatch() {
   const next = getNextUserMatch(world);
   if (!next || next.day > world.day) {
-    toast("还没有可踢的比赛");
+    toast(t("match.noMatch"));
     return;
   }
   if (world.day < next.day) {
-    toast("尚未到比赛日，请推进日程");
+    toast(t("match.notDay"));
     return;
   }
   pendingMatch = next;
@@ -1716,7 +1730,7 @@ function openMatch() {
   $("#match-score").textContent = "0 - 0";
   $("#match-minute").textContent = "0'";
   const ctx = $("#match-context");
-  if (ctx) ctx.textContent = next.competition === "cup" ? next.roundLabel || "联赛杯" : `联赛第 ${next.round || "?"} 轮`;
+  if (ctx) ctx.textContent = next.competition === "cup" ? next.roundLabel || t("match.cup") : t("match.leagueRound", { n: next.round || "?" });
   $("#match-log").innerHTML = "";
   hideHtPanel();
   hideMatchReport();
@@ -1804,7 +1818,7 @@ async function runMatch(mode) {
     openHalfTimePanel();
   } catch (err) {
     console.error(err);
-    toast("比赛模拟出错：" + (err.message || err));
+    toast(t("match.err", { msg: err.message || err }));
     setMatchBusy(false);
   }
 }
@@ -1820,7 +1834,14 @@ function openHalfTimePanel() {
   pendingSubs = [];
   const club = matchState.userClub;
   const t = club?.tactics || {};
-  $("#match-ht-score").textContent = `半场 ${matchState.home.name} ${matchState.hg} - ${matchState.ag} ${matchState.away.name} · 可改战术与换人（最多 ${matchState.maxSubs} 次，已用 ${matchState.subsUsed[matchState.userSide] || 0}）`;
+  $("#match-ht-score").textContent = t("match.htScore", {
+    home: matchState.home.name,
+    away: matchState.away.name,
+    hg: matchState.hg,
+    ag: matchState.ag,
+    max: matchState.maxSubs,
+    used: matchState.subsUsed[matchState.userSide] || 0,
+  });
   $("#ht-style").value = t.style || "balanced";
   $("#ht-pressing").value = t.pressing ?? 3;
   $("#ht-tempo").value = t.tempo ?? 3;
@@ -1867,7 +1888,7 @@ function renderHtSubsList() {
   if (!matchState) return;
   const used = (matchState.subsUsed[matchState.userSide] || 0) + pendingSubs.length;
   const remain = Math.max(0, matchState.maxSubs - used);
-  if (left) left.textContent = `剩余换人 ${remain} 次（本场最多 ${matchState.maxSubs}）`;
+  if (left) left.textContent = `${t("match.subsLeftFull", { n: remain, max: matchState.maxSubs })}`;
   if (ul) {
     ul.innerHTML = pendingSubs
       .map((s) => `<li>🔄 ${escapeHtml(s.outName)} ↓ → ${escapeHtml(s.inName)} ↑</li>`)
@@ -1880,16 +1901,16 @@ function onHtAddSub() {
   const outId = $("#ht-sub-out")?.value;
   const inId = $("#ht-sub-in")?.value;
   if (!outId || !inId) {
-    toast("请选择下场与上场球员");
+    toast(t("match.pickSub"));
     return;
   }
   const used = (matchState.subsUsed[matchState.userSide] || 0) + pendingSubs.length;
   if (used >= matchState.maxSubs) {
-    toast("换人次数已满");
+    toast(t("match.subsFull"));
     return;
   }
   if (pendingSubs.some((s) => s.outId === outId || s.inId === inId)) {
-    toast("该球员已在换人列表中");
+    toast(t("match.subDup"));
     return;
   }
   const club = matchState.userClub;
@@ -1958,7 +1979,7 @@ async function finishHalfTime(applyOrders) {
     saveGame(world);
   } catch (err) {
     console.error(err);
-    toast("下半场出错：" + (err.message || err));
+    toast(t("match.err2", { msg: err.message || err }));
     setMatchBusy(false);
   }
 }
@@ -2002,28 +2023,28 @@ function showMatchReport(report) {
     .join("<br>");
 
   el.innerHTML = `
-    <h3>赛后报告</h3>
-    <div class="match-report-meta">${escapeHtml(meta || "常规比赛")} · 比分 ${escapeHtml(report.score)}</div>
+    <h3>${t("match.report")}</h3>
+    <div class="match-report-meta">${escapeHtml(t("match.reportMeta", { meta: meta || t("match.regular"), score: report.score }))}</div>
     <table class="report-table">
       <thead><tr>
         <th>${escapeHtml(h.short || h.name)}</th>
-        <th>数据</th>
+        <th>${t("match.stats")}</th>
         <th>${escapeHtml(a.short || a.name)}</th>
       </tr></thead>
       <tbody>
-        ${row("期望进球 xG", h.xg, a.xg, true)}
-        ${row("射门", h.shots, a.shots, true)}
-        ${row("射正", h.shotsOn, a.shotsOn, true)}
-        ${row("控球 %", h.possession, a.possession, true)}
-        ${row("角球", h.corners, a.corners, true)}
-        ${row("犯规", h.fouls, a.fouls, false)}
-        ${row("黄牌", h.yellows, a.yellows, false)}
-        ${row("红牌", h.reds, a.reds, false)}
-        ${row("扑救", h.saves, a.saves, false)}
-        ${row("中柱/横梁", h.woodwork, a.woodwork, false)}
+        ${row(t("match.xg"), h.xg, a.xg, true)}
+        ${row(t("match.shots"), h.shots, a.shots, true)}
+        ${row(t("match.shotsOn"), h.shotsOn, a.shotsOn, true)}
+        ${row(t("match.poss"), h.possession, a.possession, true)}
+        ${row(t("match.corners"), h.corners, a.corners, true)}
+        ${row(t("match.fouls"), h.fouls, a.fouls, false)}
+        ${row(t("match.yellows"), h.yellows, a.yellows, false)}
+        ${row(t("match.reds"), h.reds, a.reds, false)}
+        ${row(t("match.saves"), h.saves, a.saves, false)}
+        ${row(t("match.woodwork"), h.woodwork, a.woodwork, false)}
       </tbody>
     </table>
-    ${scorers ? `<div class="report-scorers"><strong>进球</strong><br>${scorers}</div>` : ""}
+    ${scorers ? `<div class="report-scorers"><strong>${t("match.scorers")}</strong><br>${scorers}</div>` : ""}
   `;
   el.classList.remove("hidden");
 }
@@ -2069,7 +2090,7 @@ function toast(msg) {
     el = document.createElement("div");
     el.id = "toast";
     el.style.cssText =
-      "position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);background:#1e293b;border:1px solid #3d8bfd;padding:0.65rem 1.2rem;border-radius:8px;z-index:200;box-shadow:0 8px 24px rgba(0,0,0,.4);max-width:90vw;text-align:center;";
+      "position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);background:var(--toast-bg, #1e293b);border:1px solid var(--primary);color:var(--text);padding:0.65rem 1.2rem;border-radius:8px;z-index:200;box-shadow:0 8px 24px rgba(0,0,0,.4);max-width:90vw;text-align:center;";
     document.body.appendChild(el);
   }
   el.textContent = msg;
@@ -2084,4 +2105,11 @@ function toast(msg) {
 }
 
 // ---------- Boot ----------
+initPrefs();
+window.addEventListener("vc-prefs-change", () => {
+  fillClubSelect();
+  refreshSlotUI();
+  if (world) refreshAll();
+});
 initStart();
+

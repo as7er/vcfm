@@ -1,4 +1,5 @@
-:root {
+:root,
+html[data-theme="dark"] {
   --bg: #0b1220;
   --bg2: #121a2b;
   --card: #172033;
@@ -14,11 +15,40 @@
   --pitch-line: rgba(255, 255, 255, 0.35);
   --radius: 12px;
   --shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  --toast-bg: #1e293b;
+  --start-sky-top: #0a1020;
+  --start-card-a: rgba(28, 38, 58, 0.88);
+  --start-card-b: rgba(18, 26, 43, 0.92);
   font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  color-scheme: dark;
+}
+
+/* 日间模式 */
+html[data-theme="light"] {
+  --bg: #e8eef8;
+  --bg2: #f4f7fc;
+  --card: #ffffff;
+  --border: #c5d0e3;
+  --text: #1a2438;
+  --muted: #5a6b86;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --good: #15965a;
+  --bad: #dc3d4a;
+  --warn: #c4880a;
+  --pitch: #2d8a52;
+  --pitch-line: rgba(255, 255, 255, 0.55);
+  --shadow: 0 8px 28px rgba(30, 50, 90, 0.12);
+  --toast-bg: #ffffff;
+  --start-sky-top: #9ec5ff;
+  --start-card-a: rgba(255, 255, 255, 0.92);
+  --start-card-b: rgba(244, 247, 252, 0.95);
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); color: var(--text); }
+html { transition: background 0.25s ease, color 0.2s ease; }
 button, input, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
 ul { margin: 0; padding: 0; list-style: none; }
@@ -26,7 +56,55 @@ ul { margin: 0; padding: 0; list-style: none; }
 .screen { display: none; min-height: 100vh; }
 .screen.active { display: block; }
 
-/* Start · 夜场球场氛围 */
+/* 主题 / 语言切换 */
+.prefs-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--border);
+}
+.prefs-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.prefs-group > span { white-space: nowrap; }
+.prefs-seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--bg2);
+}
+.prefs-seg button {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+  line-height: 1.3;
+}
+.prefs-seg button:hover { color: var(--text); }
+.prefs-seg button.active {
+  background: var(--primary);
+  color: #fff;
+  font-weight: 600;
+}
+.topbar-prefs {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-right: 0.25rem;
+}
+.topbar-prefs .prefs-seg button { padding: 0.25rem 0.55rem; font-size: 0.75rem; }
+
+/* Start · 球场氛围（夜间/日间由主题变量驱动） */
 #screen-start {
   display: none;
   position: relative;
@@ -34,7 +112,7 @@ ul { margin: 0; padding: 0; list-style: none; }
   justify-content: center;
   overflow: hidden;
   isolation: isolate;
-  background: #060a12;
+  background: var(--bg);
 }
 #screen-start.active { display: flex; }
 
@@ -46,7 +124,7 @@ ul { margin: 0; padding: 0; list-style: none; }
   overflow: hidden;
 }
 
-/* 夜空渐变 */
+/* 天空渐变 */
 .start-bg-sky {
   position: absolute;
   inset: 0;
@@ -54,6 +132,26 @@ ul { margin: 0; padding: 0; list-style: none; }
     radial-gradient(ellipse 120% 80% at 50% -10%, #1a2744 0%, transparent 55%),
     radial-gradient(ellipse 90% 60% at 50% 100%, #0d2818 0%, transparent 50%),
     linear-gradient(180deg, #0a1020 0%, #0c1528 38%, #0a1a14 72%, #07140e 100%);
+}
+html[data-theme="light"] .start-bg-sky {
+  background:
+    radial-gradient(ellipse 100% 70% at 50% -5%, #b8d4ff 0%, transparent 55%),
+    radial-gradient(ellipse 90% 50% at 50% 100%, #7ecf9a 0%, transparent 45%),
+    linear-gradient(180deg, #8eb8f0 0%, #a8c8f0 35%, #6aaf7a 70%, #4a9a62 100%);
+}
+html[data-theme="light"] .start-bg-stars { opacity: 0.15; }
+html[data-theme="light"] .floodlight { opacity: 0.08; }
+html[data-theme="light"] .start-bg-stands {
+  opacity: 0.75;
+  filter: brightness(1.35);
+}
+html[data-theme="light"] .start-bg-vignette {
+  background:
+    radial-gradient(ellipse 70% 60% at 50% 42%, transparent 25%, rgba(232, 238, 248, 0.35) 80%, rgba(232, 238, 248, 0.75) 100%);
+}
+html[data-theme="light"] .start-bg-particles span {
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
 }
 
 /* 彩色氛围光 */
@@ -357,15 +455,17 @@ ul { margin: 0; padding: 0; list-style: none; }
 .start-card {
   position: relative;
   z-index: 1;
-  width: min(420px, 92vw);
+  width: min(440px, 94vw);
+  max-height: min(92vh, 900px);
+  overflow-y: auto;
   background: linear-gradient(
     165deg,
-    rgba(28, 38, 58, 0.88) 0%,
-    rgba(18, 26, 43, 0.92) 100%
+    var(--start-card-a) 0%,
+    var(--start-card-b) 100%
   );
   border: 1px solid rgba(61, 139, 253, 0.22);
   border-radius: 18px;
-  padding: 2rem 1.85rem 1.75rem;
+  padding: 1.65rem 1.75rem 1.5rem;
   box-shadow:
     0 4px 24px rgba(0, 0, 0, 0.45),
     0 0 0 1px rgba(255, 255, 255, 0.04) inset,
@@ -374,6 +474,18 @@ ul { margin: 0; padding: 0; list-style: none; }
   backdrop-filter: blur(16px) saturate(1.2);
   -webkit-backdrop-filter: blur(16px) saturate(1.2);
   animation: start-card-in 0.7s ease-out both;
+}
+html[data-theme="light"] .start-card {
+  border-color: rgba(37, 99, 235, 0.2);
+  box-shadow:
+    0 8px 32px rgba(30, 60, 120, 0.15),
+    0 0 0 1px rgba(255, 255, 255, 0.8) inset;
+}
+html[data-theme="light"] .start-card h1 {
+  background: linear-gradient(120deg, #1a2438 15%, #2563eb 55%, #15965a 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 @keyframes start-card-in {
   from {

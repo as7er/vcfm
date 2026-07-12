@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -8,6 +8,19 @@
   <meta name="theme-color" content="#0b1220" />
   <title>VC 足球经理</title>
   <link rel="stylesheet" href="css/style.css" />
+  <script>
+    /* 尽早应用主题/语言，避免闪白 */
+    (function () {
+      try {
+        var th = localStorage.getItem("vc-fm-theme");
+        if (th === "light" || th === "dark") document.documentElement.setAttribute("data-theme", th);
+        else if (window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches)
+          document.documentElement.setAttribute("data-theme", "light");
+        var lg = localStorage.getItem("vc-fm-lang");
+        if (lg === "en" || lg === "zh") document.documentElement.lang = lg === "zh" ? "zh-CN" : "en";
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body>
   <div id="app">
@@ -38,32 +51,48 @@
         </div>
       </div>
       <div class="start-card">
+        <div class="prefs-bar">
+          <div class="prefs-group">
+            <span data-i18n="prefs.theme">主题</span>
+            <div class="prefs-seg" role="group">
+              <button type="button" data-theme-btn="dark" data-i18n="prefs.theme.dark">夜间</button>
+              <button type="button" data-theme-btn="light" data-i18n="prefs.theme.light">日间</button>
+            </div>
+          </div>
+          <div class="prefs-group">
+            <span data-i18n="prefs.lang">语言</span>
+            <div class="prefs-seg" role="group">
+              <button type="button" data-lang-btn="zh" data-i18n="prefs.lang.zh">中文</button>
+              <button type="button" data-lang-btn="en" data-i18n="prefs.lang.en">EN</button>
+            </div>
+          </div>
+        </div>
         <div class="start-logo" aria-hidden="true">⚽</div>
-        <h1>VC 足球经理</h1>
-        <p class="subtitle">简化版足球经理 · 灵感来自 FM</p>
+        <h1 data-i18n="app.title">VC 足球经理</h1>
+        <p class="subtitle" data-i18n="app.subtitle">简化版足球经理 · 灵感来自 FM</p>
         <div class="start-form">
-          <label>经理姓名
-            <input id="input-manager" type="text" value="教练" maxlength="16" />
+          <label><span data-i18n="start.manager">经理姓名</span>
+            <input id="input-manager" type="text" value="教练" maxlength="16" data-i18n-placeholder="start.manager.placeholder" />
           </label>
-          <label>选择球队（仅乙级联赛）
+          <label><span data-i18n="start.club">选择球队（仅乙级联赛）</span>
             <select id="select-club"></select>
           </label>
-          <p class="hint" style="margin:0">三级联赛：乙级 → 甲级 → 超联。开局只能从乙级起步，争取升级！</p>
+          <p class="hint" style="margin:0" data-i18n="start.leagueHint">三级联赛：乙级 → 甲级 → 超联。开局只能从乙级起步，争取升级！</p>
 
           <div class="slot-section">
             <div class="row-between" style="margin-bottom:0.4rem">
-              <strong style="font-size:0.9rem">存档槽</strong>
+              <strong style="font-size:0.9rem" data-i18n="start.slots">存档槽</strong>
               <span class="muted" id="active-slot-label" style="font-size:0.8rem"></span>
             </div>
             <div id="save-slots" class="save-slots"></div>
-            <p class="hint save-tip">换手机/浏览器请先<strong>导出存档</strong>；清缓存会丢进度。</p>
+            <p class="hint save-tip" data-i18n-html="start.saveTipHtml">换手机/浏览器请先<strong>导出存档</strong>；清缓存会丢进度。</p>
           </div>
 
-          <button id="btn-new-game" class="btn primary">开始新赛季</button>
-          <button id="btn-load-game" class="btn">读取当前槽</button>
+          <button id="btn-new-game" class="btn primary" data-i18n="start.newGame">开始新赛季</button>
+          <button id="btn-load-game" class="btn" data-i18n="start.loadGame">读取当前槽</button>
           <div class="start-save-row">
-            <button id="btn-export-save" class="btn small" type="button">导出存档</button>
-            <button id="btn-import-save" class="btn small" type="button">导入到当前槽</button>
+            <button id="btn-export-save" class="btn small" type="button" data-i18n="start.export">导出存档</button>
+            <button id="btn-import-save" class="btn small" type="button" data-i18n="start.import">导入到当前槽</button>
             <input id="input-import-save" type="file" accept="application/json,.json" hidden />
           </div>
         </div>
@@ -84,23 +113,33 @@
           <span id="money-label" class="money"></span>
         </div>
         <nav class="tabs">
-          <button data-tab="dashboard" class="tab active">概览</button>
-          <button data-tab="squad" class="tab">阵容</button>
-          <button data-tab="youth" class="tab">青训</button>
-          <button data-tab="facilities" class="tab">设施</button>
-          <button data-tab="staff" class="tab">职员</button>
-          <button data-tab="training" class="tab">训练</button>
-          <button data-tab="tactics" class="tab">战术</button>
-          <button data-tab="table" class="tab">积分榜</button>
-          <button data-tab="stats" class="tab">数据榜</button>
-          <button data-tab="media" class="tab">媒体</button>
-          <button data-tab="transfer" class="tab">转会</button>
-          <button data-tab="fixtures" class="tab">赛程</button>
+          <button data-tab="dashboard" class="tab active" data-i18n="tab.dashboard">概览</button>
+          <button data-tab="squad" class="tab" data-i18n="tab.squad">阵容</button>
+          <button data-tab="youth" class="tab" data-i18n="tab.youth">青训</button>
+          <button data-tab="facilities" class="tab" data-i18n="tab.facilities">设施</button>
+          <button data-tab="staff" class="tab" data-i18n="tab.staff">职员</button>
+          <button data-tab="training" class="tab" data-i18n="tab.training">训练</button>
+          <button data-tab="tactics" class="tab" data-i18n="tab.tactics">战术</button>
+          <button data-tab="table" class="tab" data-i18n="tab.table">积分榜</button>
+          <button data-tab="stats" class="tab" data-i18n="tab.stats">数据榜</button>
+          <button data-tab="media" class="tab" data-i18n="tab.media">媒体</button>
+          <button data-tab="transfer" class="tab" data-i18n="tab.transfer">转会</button>
+          <button data-tab="fixtures" class="tab" data-i18n="tab.fixtures">赛程</button>
         </nav>
         <div class="actions">
-          <button id="btn-save" class="btn small">存档</button>
-          <button id="btn-export-save-main" class="btn small ghost" type="button">导出</button>
-          <button id="btn-menu" class="btn small ghost">菜单</button>
+          <div class="topbar-prefs">
+            <div class="prefs-seg" role="group" aria-label="theme">
+              <button type="button" data-theme-btn="dark" title="Night">🌙</button>
+              <button type="button" data-theme-btn="light" title="Day">☀️</button>
+            </div>
+            <div class="prefs-seg" role="group" aria-label="language">
+              <button type="button" data-lang-btn="zh">中</button>
+              <button type="button" data-lang-btn="en">EN</button>
+            </div>
+          </div>
+          <button id="btn-save" class="btn small" data-i18n="btn.save">存档</button>
+          <button id="btn-export-save-main" class="btn small ghost" type="button" data-i18n="btn.export">导出</button>
+          <button id="btn-menu" class="btn small ghost" data-i18n="btn.menu">菜单</button>
         </div>
       </header>
 
@@ -109,30 +148,30 @@
         <div id="tab-dashboard" class="tab-panel active">
           <div class="grid-2">
             <div class="card">
-              <h2>下一场比赛</h2>
-              <div id="next-match" class="next-match">暂无赛程</div>
+              <h2 data-i18n="dash.nextMatch">下一场比赛</h2>
+              <div id="next-match" class="next-match" data-i18n="dash.noFixture">暂无赛程</div>
               <div class="dash-actions">
-                <button id="btn-play-match" class="btn primary" disabled>进入比赛</button>
-                <button id="btn-advance" class="btn">推进一天</button>
-                <button id="btn-advance-matchday" class="btn">推进到比赛日</button>
-                <button id="btn-advance-season-end" class="btn" type="button" title="自动推进，遇到我方比赛会停下">推进到赛季末</button>
-                <button id="btn-next-season" class="btn primary" style="display:none">进入下一赛季</button>
+                <button id="btn-play-match" class="btn primary" disabled data-i18n="dash.play">进入比赛</button>
+                <button id="btn-advance" class="btn" data-i18n="dash.advance">推进一天</button>
+                <button id="btn-advance-matchday" class="btn" data-i18n="dash.advanceMatchday">推进到比赛日</button>
+                <button id="btn-advance-season-end" class="btn" type="button" data-i18n="dash.advanceSeasonEnd" data-i18n-title="dash.advanceSeasonEndTitle">推进到赛季末</button>
+                <button id="btn-next-season" class="btn primary" style="display:none" data-i18n="dash.nextSeason">进入下一赛季</button>
               </div>
             </div>
             <div class="card">
-              <h2>联赛排名</h2>
+              <h2 data-i18n="dash.rank">联赛排名</h2>
               <div id="my-rank" class="rank-box">—</div>
-              <h3>董事会目标</h3>
+              <h3 data-i18n="dash.board">董事会目标</h3>
               <div id="board-box" class="board-box">—</div>
-              <h3>转会窗</h3>
+              <h3 data-i18n="dash.window">转会窗</h3>
               <div id="transfer-window-dash" class="transfer-window-box">—</div>
-              <h3>训练日程</h3>
+              <h3 data-i18n="dash.training">训练日程</h3>
               <div id="training-dash" class="muted" style="margin-bottom:0.5rem">—</div>
-              <h3>近期战绩</h3>
+              <h3 data-i18n="dash.form">近期战绩</h3>
               <div id="form-strip" class="form-strip"></div>
             </div>
             <div class="card span-2">
-              <h2>新闻</h2>
+              <h2 data-i18n="dash.news">新闻</h2>
               <ul id="news-list" class="news-list"></ul>
             </div>
           </div>
@@ -142,23 +181,23 @@
         <div id="tab-squad" class="tab-panel">
           <div class="card">
             <div class="row-between">
-              <h2>球队阵容</h2>
+              <h2 data-i18n="squad.title">球队阵容</h2>
               <span class="muted" id="squad-count"></span>
             </div>
             <div class="table-wrap">
               <table id="squad-table">
                 <thead>
                   <tr>
-                    <th>#</th>
-                    <th>姓名</th>
-                    <th>国籍</th>
-                    <th>位置</th>
-                    <th>年龄</th>
-                    <th>能力</th>
-                    <th>体能</th>
-                    <th>士气</th>
-                    <th>球探估值</th>
-                    <th>周薪</th>
+                    <th data-i18n="th.num">#</th>
+                    <th data-i18n="th.name">姓名</th>
+                    <th data-i18n="th.nation">国籍</th>
+                    <th data-i18n="th.pos">位置</th>
+                    <th data-i18n="th.age">年龄</th>
+                    <th data-i18n="th.ovr">能力</th>
+                    <th data-i18n="th.fit">体能</th>
+                    <th data-i18n="th.morale">士气</th>
+                    <th data-i18n="th.scout">球探估值</th>
+                    <th data-i18n="th.wage">周薪</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -172,39 +211,39 @@
         <div id="tab-youth" class="tab-panel">
           <div class="grid-2">
             <div class="card">
-              <h2>青训学院</h2>
+              <h2 data-i18n="youth.title">青训学院</h2>
               <div id="youth-info" class="rank-box" style="font-size:1rem;line-height:1.6"></div>
               <div style="margin-top:0.85rem;display:flex;gap:0.5rem;flex-wrap:wrap">
-                <button id="btn-youth-upgrade" class="btn primary">升级设施</button>
+                <button id="btn-youth-upgrade" class="btn primary" data-i18n="youth.upgrade">升级设施</button>
               </div>
               <p class="hint" id="youth-hint" style="margin-top:0.75rem"></p>
             </div>
             <div class="card">
-              <h2>说明</h2>
+              <h2 data-i18n="youth.helpTitle">说明</h2>
               <ul class="news-list">
-                <li>青训球员会随时间<strong>成长</strong>（每周概率涨属性）</li>
-                <li>约每 <strong>30 天</strong>自动招生</li>
-                <li><strong>提拔</strong>可升入一线队；不合适可<strong>释放</strong></li>
-                <li>升级学院可提高容量、招生数与成长速度</li>
+                <li data-i18n="youth.help1">青训球员会随时间成长（每周概率涨属性）</li>
+                <li data-i18n="youth.help2">约每 30 天自动招生</li>
+                <li data-i18n="youth.help3">提拔可升入一线队；不合适可释放</li>
+                <li data-i18n="youth.help4">升级学院可提高容量、招生数与成长速度</li>
               </ul>
             </div>
             <div class="card span-2">
               <div class="row-between">
-                <h2>青训名单</h2>
+                <h2 data-i18n="youth.list">青训名单</h2>
                 <span class="muted" id="youth-count"></span>
               </div>
               <div class="table-wrap">
                 <table id="youth-table">
                   <thead>
                     <tr>
-                      <th>#</th>
-                      <th>姓名</th>
-                      <th>国籍</th>
-                      <th>位置</th>
-                      <th>年龄</th>
-                      <th>能力</th>
-                      <th>潜力</th>
-                      <th>周薪</th>
+                      <th data-i18n="th.num">#</th>
+                      <th data-i18n="th.name">姓名</th>
+                      <th data-i18n="th.nation">国籍</th>
+                      <th data-i18n="th.pos">位置</th>
+                      <th data-i18n="th.age">年龄</th>
+                      <th data-i18n="th.ovr">能力</th>
+                      <th data-i18n="th.pot">潜力</th>
+                      <th data-i18n="th.wage">周薪</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -215,12 +254,12 @@
           </div>
         </div>
 
-        <!-- 设施：球场 / 训练 / 青训 -->
+        <!-- 设施 -->
         <div id="tab-facilities" class="tab-panel">
           <div class="grid-2">
             <div class="card span-2">
-              <h2>俱乐部设施</h2>
-              <p class="hint" id="facilities-hint">
+              <h2 data-i18n="fac.title">俱乐部设施</h2>
+              <p class="hint" id="facilities-hint" data-i18n="fac.hint">
                 扩建球场提高主场收入；升级训练设施加快成长与恢复；青训设施提高招生与培养。升级需建设工期，期间不可重复开工。
               </p>
               <div id="facilities-grid" class="facilities-grid"></div>
@@ -228,29 +267,29 @@
           </div>
         </div>
 
-        <!-- 职员：教练 / 球探 / 队医 -->
+        <!-- 职员 -->
         <div id="tab-staff" class="tab-panel">
           <div class="grid-2">
             <div class="card span-2">
-              <h2>教练团队</h2>
-              <p class="hint">教练强化比赛与成长 · 球探优化转会与青训 · 队医降低伤病、加速恢复。周薪计入工资单。</p>
+              <h2 data-i18n="staff.title">教练团队</h2>
+              <p class="hint" data-i18n="staff.hint">教练强化比赛与成长 · 球探优化转会与青训 · 队医降低伤病、加速恢复。周薪计入工资单。</p>
               <div id="staff-current" class="staff-grid"></div>
             </div>
             <div class="card span-2">
               <div class="row-between">
-                <h2>职员市场</h2>
-                <button id="btn-refresh-staff" class="btn small">刷新候选人</button>
+                <h2 data-i18n="staff.market">职员市场</h2>
+                <button id="btn-refresh-staff" class="btn small" data-i18n="staff.refresh">刷新候选人</button>
               </div>
               <div class="table-wrap">
                 <table id="staff-market-table">
                   <thead>
                     <tr>
-                      <th>姓名</th>
-                      <th>职位</th>
-                      <th>能力</th>
-                      <th>年龄</th>
-                      <th>周薪</th>
-                      <th>签约费</th>
+                      <th data-i18n="th.name">姓名</th>
+                      <th data-i18n="th.role">职位</th>
+                      <th data-i18n="th.ovr">能力</th>
+                      <th data-i18n="th.age">年龄</th>
+                      <th data-i18n="th.wage">周薪</th>
+                      <th data-i18n="th.fee">签约费</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -261,19 +300,19 @@
           </div>
         </div>
 
-        <!-- 训练日程 -->
+        <!-- 训练 -->
         <div id="tab-training" class="tab-panel">
           <div class="grid-2">
             <div class="card">
-              <h2>训练重点</h2>
-              <p class="hint">每日推进时生效；高强度更易成长也更易受伤。教练能力影响成长与恢复。</p>
+              <h2 data-i18n="train.focus">训练重点</h2>
+              <p class="hint" data-i18n="train.focusHint">每日推进时生效；高强度更易成长也更易受伤。教练能力影响成长与恢复。</p>
               <div id="training-focus-list" class="training-options"></div>
             </div>
             <div class="card">
-              <h2>训练强度</h2>
+              <h2 data-i18n="train.intensity">训练强度</h2>
               <div id="training-intensity-list" class="training-options intensity"></div>
               <div id="training-summary" class="training-summary"></div>
-              <h3>阵容体能一览</h3>
+              <h3 data-i18n="train.fitness">阵容体能一览</h3>
               <div id="training-fitness-bar" class="training-fitness"></div>
               <p class="hint" id="training-hint" style="margin-top:0.75rem"></p>
             </div>
@@ -284,31 +323,31 @@
         <div id="tab-tactics" class="tab-panel">
           <div class="grid-2">
             <div class="card">
-              <h2>阵型</h2>
+              <h2 data-i18n="tac.formation">阵型</h2>
               <select id="formation-select"></select>
               <div id="pitch" class="pitch"></div>
             </div>
             <div class="card">
-              <h2>战术倾向</h2>
-              <label>风格
+              <h2 data-i18n="tac.style">战术倾向</h2>
+              <label><span data-i18n="tac.styleLabel">风格</span>
                 <select id="style-select">
-                  <option value="balanced">均衡</option>
-                  <option value="attack">进攻</option>
-                  <option value="defend">防守</option>
-                  <option value="possession">控球</option>
-                  <option value="counter">反击</option>
+                  <option value="balanced" data-i18n="style.balanced">均衡</option>
+                  <option value="attack" data-i18n="style.attack">进攻</option>
+                  <option value="defend" data-i18n="style.defend">防守</option>
+                  <option value="possession" data-i18n="style.possession">控球</option>
+                  <option value="counter" data-i18n="style.counter">反击</option>
                 </select>
               </label>
-              <label>压迫强度
+              <label><span data-i18n="tac.pressing">压迫强度</span>
                 <input id="pressing" type="range" min="1" max="5" value="3" />
                 <span id="pressing-val">3</span>
               </label>
-              <label>传球节奏
+              <label><span data-i18n="tac.tempo">传球节奏</span>
                 <input id="tempo" type="range" min="1" max="5" value="3" />
                 <span id="tempo-val">3</span>
               </label>
-              <p class="hint">阵型与战术会影响比赛模拟结果。</p>
-              <button id="btn-auto-xi" class="btn">自动排出最佳十一人</button>
+              <p class="hint" data-i18n="tac.hint">阵型与战术会影响比赛模拟结果。</p>
+              <button id="btn-auto-xi" class="btn" data-i18n="tac.autoXi">自动排出最佳十一人</button>
             </div>
           </div>
         </div>
@@ -317,12 +356,12 @@
         <div id="tab-table" class="tab-panel">
           <div class="card">
             <div class="row-between" style="flex-wrap:wrap;gap:0.5rem">
-              <h2 id="table-title" style="margin:0">联赛积分榜</h2>
+              <h2 id="table-title" style="margin:0" data-i18n="table.title">联赛积分榜</h2>
               <div class="filters" style="margin:0">
                 <select id="table-division">
-                  <option value="3">乙级联赛</option>
-                  <option value="2">甲级联赛</option>
-                  <option value="1">超级联赛</option>
+                  <option value="3" data-i18n="div.3">乙级联赛</option>
+                  <option value="2" data-i18n="div.2">甲级联赛</option>
+                  <option value="1" data-i18n="div.1">超级联赛</option>
                 </select>
               </div>
             </div>
@@ -331,16 +370,16 @@
               <table id="league-table">
                 <thead>
                   <tr>
-                    <th>#</th>
-                    <th>球队</th>
-                    <th>赛</th>
-                    <th>胜</th>
-                    <th>平</th>
-                    <th>负</th>
-                    <th>进</th>
-                    <th>失</th>
-                    <th>净</th>
-                    <th>分</th>
+                    <th data-i18n="th.num">#</th>
+                    <th data-i18n="th.club">球队</th>
+                    <th data-i18n="th.p">赛</th>
+                    <th data-i18n="th.w">胜</th>
+                    <th data-i18n="th.d">平</th>
+                    <th data-i18n="th.l">负</th>
+                    <th data-i18n="th.gf">进</th>
+                    <th data-i18n="th.gaShort">失</th>
+                    <th data-i18n="th.gd">净</th>
+                    <th data-i18n="th.pts">分</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -354,10 +393,10 @@
           <div class="grid-2">
             <div class="card span-2">
               <div class="row-between">
-                <h2>媒体中心</h2>
+                <h2 data-i18n="media.title">媒体中心</h2>
                 <span class="muted" id="media-count"></span>
               </div>
-              <p class="hint">赛后通稿、转会官宣、青训特写、传闻与专栏都会出现在这里。</p>
+              <p class="hint" data-i18n="media.hint">赛后通稿、转会官宣、青训特写、传闻与专栏都会出现在这里。</p>
               <div id="media-feed" class="media-feed"></div>
             </div>
           </div>
@@ -367,17 +406,17 @@
         <div id="tab-stats" class="tab-panel">
           <div class="grid-2">
             <div class="card">
-              <h2>射手榜</h2>
+              <h2 data-i18n="stats.goals">射手榜</h2>
               <div class="table-wrap">
                 <table id="stats-goals">
                   <thead>
                     <tr>
-                      <th>#</th>
-                      <th>球员</th>
-                      <th>球队</th>
-                      <th>进球</th>
-                      <th>助攻</th>
-                      <th>出场</th>
+                      <th data-i18n="th.num">#</th>
+                      <th data-i18n="th.player">球员</th>
+                      <th data-i18n="th.club">球队</th>
+                      <th data-i18n="th.goals">进球</th>
+                      <th data-i18n="th.assists">助攻</th>
+                      <th data-i18n="th.apps">出场</th>
                     </tr>
                   </thead>
                   <tbody></tbody>
@@ -385,17 +424,17 @@
               </div>
             </div>
             <div class="card">
-              <h2>助攻榜</h2>
+              <h2 data-i18n="stats.assists">助攻榜</h2>
               <div class="table-wrap">
                 <table id="stats-assists">
                   <thead>
                     <tr>
-                      <th>#</th>
-                      <th>球员</th>
-                      <th>球队</th>
-                      <th>助攻</th>
-                      <th>进球</th>
-                      <th>出场</th>
+                      <th data-i18n="th.num">#</th>
+                      <th data-i18n="th.player">球员</th>
+                      <th data-i18n="th.club">球队</th>
+                      <th data-i18n="th.assists">助攻</th>
+                      <th data-i18n="th.goals">进球</th>
+                      <th data-i18n="th.apps">出场</th>
                     </tr>
                   </thead>
                   <tbody></tbody>
@@ -403,18 +442,18 @@
               </div>
             </div>
             <div class="card span-2">
-              <h2>门将榜（零封 / 失球）</h2>
+              <h2 data-i18n="stats.keepers">门将榜（零封 / 失球）</h2>
               <div class="table-wrap">
                 <table id="stats-keepers">
                   <thead>
                     <tr>
-                      <th>#</th>
-                      <th>门将</th>
-                      <th>球队</th>
-                      <th>出场</th>
-                      <th>零封</th>
-                      <th>失球</th>
-                      <th>场均失球</th>
+                      <th data-i18n="th.num">#</th>
+                      <th data-i18n="th.gk">门将</th>
+                      <th data-i18n="th.club">球队</th>
+                      <th data-i18n="th.apps">出场</th>
+                      <th data-i18n="th.cs">零封</th>
+                      <th data-i18n="th.ga">失球</th>
+                      <th data-i18n="th.gavg">场均失球</th>
                     </tr>
                   </thead>
                   <tbody></tbody>
@@ -428,30 +467,30 @@
         <div id="tab-transfer" class="tab-panel">
           <div class="grid-2">
             <div class="card">
-              <h2>转会市场</h2>
+              <h2 data-i18n="tr.market">转会市场</h2>
               <div id="transfer-window-status" class="transfer-window-box" style="margin-bottom:0.75rem">—</div>
-              <p class="hint" style="margin-top:0">夏窗 D1–D35 · 冬窗 D120–D145；窗外无法买卖（AI 同样受限）。</p>
+              <p class="hint" style="margin-top:0" data-i18n="tr.hint">夏窗 D1–D35 · 冬窗 D120–D145；窗外无法买卖（AI 同样受限）。</p>
               <div class="filters">
                 <select id="filter-pos">
-                  <option value="">全部位置</option>
-                  <option value="GK">门将</option>
-                  <option value="DEF">后卫</option>
-                  <option value="MID">中场</option>
-                  <option value="ATT">前锋</option>
+                  <option value="" data-i18n="tr.allPos">全部位置</option>
+                  <option value="GK" data-i18n="pos.GK">门将</option>
+                  <option value="DEF" data-i18n="pos.DEF">后卫</option>
+                  <option value="MID" data-i18n="pos.MID">中场</option>
+                  <option value="ATT" data-i18n="pos.ATT">前锋</option>
                 </select>
-                <button id="btn-refresh-market" class="btn small">刷新列表</button>
+                <button id="btn-refresh-market" class="btn small" data-i18n="tr.refresh">刷新列表</button>
               </div>
               <div class="table-wrap">
                 <table id="market-table">
                   <thead>
                     <tr>
-                      <th>姓名</th>
-                      <th>国籍</th>
-                      <th>位置</th>
-                      <th>能力</th>
-                      <th>年龄</th>
-                      <th>球队</th>
-                      <th>身价</th>
+                      <th data-i18n="th.name">姓名</th>
+                      <th data-i18n="th.nation">国籍</th>
+                      <th data-i18n="th.pos">位置</th>
+                      <th data-i18n="th.ovr">能力</th>
+                      <th data-i18n="th.age">年龄</th>
+                      <th data-i18n="th.club">球队</th>
+                      <th data-i18n="th.value">身价</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -460,16 +499,16 @@
               </div>
             </div>
             <div class="card">
-              <h2>可出售球员</h2>
+              <h2 data-i18n="tr.sell">可出售球员</h2>
               <div class="table-wrap">
                 <table id="sell-table">
                   <thead>
                     <tr>
-                      <th>姓名</th>
-                      <th>国籍</th>
-                      <th>位置</th>
-                      <th>能力</th>
-                      <th>身价</th>
+                      <th data-i18n="th.name">姓名</th>
+                      <th data-i18n="th.nation">国籍</th>
+                      <th data-i18n="th.pos">位置</th>
+                      <th data-i18n="th.ovr">能力</th>
+                      <th data-i18n="th.value">身价</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -483,17 +522,17 @@
         <!-- 赛程 -->
         <div id="tab-fixtures" class="tab-panel">
           <div class="card">
-            <h2>本队赛程</h2>
+            <h2 data-i18n="fix.title">本队赛程</h2>
             <div class="table-wrap">
               <table id="fixtures-table">
                 <thead>
                   <tr>
-                    <th>轮次</th>
-                    <th>日期</th>
-                    <th>主队</th>
-                    <th>比分</th>
-                    <th>客队</th>
-                    <th>状态</th>
+                    <th data-i18n="th.round">轮次</th>
+                    <th data-i18n="th.date">日期</th>
+                    <th data-i18n="th.home">主队</th>
+                    <th data-i18n="th.score">比分</th>
+                    <th data-i18n="th.away">客队</th>
+                    <th data-i18n="th.status">状态</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -518,56 +557,54 @@
         </header>
         <div id="match-log" class="match-log"></div>
 
-        <!-- 中场休息：战术 + 换人 -->
         <div id="match-ht-panel" class="match-ht-panel hidden">
-          <h3>中场休息 · 调整</h3>
+          <h3 data-i18n="match.htTitle">中场休息 · 调整</h3>
           <p class="hint" id="match-ht-score">—</p>
           <div class="ht-tactics">
-            <label>风格
+            <label><span data-i18n="match.style">风格</span>
               <select id="ht-style">
-                <option value="balanced">均衡</option>
-                <option value="attack">进攻</option>
-                <option value="defend">防守</option>
-                <option value="possession">控球</option>
-                <option value="counter">反击</option>
+                <option value="balanced" data-i18n="style.balanced">均衡</option>
+                <option value="attack" data-i18n="style.attack">进攻</option>
+                <option value="defend" data-i18n="style.defend">防守</option>
+                <option value="possession" data-i18n="style.possession">控球</option>
+                <option value="counter" data-i18n="style.counter">反击</option>
               </select>
             </label>
-            <label>压迫 <span id="ht-pressing-val">3</span>
+            <label><span data-i18n="match.pressing">压迫</span> <span id="ht-pressing-val">3</span>
               <input type="range" id="ht-pressing" min="1" max="5" value="3" />
             </label>
-            <label>节奏 <span id="ht-tempo-val">3</span>
+            <label><span data-i18n="match.tempo">节奏</span> <span id="ht-tempo-val">3</span>
               <input type="range" id="ht-tempo" min="1" max="5" value="3" />
             </label>
           </div>
           <div class="ht-subs">
             <div class="ht-sub-col">
-              <div class="ht-sub-title">下场（在场）</div>
+              <div class="ht-sub-title" data-i18n="match.subOut">下场（在场）</div>
               <select id="ht-sub-out" size="6"></select>
             </div>
             <div class="ht-sub-col">
-              <div class="ht-sub-title">上场（替补）</div>
+              <div class="ht-sub-title" data-i18n="match.subIn">上场（替补）</div>
               <select id="ht-sub-in" size="6"></select>
             </div>
             <div class="ht-sub-actions">
-              <button type="button" id="btn-ht-add-sub" class="btn small">确认换人</button>
+              <button type="button" id="btn-ht-add-sub" class="btn small" data-i18n="match.addSub">确认换人</button>
               <p class="hint" id="ht-subs-left">剩余换人 3 次</p>
               <ul id="ht-subs-list" class="ht-subs-list"></ul>
             </div>
           </div>
           <div class="match-actions">
-            <button id="btn-ht-continue" class="btn primary">下半场开始</button>
-            <button id="btn-ht-skip" class="btn">不调整，直接踢</button>
+            <button id="btn-ht-continue" class="btn primary" data-i18n="match.htContinue">下半场开始</button>
+            <button id="btn-ht-skip" class="btn" data-i18n="match.htSkip">不调整，直接踢</button>
           </div>
         </div>
 
-        <!-- 赛后报告 -->
         <div id="match-report" class="match-report hidden"></div>
 
         <div class="match-actions" id="match-main-actions">
-          <button id="btn-sim-fast" class="btn primary">快速模拟（中场可调）</button>
-          <button id="btn-sim-live" class="btn">直播（中场可调）</button>
-          <button id="btn-sim-instant" class="btn">一键完赛</button>
-          <button id="btn-match-continue" class="btn" disabled>赛后继续</button>
+          <button id="btn-sim-fast" class="btn primary" data-i18n="match.fast">快速模拟（中场可调）</button>
+          <button id="btn-sim-live" class="btn" data-i18n="match.live">直播（中场可调）</button>
+          <button id="btn-sim-instant" class="btn" data-i18n="match.instant">一键完赛</button>
+          <button id="btn-match-continue" class="btn" disabled data-i18n="match.continue">赛后继续</button>
         </div>
       </div>
     </section>
