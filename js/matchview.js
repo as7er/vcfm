@@ -72,10 +72,17 @@ export class MatchView {
     this.trails = []; // active trail animations
     this.heatLayer = null;
     this.pressLayer = null;
+    this.networkSvg = null;
     this.heatCells = []; // {x,y,w,h,home,away,el}
     this.heatTimer = 0;
     this.shapeTimer = 0;
     this.touchTimer = 0;
+    /** @type {Map<string, { fromId: string, toId: string, team: string, count: number, last: number }>} */
+    this.passNetwork = new Map();
+    this.networkEnabled = true;
+    this.networkFilter = "both"; // both | home | away
+    this.networkDirty = false;
+    this.lastCarrierId = null;
   }
 
   /**
@@ -123,6 +130,7 @@ export class MatchView {
           </svg>
           <div class="mp-heat" id="mp-heat" aria-hidden="true"></div>
           <svg class="mp-press" id="mp-press" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
+          <svg class="mp-network" id="mp-network" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
           <svg class="mp-trails" id="mp-trails" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
           <div class="mp-actors" id="mp-actors"></div>
           <div class="mp-fx" id="mp-fx"></div>
@@ -133,7 +141,11 @@ export class MatchView {
       </div>
       <div class="mp-legend">
         <span class="mp-leg home"><i></i><em id="mp-leg-home"></em></span>
-        <span class="mp-leg-hint" id="mp-leg-hint">点击号码查看</span>
+        <div class="mp-net-controls">
+          <button type="button" class="mp-net-btn active" id="mp-net-toggle" title="Pass network">网</button>
+          <button type="button" class="mp-net-btn active" id="mp-net-home" data-net-side="home" title="Home network">主</button>
+          <button type="button" class="mp-net-btn active" id="mp-net-away" data-net-side="away" title="Away network">客</button>
+        </div>
         <span class="mp-leg away"><i></i><em id="mp-leg-away"></em></span>
       </div>
     `;
@@ -146,12 +158,18 @@ export class MatchView {
     this.trailSvg = wrap.querySelector("#mp-trails");
     this.heatLayer = wrap.querySelector("#mp-heat");
     this.pressLayer = wrap.querySelector("#mp-press");
+    this.networkSvg = wrap.querySelector("#mp-network");
     this.bannerEl = wrap.querySelector("#mp-banner");
     this.tipEl = wrap.querySelector("#mp-tip");
     this.cardEl = wrap.querySelector("#mp-card");
     const legH = wrap.querySelector("#mp-leg-home");
     const legA = wrap.querySelector("#mp-leg-away");
+    this.passNetwork = new Map();
+    this.networkEnabled = true;
+    this.networkFilter = "both";
+    this.lastCarrierId = null;
     this._initHeatGrid();
+    this._bindNetworkControls(wrap);
 
     // 点空白关闭卡片
     this.fieldEl.addEventListener("click", (e) => {
@@ -381,6 +399,168 @@ export class MatchView {
     `;
   }
 
+  _bindNetworkControls(wrap) {
+    const toggle = wrap.querySelector("#mp-net-toggle");
+    const homeBtn = wrap.querySelector("#mp-net-home");
+    const awayBtn = wrap.querySelector("#mp-net-away");
+    const syncFilter = () => {
+      const h = homeBtn?.classList.contains("active");
+      const a = awayBtn?.classList.contains("active");
+      if (h && a) this.networkFilter = "both";
+      else if (h) this.networkFilter = "home";
+      else if (a) this.networkFilter = "away";
+      else this.networkFilter = "none";
+      this.networkDirty = true;
+      this._redrawNetwork(true);
+    };
+    toggle?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.networkEnabled = !this.networkEnabled;
+      toggle.classList.toggle("active", this.networkEnabled);
+      this.networkSvg?.classList.toggle("hidden", !this.networkEnabled);
+      if (this.networkEnabled) this._redrawNetwork(true);
+    });
+    homeBtn?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      homeBtn.classList.toggle("active");
+      // 至少保留一方
+      if (!homeBtn.classList.contains("active") && !awayBtn?.classList.contains("active")) {
+        awayBtn?.classList.add("active");
+      }
+      syncFilter();
+    });
+    awayBtn?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      awayBtn.classList.toggle("active");
+      if (!awayBtn.classList.contains("active") && !homeBtn?.classList.contains("active")) {
+        homeBtn?.classList.add("active");
+      }
+      syncFilter();
+    });
+  }
+
+  /**
+   * 记录一次成功传球（用于网络图）
+   * @param {object} fromPl
+   * @param {object} toPl
+   */
+  _recordPass(fromPl, toPl) {
+    if (!fromPl?.id || !toPl?.id || fromPl.id === toPl.id) return;
+    if (fromPl.team !== toPl.team) return;
+    // 无向边 key（同一对球员合并）
+    const a = fromPl.id;
+    const b = toPl.id;
+    const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+    const prev = this.passNetwork.get(key);
+    if (prev) {
+      prev.count += 1;
+      prev.last = performance.now();
+      // 保留最近一次方向，用于轻微箭头感
+      prev.fromId = fromPl.id;
+      prev.toId = toPl.id;
+    } else {
+      this.passNetwork.set(key, {
+        fromId: fromPl.id,
+        toId: toPl.id,
+        team: fromPl.team,
+        count: 1,
+        last: performance.now(),
+      });
+    }
+    // 更新网络节点平均位置（触球位置）
+    for (const pl of [fromPl, toPl]) {
+      if (pl.netX == null) {
+        pl.netX = pl.x;
+        pl.netY = pl.y;
+      } else {
+        pl.netX = pl.netX * 0.82 + pl.x * 0.18;
+        pl.netY = pl.netY * 0.82 + pl.y * 0.18;
+      }
+      pl.passTouches = (pl.passTouches || 0) + 1;
+    }
+    this.networkDirty = true;
+  }
+
+  /** 网络节点坐标：平均触球位优先，否则阵型位 */
+  _netPos(pl) {
+    if (!pl) return { x: 50, y: 50 };
+    if (pl.netX != null && pl.netY != null) {
+      return {
+        x: pl.netX * 0.65 + pl.baseX * 0.35,
+        y: pl.netY * 0.65 + pl.baseY * 0.35,
+      };
+    }
+    return { x: pl.baseX, y: pl.baseY };
+  }
+
+  /**
+   * 重绘传球网络：线宽∝次数，透明度∝最近活跃
+   * @param {boolean} [force]
+   */
+  _redrawNetwork(force = false) {
+    if (!this.networkSvg) return;
+    if (!this.networkEnabled) {
+      this.networkSvg.innerHTML = "";
+      return;
+    }
+    if (!force && !this.networkDirty) return;
+    this.networkDirty = false;
+
+    const now = performance.now();
+    const byId = new Map(this.players.map((p) => [p.id, p]));
+    let maxCount = 1;
+    const edges = [];
+    for (const edge of this.passNetwork.values()) {
+      if (this.networkFilter === "home" && edge.team !== "home") continue;
+      if (this.networkFilter === "away" && edge.team !== "away") continue;
+      if (this.networkFilter === "none") continue;
+      maxCount = Math.max(maxCount, edge.count);
+      edges.push(edge);
+    }
+    // 次数多的画在上层
+    edges.sort((a, b) => a.count - b.count);
+
+    const parts = [];
+    // 节点：有传球参与的球员
+    const nodeIds = new Set();
+    for (const e of edges) {
+      nodeIds.add(e.fromId);
+      nodeIds.add(e.toId);
+    }
+    for (const e of edges) {
+      const from = byId.get(e.fromId);
+      const to = byId.get(e.toId);
+      if (!from || !to) continue;
+      if (from.el.classList.contains("sent-off") || to.el.classList.contains("sent-off")) continue;
+      const p0 = this._netPos(from);
+      const p1 = this._netPos(to);
+      const t = e.count / maxCount;
+      const age = clamp(1 - (now - e.last) / 45000, 0.35, 1);
+      const sw = 0.35 + t * 1.85;
+      const op = (0.22 + t * 0.55) * age;
+      const cls = e.team === "home" ? "home" : "away";
+      // 轻微弧线，避免重叠直线
+      const mx = (p0.x + p1.x) / 2 + (p0.y - p1.y) * 0.06;
+      const my = (p0.y + p1.y) / 2 + (p1.x - p0.x) * 0.06;
+      parts.push(
+        `<path class="mp-net-edge ${cls}" d="M ${p0.x.toFixed(1)} ${p0.y.toFixed(1)} Q ${mx.toFixed(1)} ${my.toFixed(1)} ${p1.x.toFixed(1)} ${p1.y.toFixed(1)}" stroke-width="${sw.toFixed(2)}" opacity="${op.toFixed(2)}" data-count="${e.count}" />`
+      );
+    }
+    for (const id of nodeIds) {
+      const pl = byId.get(id);
+      if (!pl || pl.el.classList.contains("sent-off")) continue;
+      if (this.networkFilter === "home" && pl.team !== "home") continue;
+      if (this.networkFilter === "away" && pl.team !== "away") continue;
+      const p = this._netPos(pl);
+      const touches = pl.passTouches || 1;
+      const r = clamp(0.55 + Math.sqrt(touches) * 0.28, 0.55, 1.6);
+      parts.push(
+        `<circle class="mp-net-node ${pl.team}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r.toFixed(2)}" />`
+      );
+    }
+    this.networkSvg.innerHTML = parts.join("");
+  }
+
   /**
    * 阵型游走：持球方前压，无球方收缩；中场三角轻微联动
    */
@@ -520,11 +700,7 @@ export class MatchView {
     if (this.tipEl) {
       this.tipEl.classList.toggle("show", this.phase === "pause");
     }
-    const hint = this.root.querySelector("#mp-leg-hint");
-    if (hint) {
-      hint.textContent =
-        this.phase === "pause" ? "中场/终场 · 点球员看属性" : "点球员看属性";
-    }
+    // legend mid is network controls now
     // 暂停时放大可点区域观感
     for (const pl of this.players) {
       pl.el.classList.toggle("clickable", true);
@@ -595,6 +771,8 @@ export class MatchView {
     this.root.innerHTML = "";
     this.players = [];
     this.trails = [];
+    this.passNetwork = new Map();
+    this.networkSvg = null;
     this._built = false;
   }
 
@@ -668,6 +846,10 @@ export class MatchView {
       this.heatTimer = 0.5;
       this._refreshHeatVisual();
       this._updatePressLines();
+      // 网络节点随位置缓慢漂移，需定期重绘
+      if (this.networkEnabled) this._redrawNetwork(true);
+    } else if (this.networkDirty && this.networkEnabled) {
+      this._redrawNetwork(true);
     }
 
     if (this.highlightId && ts > this.flashUntil) {
@@ -721,6 +903,12 @@ export class MatchView {
     this.ball.ty = a.y;
     this._addTrail(from.x, from.y, a.x, a.y, "pass", 0.32);
     this._markHeat(a.x, a.y, side, 0.8);
+    // 上一持球人 → a 也算一次网络边（若有）
+    if (this.lastCarrierId && this.lastCarrierId !== a.id) {
+      const prev = this.players.find((p) => p.id === this.lastCarrierId);
+      if (prev && prev.team === a.team) this._recordPass(prev, a);
+    }
+    this.lastCarrierId = a.id;
 
     setTimeout(() => {
       if (!this._built) return;
@@ -731,6 +919,8 @@ export class MatchView {
       this._addTrail(fx, fy, this.ball.tx, this.ball.ty, "pass", 0.38);
       this._setTouch(b, 650);
       this._markHeat(b.x, b.y, side, 1);
+      this._recordPass(a, b);
+      this.lastCarrierId = b.id;
       b.tx = clamp(b.baseX + (Math.random() - 0.5) * 6, 6, 94);
       b.ty = clamp(b.baseY + push * 3.5, 6, 94);
       // 偶发一脚转移给第三名
@@ -744,6 +934,8 @@ export class MatchView {
           this.ball.ty = c.y;
           this._addTrail(fx2, fy2, c.x, c.y, "pass", 0.35);
           this._setTouch(c, 600);
+          this._recordPass(b, c);
+          this.lastCarrierId = c.id;
         }, 260);
       }
     }, 240);
@@ -865,6 +1057,12 @@ export class MatchView {
           this.highlightId = scorer.id;
           this.flashUntil = performance.now() + 2200;
           this._setTouch(scorer, 1800);
+          // 助攻链：上一持球人 → 射手
+          if (this.lastCarrierId && this.lastCarrierId !== scorer.id) {
+            const assister = this.players.find((p) => p.id === this.lastCarrierId);
+            if (assister && assister.team === scorer.team) this._recordPass(assister, scorer);
+          }
+          this.lastCarrierId = scorer.id;
           // 从射手位置起脚
           this.ball.x = scorer.x;
           this.ball.y = scorer.y;
