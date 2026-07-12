@@ -6,6 +6,10 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="theme-color" content="#0b1220" />
+  <meta name="description" content="VC 足球经理 — 轻量足球经理，通勤也能玩" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon.svg" />
   <title>VC 足球经理</title>
   <link rel="stylesheet" href="css/style.css" />
   <script>
@@ -86,6 +90,7 @@
             </div>
             <div id="save-slots" class="save-slots"></div>
             <p class="hint save-tip" data-i18n-html="start.saveTipHtml">换手机/浏览器请先<strong>导出存档</strong>；清缓存会丢进度。</p>
+            <p id="export-reminder" class="export-reminder hidden" role="status"></p>
           </div>
 
           <button id="btn-new-game" class="btn primary" data-i18n="start.newGame">开始新赛季</button>
@@ -124,6 +129,7 @@
           <button data-tab="stats" class="tab" data-i18n="tab.stats">数据榜</button>
           <button data-tab="media" class="tab" data-i18n="tab.media">媒体</button>
           <button data-tab="transfer" class="tab" data-i18n="tab.transfer">转会</button>
+          <button data-tab="career" class="tab" data-i18n="tab.career">生涯</button>
           <button data-tab="fixtures" class="tab" data-i18n="tab.fixtures">赛程</button>
         </nav>
         <div class="actions">
@@ -169,6 +175,8 @@
               <div id="training-dash" class="muted" style="margin-bottom:0.5rem">—</div>
               <h3 data-i18n="dash.form">近期战绩</h3>
               <div id="form-strip" class="form-strip"></div>
+              <h3 data-i18n="dash.career">经理生涯</h3>
+              <div id="manager-career-dash" class="career-dash">—</div>
             </div>
             <div class="card span-2">
               <h2 data-i18n="dash.news">新闻</h2>
@@ -463,13 +471,22 @@
           </div>
         </div>
 
+        <!-- 生涯 / 荣誉 -->
+        <div id="tab-career" class="tab-panel">
+          <div id="career-panel"></div>
+        </div>
+
         <!-- 转会 -->
         <div id="tab-transfer" class="tab-panel">
           <div class="grid-2">
+            <div class="card span-2">
+              <h2 data-i18n="tr.poach">来自其他俱乐部的报价</h2>
+              <div id="poach-bids" class="poach-bids">—</div>
+            </div>
             <div class="card">
               <h2 data-i18n="tr.market">转会市场</h2>
               <div id="transfer-window-status" class="transfer-window-box" style="margin-bottom:0.75rem">—</div>
-              <p class="hint" style="margin-top:0" data-i18n="tr.hint">夏窗 D1–D35 · 冬窗 D120–D145；窗外无法买卖（AI 同样受限）。</p>
+              <p class="hint" style="margin-top:0" data-i18n="tr.hint">夏窗 D1–D35 · 冬窗 D120–D145；窗外无法买卖（AI 同样受限）。买入可谈合同年限与周薪。</p>
               <div class="filters">
                 <select id="filter-pos">
                   <option value="" data-i18n="tr.allPos">全部位置</option>
@@ -602,6 +619,12 @@
 
         <div id="match-report" class="match-report hidden"></div>
 
+        <div class="match-speed-bar" role="group" aria-label="match speed">
+          <span class="muted" data-i18n="match.speed">倍速</span>
+          <button type="button" class="btn small" data-match-speed="1">×1</button>
+          <button type="button" class="btn small" data-match-speed="2">×2</button>
+          <button type="button" class="btn small" data-match-speed="4">×4</button>
+        </div>
         <div class="match-actions" id="match-main-actions">
           <button id="btn-sim-fast" class="btn primary" data-i18n="match.fast">快速模拟（中场可调）</button>
           <button id="btn-sim-live" class="btn" data-i18n="match.live">直播（中场可调）</button>
@@ -618,8 +641,18 @@
         <div id="modal-body"></div>
       </div>
     </div>
+
+    <!-- 赛季结算 -->
+    <div id="season-summary" class="season-summary hidden" role="dialog" aria-modal="true"></div>
   </div>
 
   <script type="module" src="js/main.js"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("./sw.js").catch(function () {});
+      });
+    }
+  </script>
 </body>
 </html>

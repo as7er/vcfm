@@ -201,6 +201,12 @@ export function sackManager(world, reason = "") {
   world.sacked = true;
   world.sackedDay = world.day;
   world.sackedReason = reason || "董事会对成绩失去耐心";
+  try {
+    if (!world.managerCareer) world.managerCareer = { sacked: 0 };
+    world.managerCareer.sacked = (world.managerCareer.sacked || 0) + 1;
+  } catch (_) {
+    /* ignore */
+  }
 
   for (const p of user.players || []) {
     p.morale = Math.max(20, (p.morale || 70) - 12);

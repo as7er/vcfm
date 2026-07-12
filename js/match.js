@@ -23,6 +23,8 @@ import {
 } from "./media.js";
 import { grantHonor } from "./honors.js";
 import { advanceCupBracket } from "./cup.js";
+import { processClubMatchDiscipline } from "./discipline.js";
+import { ensureManagerCareer, recordManagerMatch } from "./career.js";
 
 function rng() {
   return Math.random();
@@ -649,6 +651,7 @@ export async function simulateMinutes(state, fromMin, toMin, { onEvent } = {}) {
     );
     tryCardOrFoul(state, minute);
     tryInjury(state, minute);
+    midMatchCoachPrompt(state, minute);
 
     // 体能微耗
     if (minute % 15 === 0) {
@@ -708,6 +711,34 @@ export async function playFirstHalf(state, opts = {}) {
   }
   state.phase = "ht";
   return state;
+}
+
+/** 赛中关键提示：60' / 75' 体能与比分建议（写入事件流） */
+function midMatchCoachPrompt(state, minute) {
+  if (minute !== 60 && minute !== 75) return;
+  const club = state.userClub;
+  if (!club) return;
+  const myG = club === state.home ? state.hg : state.ag;
+  const opG = club === state.home ? state.ag : state.hg;
+  const xi = activeXi(state, club);
+  const avgFit = xi.length
+    ? Math.round(xi.reduce((s, p) => s + (p.fitness || 100), 0) / xi.length)
+    : 80;
+  const tired = xi.filter((p) => (p.fitness || 100) < 58).length;
+  const tips = [];
+  if (minute === 60) {
+    if (myG < opG) tips.push("落后，可考虑加强压迫或换进攻点");
+    else if (myG > opG) tips.push("领先，注意控场与体能分配");
+    else tips.push("僵持中，可微调节奏寻找突破");
+    if (avgFit < 68) tips.push(`首发平均体能 ${avgFit}%，考虑轮换`);
+  } else {
+    if (tired >= 2) tips.push(`${tired} 名主力体能告急，建议换人`);
+    if (myG === opG) tips.push("比分胶着，最后 15 分钟是关键窗口");
+    else if (myG === opG - 1) tips.push("仅落后 1 球，可冒险压上");
+    else if (myG > opG) tips.push("守住优势，别急于冒进");
+  }
+  if (!tips.length) return;
+  pushEv(state, minute, "coach", `💬 ${minute}' 教练席：${tips.join(" · ")}`);
 }
 
 /** AI 中场微调 + 可能换人 */
@@ -997,6 +1028,16 @@ export function finalizeMatch(state) {
   state.report = report;
   state.finished = true;
 
+  // 纪律：黄牌累计 / 红牌停赛 / 停赛天数 -1（双方都处理）
+  for (const club of [home, away]) {
+    const { news: discNews } = processClubMatchDiscipline(club, events);
+    for (const text of discNews) {
+      if (club.id === world.userClubId) {
+        world.news.unshift({ day: world.day, text });
+      }
+    }
+  }
+
   // 用户场次新闻 / 收入 / 媒体
   const userId = world.userClubId;
   if (fixture.home === userId || fixture.away === userId) {
@@ -1005,6 +1046,23 @@ export function finalizeMatch(state) {
     const opG = isHome ? ag : hg;
     const opp = isHome ? away : home;
     const me = isHome ? home : away;
+    // 经理生涯场次（杯赛点球按晋级/出局的比分已在 hg/ag）
+    try {
+      ensureManagerCareer(world);
+      let careerGf = myG;
+      let careerGa = opG;
+      if (isCup && fixture.penalties) {
+        // 点球：按胜负记 W/L，比分仍用 90 分钟
+        if (fixture.winner === userId) {
+          if (myG <= opG) careerGf = opG + 1;
+        } else if (myG >= opG) {
+          careerGa = myG + 1;
+        }
+      }
+      recordManagerMatch(world, careerGf, careerGa, isCup);
+    } catch (_) {
+      /* ignore */
+    }
     let result = "战平";
     if (isCup) {
       const won = fixture.winner === userId;
@@ -1112,6 +1170,7 @@ function runMinutesSync(state, fromMin, toMin) {
     tryAttack(state, minute, state.away, state.home, state.awayAtk, state.homeDef, state.awayXG);
     tryCardOrFoul(state, minute);
     tryInjury(state, minute);
+    midMatchCoachPrompt(state, minute);
     if (minute % 15 === 0) {
       for (const club of [state.home, state.away]) {
         for (const p of activeXi(state, club)) {
@@ -1166,6 +1225,7 @@ export function getBenchPlayers(club, state) {
       (p) =>
         !xi.has(p.id) &&
         (p.injured || 0) <= 0 &&
+        (p.suspendedMatches || 0) <= 0 &&
         !state.sentOff[sk].has(p.id)
     )
     .sort((a, b) => b.ovr - a.ovr);

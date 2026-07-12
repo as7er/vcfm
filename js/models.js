@@ -539,13 +539,20 @@ export function createClub(template) {
   return club;
 }
 
+function playerSelectable(p) {
+  if (!p) return false;
+  if ((p.injured || 0) > 0) return false;
+  if ((p.suspendedMatches || 0) > 0) return false;
+  return true;
+}
+
 export function autoLineup(club) {
   const formation = FORMATIONS[club.tactics.formation] || FORMATIONS["4-3-3"];
   const used = new Set();
   const lineup = [];
   for (const slot of formation.slots) {
     const candidates = club.players
-      .filter((p) => p.pos === slot.pos && !used.has(p.id) && p.injured <= 0)
+      .filter((p) => p.pos === slot.pos && !used.has(p.id) && playerSelectable(p))
       .sort((a, b) => {
         const sa = b.ovr * (b.fitness / 100) * (0.85 + b.morale / 500);
         const sb = a.ovr * (a.fitness / 100) * (0.85 + a.morale / 500);
@@ -555,7 +562,7 @@ export function autoLineup(club) {
     let pickP = candidates[0];
     if (!pickP) {
       pickP = club.players
-        .filter((p) => !used.has(p.id) && p.injured <= 0)
+        .filter((p) => !used.has(p.id) && playerSelectable(p))
         .sort((a, b) => b.ovr - a.ovr)[0];
     }
     if (pickP) {
@@ -635,7 +642,7 @@ export function createWorld(userClubId, managerName) {
   const divName = DIVISIONS[user.division]?.name || "乙级联赛";
 
   const world = {
-    version: 5,
+    version: 6,
     season: 2026,
     day: 1,
     managerName,
@@ -648,6 +655,24 @@ export function createWorld(userClubId, managerName) {
     freeAgents: [],
     media: [],
     cup: null, // engine/main 中 ensureCup
+    poachBids: [],
+    managerCareer: {
+      seasons: 0,
+      matches: 0,
+      wins: 0,
+      draws: 0,
+      losses: 0,
+      goalsFor: 0,
+      goalsAgainst: 0,
+      titles: 0,
+      promotions: 0,
+      relegations: 0,
+      cups: 0,
+      sacked: 0,
+      bestFinish: null,
+      trophies: [],
+    },
+    lastSeasonSummary: null,
     news: [
       {
         day: 1,

@@ -1918,3 +1918,146 @@ html[data-theme="light"] .mp-card-bar { background: rgba(0, 0, 0, 0.08); }
     padding-right: max(0.75rem, env(safe-area-inset-right));
   }
 }
+
+/* ===== 高价值功能：简报 / 生涯 / 倍速 / 挖角 / PWA 提示 ===== */
+.prematch-brief {
+  margin-top: 0.55rem;
+  padding: 0.5rem 0.65rem;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+.career-dash {
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+.career-stats {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+  line-height: 1.55;
+}
+.row-unavailable {
+  opacity: 0.72;
+}
+.match-speed-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin: 0.35rem 0 0.15rem;
+}
+.match-speed-bar .btn.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+.poach-bids {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+.poach-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.7rem;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.poach-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+.scout-report {
+  margin: 0.75rem 0;
+  padding: 0.65rem 0.75rem;
+  background: var(--bg2);
+  border-left: 3px solid var(--primary);
+  border-radius: 0 8px 8px 0;
+  font-size: 0.9rem;
+}
+.scout-report-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.35rem;
+}
+.scout-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.35rem 0 0;
+}
+.scout-risks {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+.export-reminder {
+  margin: 0.5rem 0 0;
+  padding: 0.45rem 0.6rem;
+  background: rgba(230, 180, 80, 0.15);
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  color: var(--warn);
+  font-size: 0.85rem;
+}
+.export-reminder.hidden { display: none; }
+.season-summary {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 1rem;
+}
+.season-summary.hidden { display: none; }
+.season-summary-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1.25rem 1.4rem;
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+}
+.season-trop-list {
+  text-align: left;
+  margin: 0.5rem auto;
+  max-width: 18rem;
+}
+.match-log .event.briefing {
+  color: var(--primary);
+  font-weight: 600;
+}
+.match-log .event.coach {
+  color: var(--warn);
+}
+/* 触控：按钮更大一点 */
+@media (pointer: coarse) {
+  .btn {
+    min-height: 2.5rem;
+    padding-left: 0.9rem;
+    padding-right: 0.9rem;
+  }
+  .tabs .tab {
+    min-height: 2.4rem;
+    padding: 0.45rem 0.65rem;
+  }
+  .match-actions .btn {
+    flex: 1 1 auto;
+    min-width: 7rem;
+  }
+  .table-wrap {
+    -webkit-overflow-scrolling: touch;
+  }
+}

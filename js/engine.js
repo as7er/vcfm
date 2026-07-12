@@ -134,6 +134,24 @@ import {
   getOnFieldPlayers,
   simulateMatchFull,
 } from "./match.js";
+import {
+  ensureManagerCareer,
+  recordManagerMatch,
+  settleManagerSeason,
+  managerWinRate,
+  ensureClubHonors,
+  recordManagerSack,
+} from "./career.js";
+import {
+  processPoachingDay,
+  expirePoachBids,
+  acceptPoachBid,
+  rejectPoachBid,
+  pendingPoachBids,
+  ensurePoachBids,
+} from "./poaching.js";
+import { buildScoutReport, formatScoutReportHtml } from "./scoutreport.js";
+import { resetSeasonDiscipline, ensureDiscipline, isAvailable } from "./discipline.js";
 
 export {
   simulateMatch,
@@ -148,6 +166,21 @@ export {
   getBenchPlayers,
   getOnFieldPlayers,
   simulateMatchFull,
+  ensureManagerCareer,
+  recordManagerMatch,
+  settleManagerSeason,
+  managerWinRate,
+  ensureClubHonors,
+  processPoachingDay,
+  acceptPoachBid,
+  rejectPoachBid,
+  pendingPoachBids,
+  ensurePoachBids,
+  buildScoutReport,
+  formatScoutReportHtml,
+  ensureDiscipline,
+  isAvailable,
+  resetSeasonDiscipline,
 };
 
 function rng() {
@@ -333,6 +366,8 @@ export function advanceDay(world) {
   // 转会窗开/关提示
   ensureTransferWindow(world);
   processTransferWindowDay(world);
+  expirePoachBids(world);
+  processPoachingDay(world);
 
   // 设施建设完工
   processFacilityDay(world);
@@ -440,6 +475,9 @@ export function finishSeason(world) {
   const userDivForAward = world._lastUserDiv || userClub.division || 3;
   const pos = world._lastUserPos > 0 ? world._lastUserPos : 1;
   const divName = DIVISIONS[userDivForAward]?.name || `第${userDivForAward}级`;
+  // 经理生涯 / 俱乐部荣誉墙 / 结算快照
+  ensureManagerCareer(world);
+  settleManagerSeason(world, pos, userDivForAward, promoNews);
   world.news.unshift({
     day: world.day,
     text: `🏆 ${world.season} 赛季结束！${userClub.name} 在${divName}排名第 ${pos} 名。可进入下一赛季。`,
@@ -582,11 +620,17 @@ export function startNextSeason(world) {
   ensureTransferWindow(world);
   world.transferWindow.lastPhase = null;
   processTransferWindowDay(world);
+  ensurePoachBids(world);
+  world.poachBids = [];
 
   for (const c of world.clubs) {
     world.table[c.id] = { played: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 };
     if (!c.division) c.division = 3;
-    for (const p of c.players) ensureContract(p);
+    for (const p of c.players) {
+      ensureContract(p);
+      ensureDiscipline(p);
+      resetSeasonDiscipline(p);
+    }
     autoLineup(c);
   }
 
@@ -1133,7 +1177,11 @@ export function processAiTransfers(world) {
 }
 
 
-export function buyPlayer(world, playerId, fromClubId) {
+/**
+ * 买入球员
+ * options: { years?: number, wageMult?: number } 合同谈判
+ */
+export function buyPlayer(world, playerId, fromClubId, options = {}) {
   if (world.sacked) return { ok: false, msg: "你已被解雇，无法操作转会" };
   const win = assertTransferOpen(world);
   if (!win.ok) return win;
@@ -1145,17 +1193,38 @@ export function buyPlayer(world, playerId, fromClubId) {
   if (idx < 0) return { ok: false, msg: "球员不存在" };
   const player = from.players[idx];
   ensureStaff(user);
+  ensureContract(player);
   const price = Math.round(player.value * (1.05 + rng() * 0.15) * scoutBuyMod(user));
   if (user.money < price) return { ok: false, msg: `资金不足，需要 ${formatMoney(price)}` };
   if (user.players.length >= 28) return { ok: false, msg: "阵容已满（最多 28 人）" };
   if (from.players.length <= 14) return { ok: false, msg: "对方拒绝出售（阵容过少）" };
 
-  user.money -= price;
+  // 合同谈判：年限 1–5，周薪倍率
+  let years = options.years != null ? Math.max(1, Math.min(5, +options.years)) : 2 + Math.floor(rng() * 3);
+  const wageMult = options.wageMult != null ? Math.max(0.9, Math.min(1.5, +options.wageMult)) : 1.05 + rng() * 0.2;
+  // 短约略贵 / 长约略便宜身价已固定；拒签：过低周薪
+  if (wageMult < 0.95 && player.ovr >= 14) {
+    return { ok: false, msg: `${player.name} 拒绝过低周薪条件` };
+  }
+  const newWage = Math.max(player.wage || 800, Math.round(estimateWage(player) * wageMult));
+  const signingBonus = Math.round(newWage * years * 0.5);
+  if (user.money < price + signingBonus) {
+    return {
+      ok: false,
+      msg: `资金不足：转会费 ${formatMoney(price)} + 签约奖 ${formatMoney(signingBonus)}`,
+    };
+  }
+
+  user.money -= price + signingBonus;
   from.money += price;
   from.players.splice(idx, 1);
   player.clubId = user.id;
   player.morale = Math.min(100, player.morale + 8);
   player.number = null; // 新队重新占号
+  player.contractYears = years;
+  player.wage = newWage;
+  player._needsRenew = false;
+  player.value = estimateValue(player);
   user.players.push(player);
   assignSquadNumbers(user);
   autoLineup(from);
@@ -1163,7 +1232,7 @@ export function buyPlayer(world, playerId, fromClubId) {
 
   world.news.unshift({
     day: world.day,
-    text: `✍️ 转会：签下 ${player.name}（${POS_LABEL[player.pos]}），转会费 ${formatMoney(price)}`,
+    text: `✍️ 转会：签下 ${player.name}（${POS_LABEL[player.pos]}），转会费 ${formatMoney(price)} · ${years} 年合同 · 周薪 ${formatMoney(newWage)}`,
   });
   mediaTransfer(world, {
     type: "buy",
@@ -1172,7 +1241,39 @@ export function buyPlayer(world, playerId, fromClubId) {
     otherName: from.name,
     feeText: formatMoney(price),
   });
-  return { ok: true, msg: `成功签下 ${player.name}，花费 ${formatMoney(price)}` };
+  return {
+    ok: true,
+    msg: `成功签下 ${player.name}：费 ${formatMoney(price)} + 签约奖 ${formatMoney(signingBonus)} · ${years} 年 · 周薪 ${formatMoney(newWage)}`,
+    price,
+    years,
+    wage: newWage,
+  };
+}
+
+/** 预览买入合同条款（不扣款） */
+export function previewBuyDeal(world, playerId, fromClubId, years = 3, wageMult = 1.1) {
+  const user = getUserClub(world);
+  const from = clubById(world, fromClubId);
+  if (!from) return null;
+  const player = from.players.find((p) => p.id === playerId);
+  if (!player) return null;
+  ensureStaff(user);
+  ensureContract(player);
+  const price = Math.round(player.value * (1.08) * scoutBuyMod(user));
+  const y = Math.max(1, Math.min(5, +years || 3));
+  const wm = Math.max(0.9, Math.min(1.5, +wageMult || 1.1));
+  const newWage = Math.max(player.wage || 800, Math.round(estimateWage(player) * wm));
+  const signingBonus = Math.round(newWage * y * 0.5);
+  return {
+    player,
+    price,
+    years: y,
+    wageMult: wm,
+    newWage,
+    signingBonus,
+    total: price + signingBonus,
+    report: buildScoutReport(world, player, user),
+  };
 }
 
 export function sellPlayer(world, playerId) {

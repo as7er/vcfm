@@ -90,7 +90,19 @@ import {
   isTransferWindowOpen,
   transferWindowLabel,
   transferWindowShort,
+  ensureManagerCareer,
+  managerWinRate,
+  ensureClubHonors,
+  acceptPoachBid,
+  rejectPoachBid,
+  pendingPoachBids,
+  buildScoutReport,
+  formatScoutReportHtml,
+  previewBuyDeal,
+  ensureDiscipline,
+  isAvailable,
 } from "./engine.js";
+import { buildPreMatchBriefing, suspensionSummary } from "./discipline.js";
 import {
   saveGame,
   loadGame,
@@ -149,6 +161,10 @@ let matchState = null;
 let pendingSubs = []; // 中场待确认换人 {outId, inId, outName, inName}
 /** @type {import('./matchview.js').MatchView | null} */
 let matchView = null;
+/** 直播倍速 1 / 2 / 4 */
+let matchSpeed = Number(localStorage.getItem("vc-fm-match-speed") || "2") || 2;
+/** 导出提醒：上次导出时间戳 */
+const EXPORT_TIP_KEY = "vc-fm-last-export";
 
 /** 自动存档（静默，失败仅 console） */
 function autosave(msg) {
@@ -297,6 +313,7 @@ function initStart() {
     }
     const data = loadGame(slot);
     if (exportSaveDownload(data)) {
+      markExportDone();
       toast(t("toast.exportedOk"));
     } else toast(t("toast.exportFail"));
   };
@@ -338,6 +355,8 @@ function migrateWorld(w) {
   if (!Array.isArray(w.staffMarket)) refreshStaffMarket(w);
   ensureBoardObjective(w);
   ensureTransferWindow(w);
+  ensureManagerCareer(w);
+  if (!Array.isArray(w.poachBids)) w.poachBids = [];
   if (w.board && w.board.sackWarnings == null) w.board.sackWarnings = 0;
   for (const c of w.clubs || []) {
     if (!c.division) {
@@ -349,12 +368,14 @@ function migrateWorld(w) {
     assignSquadNumbers(c);
     ensureTraining(c);
     ensureFacilities(c);
+    ensureClubHonors(c);
     if (!c.youth.players.length) fillYouthSquad(c);
     for (const p of c.players || []) {
       if (p.potential == null) p.potential = Math.min(20, (p.ovr || 10) + 1);
       ensurePlayerHistory(p);
       ensureIntl(p);
       ensureHonors(p);
+      ensureDiscipline(p);
     }
     for (const p of c.youth.players || []) {
       if (p.potential == null) p.potential = Math.min(20, (p.ovr || 10) + 1);
@@ -401,9 +422,25 @@ function bindMainOnce() {
 
   $("#btn-export-save-main").onclick = () => {
     if (!world) return;
-    if (exportSaveDownload(world)) toast(t("toast.exported"));
-    else toast(t("toast.exportFail"));
+    if (exportSaveDownload(world)) {
+      markExportDone();
+      toast(t("toast.exported"));
+    } else toast(t("toast.exportFail"));
   };
+
+  // 比赛倍速
+  document.querySelectorAll("[data-match-speed]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      matchSpeed = Number(btn.dataset.matchSpeed) || 2;
+      try {
+        localStorage.setItem("vc-fm-match-speed", String(matchSpeed));
+      } catch (_) {
+        /* ignore */
+      }
+      syncMatchSpeedUI();
+      toast(getLang() === "en" ? `Speed ×${matchSpeed}` : `比赛倍速 ×${matchSpeed}`);
+    });
+  });
 
   $("#btn-menu").onclick = () => {
     autosave("menu");
@@ -556,6 +593,7 @@ function bindMainOnce() {
 // ---------- Refresh ----------
 function refreshAll() {
   if (!world) return;
+  ensureManagerCareer(world);
   renderTopbar();
   renderDashboard();
   renderSquad();
@@ -569,6 +607,9 @@ function refreshAll() {
   renderMedia();
   renderTransfer();
   renderFixtures();
+  renderCareer();
+  maybeShowSeasonSummary();
+  checkExportReminder();
 }
 
 function renderTraining() {
@@ -835,14 +876,46 @@ function renderDashboard() {
     const home = world.clubs.find((c) => c.id === next.home);
     const away = world.clubs.find((c) => c.id === next.away);
     const ready = next.day <= world.day;
+    const brief = ready ? buildPreMatchBriefing(world, next, club) : null;
+    let briefHtml = "";
+    if (brief) {
+      const bits = [];
+      if (brief.suspended.length)
+        bits.push(
+          `停赛：${brief.suspended.map((s) => `${s.name}(${s.matches})`).join("、")}`
+        );
+      if (brief.injured.length)
+        bits.push(
+          `伤病：${brief.injured
+            .slice(0, 3)
+            .map((s) => s.name)
+            .join("、")}`
+        );
+      if (brief.yellowRisk.length)
+        bits.push(
+          `黄牌边缘：${brief.yellowRisk.map((s) => `${s.name}(${s.yellows})`).join("、")}`
+        );
+      if (brief.tired.length)
+        bits.push(
+          `体能低：${brief.tired.map((s) => `${s.name}${s.fit}%`).join("、")}`
+        );
+      if (brief.opp.top.length)
+        bits.push(
+          `对方核心：${brief.opp.top.map((s) => `${s.name}(${s.ovr})`).join("、")}`
+        );
+      briefHtml = bits.length
+        ? `<div class="prematch-brief">${bits.map((b) => `<div class="muted">• ${escapeHtml(b)}</div>`).join("")}</div>`
+        : `<div class="prematch-brief muted">• 人员齐全，无重大缺阵</div>`;
+    }
     box.innerHTML = `
-      <div><strong>第 ${next.round} 轮</strong> · 第 ${next.day} 天</div>
+      <div><strong>${next.competition === "cup" ? next.roundLabel || "杯赛" : `第 ${next.round} 轮`}</strong> · 第 ${next.day} 天 · ${next.home === club.id ? "主场" : "客场"}</div>
       <div style="margin-top:0.4rem;font-size:1.25rem">
-        ${home.name} <span class="muted">vs</span> ${away.name}
+        ${escapeHtml(home.name)} <span class="muted">vs</span> ${escapeHtml(away.name)}
       </div>
       <div class="muted" style="margin-top:0.35rem">
-        ${ready ? "可以开赛" : `还需等待 ${next.day - world.day} 天`}
+        ${ready ? "可以开赛 · 赛前简报" : `还需等待 ${next.day - world.day} 天`}
       </div>
+      ${briefHtml}
     `;
     playBtn.disabled = !ready;
     playBtn.textContent = ready ? t("dash.play") : t("dash.notMatchday");
@@ -851,6 +924,23 @@ function renderDashboard() {
     if (advanceMatchBtn) advanceMatchBtn.disabled = ready;
     if (advanceSeasonBtn) advanceSeasonBtn.disabled = ready;
     nextSeasonBtn.style.display = "none";
+  }
+
+  // 经理生涯摘要
+  const careerBox = $("#manager-career-dash");
+  if (careerBox) {
+    const mc = ensureManagerCareer(world);
+    const wr = managerWinRate(mc);
+    careerBox.innerHTML = `
+      <div><strong>${escapeHtml(world.managerName)}</strong> · ${mc.seasons} 赛季 · ${mc.matches} 场</div>
+      <div class="muted" style="margin-top:0.25rem">${mc.wins}胜 ${mc.draws}平 ${mc.losses}负 · 胜率 ${wr}%</div>
+      <div class="muted">${mc.titles} 冠 · ${mc.promotions} 次升级 · ${mc.cups} 杯 · 解雇 ${mc.sacked}</div>
+      ${
+        mc.bestFinish
+          ? `<div class="muted">最佳：${mc.bestFinish.season} ${escapeHtml(mc.bestFinish.divName)} 第 ${mc.bestFinish.pos}</div>`
+          : ""
+      }
+    `;
   }
 
   const userDiv = club.division || 3;
@@ -946,6 +1036,7 @@ function renderSquad() {
 
   tbody.innerHTML = sorted
     .map((p) => {
+      ensureDiscipline(p);
       const ovr = p.ovr || playerOverall(p);
       const s = playerStats(p);
       const statBits =
@@ -953,11 +1044,21 @@ function renderSquad() {
           ? `零封 ${s.cleanSheets} · 失球 ${s.goalsConceded}`
           : `进球 ${s.goals} · 助攻 ${s.assists}`;
       const num = p.number != null ? p.number : "—";
-      return `<tr class="${xi.has(p.id) ? "me" : ""}">
+      const statusBadges = [
+        xi.has(p.id) ? '<span class="badge">首发</span>' : "",
+        p.injured > 0 ? '<span class="badge ATT">伤</span>' : "",
+        (p.suspendedMatches || 0) > 0
+          ? `<span class="badge ATT" title="停赛">停${p.suspendedMatches}</span>`
+          : "",
+        (p.yellowsSeason || 0) >= 4 && !(p.suspendedMatches > 0)
+          ? `<span class="badge" style="background:#e6b450;color:#111" title="累计黄牌">黄${p.yellowsSeason}</span>`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return `<tr class="${xi.has(p.id) ? "me" : ""} ${!isAvailable(p) ? "row-unavailable" : ""}">
         <td class="num-cell"><span class="kit-num" style="${kitBadgeStyle(club)}">${num}</span></td>
-        <td class="name-with-avatar">${playerAvatarHtml(p, club, 30)} <span>${escapeHtml(p.name)}${xi.has(p.id) ? ' <span class="badge">首发</span>' : ""}${
-          p.injured > 0 ? ' <span class="badge ATT">伤</span>' : ""
-        }</span></td>
+        <td class="name-with-avatar">${playerAvatarHtml(p, club, 30)} <span>${escapeHtml(p.name)} ${statusBadges}</span></td>
         <td>${nationLabel(p)}</td>
         <td><span class="badge ${p.pos}">${POS_LABEL[p.pos]}</span></td>
         <td>${p.age}</td>
@@ -1092,7 +1193,24 @@ function showPlayerModal(playerId) {
     </p>
       </div>
     </div>
-    <p>身价 ${fromOther ? formatScoutValue(world, player) : formatMoney(player.value)} · 周薪 ${formatMoney(player.wage)} · 体能 ${player.fitness}% · 士气 ${player.morale}</p>
+    <p>身价 ${fromOther ? formatScoutValue(world, player) : formatMoney(player.value)} · 周薪 ${formatMoney(player.wage)} · 体能 ${player.fitness}% · 士气 ${player.morale}
+      ${
+        (player.suspendedMatches || 0) > 0
+          ? ` · <span class="badge ATT">停赛 ${player.suspendedMatches} 场</span>`
+          : ""
+      }
+      ${
+        (player.yellowsSeason || 0) > 0
+          ? ` · 赛季黄牌 ${player.yellowsSeason}`
+          : ""
+      }
+      ${player.contractYears != null ? ` · 合同 ${player.contractYears} 年` : ""}
+    </p>
+    ${
+      fromOther
+        ? formatScoutReportHtml(buildScoutReport(world, player, getUserClub(world)), formatMoney)
+        : ""
+    }
 
     <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem">本赛季（俱乐部）</h3>
     <p class="muted" style="margin:0">出场 ${season.apps}
@@ -1504,6 +1622,40 @@ function renderStats() {
     : `<tr><td colspan="7" class="muted">暂无门将数据，踢完比赛后更新</td></tr>`;
 }
 
+function openBuyNegotiator(playerId, fromClubId) {
+  const deal = previewBuyDeal(world, playerId, fromClubId, 3, 1.1);
+  if (!deal) {
+    toast("无法预览该交易");
+    return;
+  }
+  const years = prompt(
+    `${deal.player.name}\n球探估值约 ${formatMoney(deal.price)}\n合同年限（1–5，默认 3）：`,
+    "3"
+  );
+  if (years == null) return;
+  const y = Math.max(1, Math.min(5, parseInt(years, 10) || 3));
+  const wageIn = prompt(
+    `周薪倍率（0.95–1.4，默认 1.1；过低可能被拒）：\n预估周薪约 ${formatMoney(deal.newWage)}`,
+    "1.1"
+  );
+  if (wageIn == null) return;
+  const wm = Math.max(0.9, Math.min(1.5, parseFloat(wageIn) || 1.1));
+  const finalDeal = previewBuyDeal(world, playerId, fromClubId, y, wm);
+  if (
+    !confirm(
+      `确认签下 ${finalDeal.player.name}？\n转会费 ${formatMoney(finalDeal.price)}\n签约奖 ${formatMoney(finalDeal.signingBonus)}\n${y} 年 · 周薪 ${formatMoney(finalDeal.newWage)}\n合计约 ${formatMoney(finalDeal.total)}`
+    )
+  ) {
+    return;
+  }
+  const res = buyPlayer(world, playerId, fromClubId, { years: y, wageMult: wm });
+  toast(res.msg);
+  if (res.ok) {
+    saveGame(world);
+    refreshAll();
+  }
+}
+
 function renderTransfer() {
   ensureTransferWindow(world);
   const open = isTransferWindowOpen(world);
@@ -1511,6 +1663,53 @@ function renderTransfer() {
   if (statusEl) {
     statusEl.textContent = transferWindowLabel(world);
     statusEl.className = open ? "transfer-window-box open" : "transfer-window-box closed";
+  }
+
+  // 挖角报价
+  const poachEl = $("#poach-bids");
+  if (poachEl) {
+    const bids = pendingPoachBids(world);
+    if (!bids.length) {
+      poachEl.innerHTML = `<p class="muted" style="margin:0">暂无来自其他俱乐部的报价</p>`;
+    } else {
+      poachEl.innerHTML = bids
+        .map(
+          (b) => `<div class="poach-row">
+          <div>
+            <strong>${escapeHtml(b.buyerName)}</strong> 报价
+            <strong>${formatMoney(b.fee)}</strong> 求购
+            <strong>${escapeHtml(b.playerName)}</strong>
+            <span class="muted">（${b.pos} · ${b.ovr} · 剩 ${Math.max(0, b.expiresDay - world.day)} 天）</span>
+          </div>
+          <div class="poach-actions">
+            <button class="btn small primary" data-poach-accept="${b.id}" ${!open ? "disabled" : ""}>接受</button>
+            <button class="btn small" data-poach-reject="${b.id}">拒绝</button>
+          </div>
+        </div>`
+        )
+        .join("");
+      poachEl.querySelectorAll("[data-poach-accept]").forEach((btn) => {
+        btn.onclick = () => {
+          if (!confirm("确认接受报价并放走球员？")) return;
+          const res = acceptPoachBid(world, btn.dataset.poachAccept);
+          toast(res.msg);
+          if (res.ok) {
+            saveGame(world);
+            refreshAll();
+          }
+        };
+      });
+      poachEl.querySelectorAll("[data-poach-reject]").forEach((btn) => {
+        btn.onclick = () => {
+          const res = rejectPoachBid(world, btn.dataset.poachReject);
+          toast(res.msg);
+          if (res.ok) {
+            saveGame(world);
+            refreshAll();
+          }
+        };
+      });
+    }
   }
 
   const pos = $("#filter-pos").value;
@@ -1535,7 +1734,7 @@ function renderTransfer() {
           <button class="btn small" data-view="${p.id}">详情</button>
           <button class="btn small primary" data-buy="${p.id}" data-from="${club.id}" ${
             buyDisabled ? "disabled" : ""
-          }>${open ? "买入" : "窗关"}</button>
+          }>${open ? "谈判买入" : "窗关"}</button>
         </td>
       </tr>`;
     })
@@ -1545,14 +1744,7 @@ function renderTransfer() {
     b.onclick = () => showPlayerModal(b.dataset.view);
   });
   mt.querySelectorAll("[data-buy]").forEach((b) => {
-    b.onclick = () => {
-      const res = buyPlayer(world, b.dataset.buy, b.dataset.from);
-      toast(res.msg);
-      if (res.ok) {
-        saveGame(world);
-        refreshAll();
-      }
-    };
+    b.onclick = () => openBuyNegotiator(b.dataset.buy, b.dataset.from);
   });
 
   const club = getUserClub(world);
@@ -1715,6 +1907,13 @@ function onAdvanceToSeasonEnd() {
   refreshAll();
 }
 
+function syncMatchSpeedUI() {
+  document.querySelectorAll("[data-match-speed]").forEach((btn) => {
+    const v = Number(btn.dataset.matchSpeed);
+    btn.classList.toggle("active", v === matchSpeed);
+  });
+}
+
 function openMatch() {
   const next = getNextUserMatch(world);
   if (!next || next.day > world.day) {
@@ -1730,6 +1929,7 @@ function openMatch() {
   pendingSubs = [];
   const home = world.clubs.find((c) => c.id === next.home);
   const away = world.clubs.find((c) => c.id === next.away);
+  const user = getUserClub(world);
   $("#match-home").textContent = home.name;
   $("#match-away").textContent = away.name;
   $("#match-score").textContent = "0 - 0";
@@ -1737,8 +1937,26 @@ function openMatch() {
   const ctx = $("#match-context");
   if (ctx) ctx.textContent = next.competition === "cup" ? next.roundLabel || t("match.cup") : t("match.leagueRound", { n: next.round || "?" });
   $("#match-log").innerHTML = "";
+  // 赛前简报写入日志
+  const brief = buildPreMatchBriefing(world, next, user);
+  if (brief) {
+    const lines = [`📋 赛前简报 · ${brief.roundLabel} · ${brief.isHome ? "主场" : "客场"}`];
+    if (brief.suspended.length)
+      lines.push(`停赛：${brief.suspended.map((s) => `${s.name} 停${s.matches}`).join("、")}`);
+    if (brief.injured.length)
+      lines.push(`伤病：${brief.injured.map((s) => s.name).join("、")}`);
+    if (brief.yellowRisk.length)
+      lines.push(`黄牌边缘：${brief.yellowRisk.map((s) => `${s.name}(${s.yellows})`).join("、")}`);
+    if (brief.opp.top.length)
+      lines.push(`对方威胁：${brief.opp.top.map((s) => `${s.name} ${s.ovr}`).join("、")}`);
+    if (lines.length === 1) lines.push("人员齐全，无重大缺阵");
+    for (const text of lines) {
+      appendMatchEvent({ type: "briefing", text, minute: 0 });
+    }
+  }
   hideHtPanel();
   hideMatchReport();
+  syncMatchSpeedUI();
   // 2D 球场：赛前站位（可点球员）
   ensureMatchPitch(true);
   $("#btn-sim-fast").disabled = false;
@@ -1774,10 +1992,10 @@ async function runMatch(mode) {
 
     if (mode === "instant") {
       const result = simulateMatch(world, pendingMatch);
-      // 快速回放 2D（加速）
+      // 快速回放 2D（受倍速影响）
       if (matchView) {
         await matchView.replayEvents(result.events, pendingMatch, {
-          speed: 2.2,
+          speed: 1.5 * matchSpeed,
           onStep: (ev, snap) => {
             if (ev.type === "tick" || !ev.text) return;
             appendMatchEvent(ev);
@@ -1804,6 +2022,7 @@ async function runMatch(mode) {
     ensureMatchPitch(true);
     const live = mode === "live";
     matchState._liveMode = live;
+    const spd = Math.max(1, matchSpeed);
     const onEvent = async (ev, snap) => {
       if (ev.type === "tick") {
         if (live) $("#match-minute").textContent = `${snap.minute}'`;
@@ -1819,11 +2038,11 @@ async function runMatch(mode) {
           if (ctx) ctx.textContent = ev.text.replace(/^情境：/, "");
         }
         await sleep(
-          ev.type === "goal"
+          (ev.type === "goal"
             ? 480
-            : ev.type === "kickoff" || ev.type === "ht"
+            : ev.type === "kickoff" || ev.type === "ht" || ev.type === "coach"
               ? 200
-              : 70
+              : 70) / spd
         );
       }
     };
@@ -2002,6 +2221,7 @@ async function finishHalfTime(applyOrders) {
     const live = !!matchState._liveMode;
     // 先应用中场指令再刷新 2D（换人后号码/站位）
     // continueSecondHalf 内部会 applyUserHalfTime；此处先手动应用以更新 pitch
+    const spd = Math.max(1, matchSpeed);
     const onEvent = async (ev, snap) => {
       if (ev.type === "tick") {
         if (live) $("#match-minute").textContent = `${snap.minute}'`;
@@ -2012,7 +2232,7 @@ async function finishHalfTime(applyOrders) {
         if (ev.text) appendMatchEvent(ev);
         $("#match-score").textContent = `${snap.homeGoals} - ${snap.awayGoals}`;
         $("#match-minute").textContent = `${ev.minute}'`;
-        await sleep(ev.type === "goal" ? 480 : 70);
+        await sleep((ev.type === "goal" ? 480 : ev.type === "coach" ? 160 : 70) / spd);
       }
     };
 
@@ -2125,10 +2345,164 @@ function appendMatchEvent(ev) {
   if (!ev || !ev.text) return;
   const div = document.createElement("div");
   div.className = `event ${ev.type || ""}`;
-  div.textContent = ev.text;
+  div.textContent = localizeMatchEvent(ev);
   const log = $("#match-log");
   log.appendChild(div);
   log.scrollTop = log.scrollHeight;
+}
+
+/** 关键比赛事件中英切换（原文仍为中文引擎产出，EN 做简单映射） */
+function localizeMatchEvent(ev) {
+  if (!ev?.text) return "";
+  if (getLang() !== "en") return ev.text;
+  let s = ev.text;
+  const map = [
+    [/^比赛开始！$/, "Kick-off!"],
+    [/^中场休息/, "Half-time"],
+    [/^全场结束/, "Full-time"],
+    [/^情境：/, "Context: "],
+    [/^德比大战/, "Derby"],
+    [/^焦点杯赛/, "Cup spotlight"],
+    [/^焦点战/, "Big match"],
+    [/^📋 赛前简报/, "📋 Pre-match briefing"],
+    [/^主场/, "Home"],
+    [/^客场/, "Away"],
+    [/^停赛：/, "Suspended: "],
+    [/^伤病：/, "Injured: "],
+    [/^黄牌边缘：/, "On yellow limit: "],
+    [/^对方威胁：/, "Threats: "],
+    [/^人员齐全，无重大缺阵$/, "Full squad available"],
+    [/^💬 (\d+)' 教练席：/, "💬 $1' Coach: "],
+    [/^落后，可考虑加强压迫或换进攻点/, "Trailing — press higher or bring attackers"],
+    [/^领先，注意控场与体能分配/, "Leading — manage tempo and fitness"],
+    [/^僵持中，可微调节奏寻找突破/, "Stalemate — tweak tempo for a breakthrough"],
+    [/^首发平均体能/, "XI avg fitness "],
+    [/^名主力体能告急，建议换人/, " starters low on fitness — consider subs"],
+    [/^比分胶着，最后 15 分钟是关键窗口/, "Tight score — last 15 is decisive"],
+    [/^仅落后 1 球，可冒险压上/, "One goal down — risk going forward"],
+    [/^守住优势，别急于冒进/, "Protect the lead — don't overcommit"],
+    [/^考虑轮换/, "consider rotation"],
+    [/^📋 中场调整：/, "📋 HT tweak: "],
+    [/^两黄变一红/, "Second yellow → red"],
+    [/^红牌/, "Red card"],
+    [/^停赛/, "suspended"],
+    [/^赛季黄牌/, "season yellows"],
+  ];
+  for (const [re, rep] of map) {
+    s = s.replace(re, rep);
+  }
+  return s;
+}
+
+function renderCareer() {
+  const el = $("#career-panel");
+  if (!el || !world) return;
+  const mc = ensureManagerCareer(world);
+  const club = getUserClub(world);
+  ensureClubHonors(club);
+  const wr = managerWinRate(mc);
+  const trophies = (mc.trophies || [])
+    .slice(0, 12)
+    .map(
+      (h) =>
+        `<div class="honor-item"><div class="season">${h.season}</div><strong>${escapeHtml(h.title)}</strong>${
+          h.detail ? ` <span class="muted">${escapeHtml(h.detail)}</span>` : ""
+        }</div>`
+    )
+    .join("");
+  const clubHonors = (club.honors || [])
+    .slice(0, 12)
+    .map(
+      (h) =>
+        `<div class="honor-item"><div class="season">${h.season}</div><strong>${escapeHtml(h.title)}</strong>${
+          h.detail ? ` <span class="muted">${escapeHtml(h.detail)}</span>` : ""
+        }</div>`
+    )
+    .join("");
+  el.innerHTML = `
+    <div class="grid-2">
+      <div class="card">
+        <h2 data-i18n="career.manager">${getLang() === "en" ? "Manager career" : "经理生涯"}</h2>
+        <p><strong>${escapeHtml(world.managerName)}</strong> · ${escapeHtml(club.name)}</p>
+        <ul class="career-stats">
+          <li>${getLang() === "en" ? "Seasons" : "执教赛季"}：${mc.seasons}</li>
+          <li>${getLang() === "en" ? "Record" : "战绩"}：${mc.wins}W ${mc.draws}D ${mc.losses}L（${mc.matches}）· ${wr}%</li>
+          <li>GF/GA：${mc.goalsFor || 0} / ${mc.goalsAgainst || 0}</li>
+          <li>${getLang() === "en" ? "Titles / promos / cups" : "冠军 / 升级 / 杯赛"}：${mc.titles} / ${mc.promotions} / ${mc.cups}</li>
+          <li>${getLang() === "en" ? "Sacked" : "被解雇"}：${mc.sacked}</li>
+          <li>${
+            mc.bestFinish
+              ? `${getLang() === "en" ? "Best" : "最佳"}：${mc.bestFinish.season} ${escapeHtml(mc.bestFinish.divName)} #${mc.bestFinish.pos}`
+              : getLang() === "en"
+                ? "Best finish: —"
+                : "最佳名次：—"
+          }</li>
+        </ul>
+        <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem">${getLang() === "en" ? "Trophy cabinet" : "荣誉柜"}</h3>
+        <div class="honor-list">${trophies || `<p class="muted">${getLang() === "en" ? "No trophies yet" : "暂无奖杯"}</p>`}</div>
+      </div>
+      <div class="card">
+        <h2 data-i18n="career.club">${getLang() === "en" ? "Club honours" : "俱乐部荣誉墙"}</h2>
+        <div class="honor-list">${clubHonors || `<p class="muted">${getLang() === "en" ? "Win a title or promote to fill the wall" : "夺冠或升级后写入此处"}</p>`}</div>
+      </div>
+    </div>
+  `;
+}
+
+function maybeShowSeasonSummary() {
+  if (!world?.lastSeasonSummary || !world.seasonOver) return;
+  if (world._summaryShownSeason === world.lastSeasonSummary.season) return;
+  const s = world.lastSeasonSummary;
+  const overlay = $("#season-summary");
+  if (!overlay) return;
+  world._summaryShownSeason = s.season;
+  const trop = (s.trophies || [])
+    .map((t) => `<li>${escapeHtml(t.title)}${t.detail ? ` · ${escapeHtml(t.detail)}` : ""}</li>`)
+    .join("");
+  overlay.innerHTML = `
+    <div class="season-summary-card">
+      <h2>🏆 ${s.season} ${getLang() === "en" ? "Season review" : "赛季结算"}</h2>
+      <p class="muted">${escapeHtml(s.clubName)} · ${escapeHtml(s.divName)}</p>
+      <p style="font-size:1.35rem;margin:0.5rem 0"><strong>#${s.pos}</strong> · ${s.pts} pts · ${s.w}W ${s.d}D ${s.l}L · ${s.gf}:${s.ga}</p>
+      ${trop ? `<ul class="season-trop-list">${trop}</ul>` : `<p class="muted">${getLang() === "en" ? "No new silverware" : "本季无新奖杯"}</p>`}
+      <p class="muted" style="margin-top:0.75rem">${getLang() === "en" ? "Career" : "生涯"}：${s.career?.seasons || 0} seasons · ${s.career?.titles || 0} titles · ${s.career?.promotions || 0} promos</p>
+      <button type="button" class="btn primary" id="btn-close-season-summary">${getLang() === "en" ? "Continue" : "继续"}</button>
+    </div>
+  `;
+  overlay.classList.remove("hidden");
+  $("#btn-close-season-summary")?.addEventListener("click", () => {
+    overlay.classList.add("hidden");
+    overlay.innerHTML = "";
+  });
+}
+
+function checkExportReminder() {
+  try {
+    const last = Number(localStorage.getItem(EXPORT_TIP_KEY) || 0);
+    const days = last ? (Date.now() - last) / 86400000 : 999;
+    const tip = $("#export-reminder");
+    if (!tip) return;
+    if (days >= 7 && hasAnySave()) {
+      tip.classList.remove("hidden");
+      tip.textContent =
+        getLang() === "en"
+          ? "Tip: export your save regularly — clearing cache wipes progress."
+          : "提醒：建议定期导出存档；清缓存会丢失进度。";
+    } else {
+      tip.classList.add("hidden");
+    }
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function markExportDone() {
+  try {
+    localStorage.setItem(EXPORT_TIP_KEY, String(Date.now()));
+  } catch (_) {
+    /* ignore */
+  }
+  checkExportReminder();
 }
 
 // ---------- Utils ----------
