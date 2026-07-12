@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VC 足球经理</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- 开始界面 -->
+    <section id="screen-start" class="screen active">
+      <div class="start-card">
+        <h1>VC 足球经理</h1>
+        <p class="subtitle">简化版足球经理 · 灵感来自 FM</p>
+        <div class="start-form">
+          <label>经理姓名
+            <input id="input-manager" type="text" value="教练" maxlength="16" />
+          </label>
+          <label>选择球队（仅乙级联赛）
+            <select id="select-club"></select>
+          </label>
+          <p class="hint" style="margin:0">三级联赛：乙级 → 甲级 → 超联。开局只能从乙级起步，争取升级！</p>
+          <button id="btn-new-game" class="btn primary">开始新赛季</button>
+          <button id="btn-load-game" class="btn">读取存档</button>
+          <div class="start-save-row" style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.35rem">
+            <button id="btn-export-save" class="btn small" type="button">导出存档</button>
+            <button id="btn-import-save" class="btn small" type="button">导入存档</button>
+            <input id="input-import-save" type="file" accept="application/json,.json" hidden />
+          </div>
+        </div>
+        <p id="start-hint" class="hint"></p>
+      </div>
+    </section>
+
+    <!-- 主界面 -->
+    <section id="screen-main" class="screen">
+      <header class="topbar">
+        <div class="brand">
+          <strong id="club-name">—</strong>
+          <span id="manager-name" class="muted"></span>
+        </div>
+        <div class="meta">
+          <span id="season-label">赛季 2026</span>
+          <span id="date-label"></span>
+          <span id="money-label" class="money"></span>
+        </div>
+        <nav class="tabs">
+          <button data-tab="dashboard" class="tab active">概览</button>
+          <button data-tab="squad" class="tab">阵容</button>
+          <button data-tab="youth" class="tab">青训</button>
+          <button data-tab="staff" class="tab">职员</button>
+          <button data-tab="tactics" class="tab">战术</button>
+          <button data-tab="table" class="tab">积分榜</button>
+          <button data-tab="stats" class="tab">数据榜</button>
+          <button data-tab="media" class="tab">媒体</button>
+          <button data-tab="transfer" class="tab">转会</button>
+          <button data-tab="fixtures" class="tab">赛程</button>
+        </nav>
+        <div class="actions">
+          <button id="btn-save" class="btn small">存档</button>
+          <button id="btn-export-save-main" class="btn small ghost" type="button">导出</button>
+          <button id="btn-menu" class="btn small ghost">菜单</button>
+        </div>
+      </header>
+
+      <main class="content">
+        <!-- 概览 -->
+        <div id="tab-dashboard" class="tab-panel active">
+          <div class="grid-2">
+            <div class="card">
+              <h2>下一场比赛</h2>
+              <div id="next-match" class="next-match">暂无赛程</div>
+              <button id="btn-play-match" class="btn primary" disabled>进入比赛</button>
+              <button id="btn-advance" class="btn">推进一天</button>
+              <button id="btn-advance-matchday" class="btn">推进到比赛日</button>
+              <button id="btn-next-season" class="btn primary" style="display:none;margin-top:0.5rem">进入下一赛季</button>
+            </div>
+            <div class="card">
+              <h2>联赛排名</h2>
+              <div id="my-rank" class="rank-box">—</div>
+              <h3>近期战绩</h3>
+              <div id="form-strip" class="form-strip"></div>
+            </div>
+            <div class="card span-2">
+              <h2>新闻</h2>
+              <ul id="news-list" class="news-list"></ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- 阵容 -->
+        <div id="tab-squad" class="tab-panel">
+          <div class="card">
+            <div class="row-between">
+              <h2>球队阵容</h2>
+              <span class="muted" id="squad-count"></span>
+            </div>
+            <div class="table-wrap">
+              <table id="squad-table">
+                <thead>
+                  <tr>
+                    <th>姓名</th>
+                    <th>国籍</th>
+                    <th>位置</th>
+                    <th>年龄</th>
+                    <th>能力</th>
+                    <th>体能</th>
+                    <th>士气</th>
+                    <th>身价</th>
+                    <th>周薪</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- 青训 -->
+        <div id="tab-youth" class="tab-panel">
+          <div class="grid-2">
+            <div class="card">
+              <h2>青训学院</h2>
+              <div id="youth-info" class="rank-box" style="font-size:1rem;line-height:1.6"></div>
+              <div style="margin-top:0.85rem;display:flex;gap:0.5rem;flex-wrap:wrap">
+                <button id="btn-youth-upgrade" class="btn primary">升级设施</button>
+              </div>
+              <p class="hint" id="youth-hint" style="margin-top:0.75rem"></p>
+            </div>
+            <div class="card">
+              <h2>说明</h2>
+              <ul class="news-list">
+                <li>青训球员会随时间<strong>成长</strong>（每周概率涨属性）</li>
+                <li>约每 <strong>30 天</strong>自动招生</li>
+                <li><strong>提拔</strong>可升入一线队；不合适可<strong>释放</strong></li>
+                <li>升级学院可提高容量、招生数与成长速度</li>
+              </ul>
+            </div>
+            <div class="card span-2">
+              <div class="row-between">
+                <h2>青训名单</h2>
+                <span class="muted" id="youth-count"></span>
+              </div>
+              <div class="table-wrap">
+                <table id="youth-table">
+                  <thead>
+                    <tr>
+                      <th>姓名</th>
+                      <th>国籍</th>
+                      <th>位置</th>
+                      <th>年龄</th>
+                      <th>能力</th>
+                      <th>潜力</th>
+                      <th>周薪</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 职员：教练 / 球探 / 队医 -->
+        <div id="tab-staff" class="tab-panel">
+          <div class="grid-2">
+            <div class="card span-2">
+              <h2>教练团队</h2>
+              <p class="hint">教练强化比赛与成长 · 球探优化转会与青训 · 队医降低伤病、加速恢复。周薪计入工资单。</p>
+              <div id="staff-current" class="staff-grid"></div>
+            </div>
+            <div class="card span-2">
+              <div class="row-between">
+                <h2>职员市场</h2>
+                <button id="btn-refresh-staff" class="btn small">刷新候选人</button>
+              </div>
+              <div class="table-wrap">
+                <table id="staff-market-table">
+                  <thead>
+                    <tr>
+                      <th>姓名</th>
+                      <th>职位</th>
+                      <th>能力</th>
+                      <th>年龄</th>
+                      <th>周薪</th>
+                      <th>签约费</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 战术 -->
+        <div id="tab-tactics" class="tab-panel">
+          <div class="grid-2">
+            <div class="card">
+              <h2>阵型</h2>
+              <select id="formation-select"></select>
+              <div id="pitch" class="pitch"></div>
+            </div>
+            <div class="card">
+              <h2>战术倾向</h2>
+              <label>风格
+                <select id="style-select">
+                  <option value="balanced">均衡</option>
+                  <option value="attack">进攻</option>
+                  <option value="defend">防守</option>
+                  <option value="possession">控球</option>
+                  <option value="counter">反击</option>
+                </select>
+              </label>
+              <label>压迫强度
+                <input id="pressing" type="range" min="1" max="5" value="3" />
+                <span id="pressing-val">3</span>
+              </label>
+              <label>传球节奏
+                <input id="tempo" type="range" min="1" max="5" value="3" />
+                <span id="tempo-val">3</span>
+              </label>
+              <p class="hint">阵型与战术会影响比赛模拟结果。</p>
+              <button id="btn-auto-xi" class="btn">自动排出最佳十一人</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 积分榜 -->
+        <div id="tab-table" class="tab-panel">
+          <div class="card">
+            <div class="row-between" style="flex-wrap:wrap;gap:0.5rem">
+              <h2 id="table-title" style="margin:0">联赛积分榜</h2>
+              <div class="filters" style="margin:0">
+                <select id="table-division">
+                  <option value="3">乙级联赛</option>
+                  <option value="2">甲级联赛</option>
+                  <option value="1">超级联赛</option>
+                </select>
+              </div>
+            </div>
+            <p class="hint" id="table-hint" style="margin:0.5rem 0 0.75rem"></p>
+            <div class="table-wrap">
+              <table id="league-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>球队</th>
+                    <th>赛</th>
+                    <th>胜</th>
+                    <th>平</th>
+                    <th>负</th>
+                    <th>进</th>
+                    <th>失</th>
+                    <th>净</th>
+                    <th>分</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- 媒体 -->
+        <div id="tab-media" class="tab-panel">
+          <div class="grid-2">
+            <div class="card span-2">
+              <div class="row-between">
+                <h2>媒体中心</h2>
+                <span class="muted" id="media-count"></span>
+              </div>
+              <p class="hint">赛后通稿、转会官宣、青训特写、传闻与专栏都会出现在这里。</p>
+              <div id="media-feed" class="media-feed"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 数据榜 -->
+        <div id="tab-stats" class="tab-panel">
+          <div class="grid-2">
+            <div class="card">
+              <h2>射手榜</h2>
+              <div class="table-wrap">
+                <table id="stats-goals">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>球员</th>
+                      <th>球队</th>
+                      <th>进球</th>
+                      <th>助攻</th>
+                      <th>出场</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="card">
+              <h2>助攻榜</h2>
+              <div class="table-wrap">
+                <table id="stats-assists">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>球员</th>
+                      <th>球队</th>
+                      <th>助攻</th>
+                      <th>进球</th>
+                      <th>出场</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="card span-2">
+              <h2>门将榜（零封 / 失球）</h2>
+              <div class="table-wrap">
+                <table id="stats-keepers">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>门将</th>
+                      <th>球队</th>
+                      <th>出场</th>
+                      <th>零封</th>
+                      <th>失球</th>
+                      <th>场均失球</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 转会 -->
+        <div id="tab-transfer" class="tab-panel">
+          <div class="grid-2">
+            <div class="card">
+              <h2>转会市场</h2>
+              <div class="filters">
+                <select id="filter-pos">
+                  <option value="">全部位置</option>
+                  <option value="GK">门将</option>
+                  <option value="DEF">后卫</option>
+                  <option value="MID">中场</option>
+                  <option value="ATT">前锋</option>
+                </select>
+                <button id="btn-refresh-market" class="btn small">刷新列表</button>
+              </div>
+              <div class="table-wrap">
+                <table id="market-table">
+                  <thead>
+                    <tr>
+                      <th>姓名</th>
+                      <th>国籍</th>
+                      <th>位置</th>
+                      <th>能力</th>
+                      <th>年龄</th>
+                      <th>球队</th>
+                      <th>身价</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="card">
+              <h2>可出售球员</h2>
+              <div class="table-wrap">
+                <table id="sell-table">
+                  <thead>
+                    <tr>
+                      <th>姓名</th>
+                      <th>国籍</th>
+                      <th>位置</th>
+                      <th>能力</th>
+                      <th>身价</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 赛程 -->
+        <div id="tab-fixtures" class="tab-panel">
+          <div class="card">
+            <h2>本队赛程</h2>
+            <div class="table-wrap">
+              <table id="fixtures-table">
+                <thead>
+                  <tr>
+                    <th>轮次</th>
+                    <th>日期</th>
+                    <th>主队</th>
+                    <th>比分</th>
+                    <th>客队</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </main>
+    </section>
+
+    <!-- 比赛界面 -->
+    <section id="screen-match" class="screen">
+      <div class="match-layout">
+        <header class="match-header">
+          <div id="match-home" class="team-side"></div>
+          <div class="scoreboard">
+            <div id="match-score" class="score">0 - 0</div>
+            <div id="match-minute" class="minute">0'</div>
+          </div>
+          <div id="match-away" class="team-side right"></div>
+        </header>
+        <div id="match-log" class="match-log"></div>
+        <div class="match-actions">
+          <button id="btn-sim-fast" class="btn primary">快速模拟</button>
+          <button id="btn-sim-live" class="btn">直播模拟</button>
+          <button id="btn-match-continue" class="btn" disabled>赛后继续</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 球员详情弹窗 -->
+    <div id="modal" class="modal hidden">
+      <div class="modal-card">
+        <button id="modal-close" class="modal-close">×</button>
+        <div id="modal-body"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
