@@ -90,6 +90,11 @@ import {
   boardStatusLine,
   boardTone,
 } from "./board.js";
+import {
+  playerAvatarHtml,
+  staffAvatarHtml,
+  avatarHtml,
+} from "./avatar.js";
 
 /** 解雇后回菜单：优先提示换空槽开新档，避免误覆盖 */
 function handleSacked(result) {
@@ -603,8 +608,13 @@ function renderStaff() {
       const s = club.staff[role];
       const meta = ROLES[role];
       return `<div class="staff-card">
-        <div class="role">${meta.label}</div>
-        <h3>${escapeHtml(s.name)}</h3>
+        <div class="staff-card-head">
+          ${staffAvatarHtml(s, 52)}
+          <div>
+            <div class="role">${meta.label}</div>
+            <h3 style="margin:0.15rem 0">${escapeHtml(s.name)}</h3>
+          </div>
+        </div>
         <div class="meta">能力 <strong class="${ovrClass(s.rating)}">${s.rating}</strong> · ${s.age} 岁</div>
         <div class="meta">周薪 ${formatMoney(s.wage)}</div>
         <p class="hint" style="margin:0.4rem 0">${meta.effect}</p>
@@ -630,7 +640,7 @@ function renderStaff() {
     .map((s) => {
       const fee = Math.round(s.rating * s.rating * 8000);
       return `<tr>
-        <td>${escapeHtml(s.name)}</td>
+        <td class="avatar-cell">${staffAvatarHtml(s, 32)} ${escapeHtml(s.name)}</td>
         <td>${ROLES[s.role]?.label || s.role}</td>
         <td class="${ovrClass(s.rating)}"><strong>${s.rating}</strong></td>
         <td>${s.age}</td>
@@ -700,7 +710,11 @@ function renderTopbar() {
   const div = DIVISIONS[club.division || 3];
   const kit = ensureKit(club);
   $("#club-name").innerHTML = `<span class="kit-chip" style="${kitBadgeStyle(club)}" title="${kit.style}"></span> ${escapeHtml(club.name)}`;
-  $("#manager-name").textContent = `${world.managerName} · ${div?.short || "乙级"}`;
+  const mgrAv = avatarHtml(
+    { id: `mgr_${world.userClubId}_${world.managerName}`, name: world.managerName, age: 42 },
+    { role: "manager", size: 28 }
+  );
+  $("#manager-name").innerHTML = `${mgrAv} <span>${escapeHtml(world.managerName)} · ${div?.short || "乙级"}</span>`;
   $("#season-label").textContent = `赛季 ${world.season}`;
   const tw = transferWindowShort(world);
   $("#date-label").textContent = `第 ${world.day} 天 · ${tw}`;
@@ -848,9 +862,9 @@ function renderSquad() {
       const num = p.number != null ? p.number : "—";
       return `<tr class="${xi.has(p.id) ? "me" : ""}">
         <td class="num-cell"><span class="kit-num" style="${kitBadgeStyle(club)}">${num}</span></td>
-        <td>${escapeHtml(p.name)}${xi.has(p.id) ? ' <span class="badge">首发</span>' : ""}${
+        <td class="name-with-avatar">${playerAvatarHtml(p, club, 30)} <span>${escapeHtml(p.name)}${xi.has(p.id) ? ' <span class="badge">首发</span>' : ""}${
           p.injured > 0 ? ' <span class="badge ATT">伤</span>' : ""
-        }</td>
+        }</span></td>
         <td>${nationLabel(p)}</td>
         <td><span class="badge ${p.pos}">${POS_LABEL[p.pos]}</span></td>
         <td>${p.age}</td>
@@ -971,6 +985,7 @@ function showPlayerModal(playerId) {
   }
   $("#modal-body").innerHTML = `
     <div class="player-modal-head">
+      ${playerAvatarHtml(player, kitClub, 64)}
       ${kitClub ? renderKitShirt(kitClub, player.number, 56) : ""}
       <div>
     <h2 style="margin:0 0 0.25rem">${escapeHtml(player.name)}${player.number != null ? ` <span class="muted">#${player.number}</span>` : ""}</h2>
@@ -1092,7 +1107,7 @@ function renderYouth() {
           const num = p.number != null ? p.number : "—";
           return `<tr>
             <td class="num-cell"><span class="kit-num" style="${kitBadgeStyle(club)}">${num}</span></td>
-            <td>${escapeHtml(p.name)}</td>
+            <td class="name-with-avatar">${playerAvatarHtml(p, club, 28)} <span>${escapeHtml(p.name)}</span></td>
             <td>${nationLabel(p)}</td>
             <td><span class="badge ${p.pos}">${POS_LABEL[p.pos]}</span></td>
             <td>${p.age}</td>
@@ -1158,9 +1173,10 @@ function renderTactics() {
       const style = p
         ? `background:${kitBg};color:${kitNc};border-color:${kit.primary || "#fff"}`
         : "";
+      const av = p ? playerAvatarHtml(p, club, 22) : "";
       return `<div class="player-dot" style="left:${slot.x}%;top:${slot.y}%">
-        <div class="circle kit-dot" style="${style}">${num}</div>
-        <div class="name">${escapeHtml(label)}</div>
+        <div class="circle kit-dot" style="${style}">${av || num}</div>
+        <div class="name">${p && p.number != null ? `#${p.number} ` : ""}${escapeHtml(label)}</div>
       </div>`;
     })
     .join("");
@@ -1300,7 +1316,7 @@ function renderTransfer() {
       const valTxt = formatScoutValue(world, p);
       const ovrTxt = formatScoutOvr(world, p);
       return `<tr>
-        <td>${escapeHtml(p.name)}</td>
+        <td class="name-with-avatar">${playerAvatarHtml(p, club, 28)} <span>${escapeHtml(p.name)}</span></td>
         <td>${nationLabel(p)}</td>
         <td><span class="badge ${p.pos}">${POS_LABEL[p.pos]}</span></td>
         <td class="${ovrClass(p.ovr)}">${ovrTxt}</td>
@@ -1337,7 +1353,7 @@ function renderTransfer() {
   st.innerHTML = sorted
     .map(
       (p) => `<tr>
-      <td>${escapeHtml(p.name)}</td>
+      <td class="name-with-avatar">${playerAvatarHtml(p, club, 28)} <span>${escapeHtml(p.name)}</span></td>
       <td>${nationLabel(p)}</td>
       <td><span class="badge ${p.pos}">${POS_LABEL[p.pos]}</span></td>
       <td class="${ovrClass(p.ovr)}">${p.ovr}</td>
