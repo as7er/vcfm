@@ -1117,12 +1117,23 @@ function renderSquad() {
   tbody.innerHTML = sorted
     .map((p) => {
       ensureDiscipline(p);
+      ensurePlayerHistory(p);
       const ovr = p.ovr || playerOverall(p);
       const s = playerStats(p);
-      const statBits =
-        p.pos === "GK"
-          ? `零封 ${s.cleanSheets} · 失球 ${s.goalsConceded}`
-          : `进球 ${s.goals} · 助攻 ${s.assists}`;
+      const isGk = p.pos === "GK";
+      // 本赛季：出场 / 进球·零封 / 助攻·失球
+      const apps = s.apps || 0;
+      const colG = isGk ? s.cleanSheets || 0 : s.goals || 0;
+      const colA = isGk ? s.goalsConceded || 0 : s.assists || 0;
+      const gTitle = isGk
+        ? t("squad.csTitle") || "本赛季零封"
+        : t("squad.goalsTitle") || "本赛季进球";
+      const aTitle = isGk
+        ? t("squad.gaTitle") || "本赛季失球"
+        : t("squad.astTitle") || "本赛季助攻";
+      const gCls = !isGk && colG > 0 ? "stat-high" : isGk && colG > 0 ? "stat-high" : "";
+      const aCls =
+        isGk && colA > 0 ? "stat-low" : !isGk && colA > 0 ? "stat-mid" : "";
       const num = p.number != null ? p.number : "—";
       const statusBadges = [
         xi.has(p.id) ? '<span class="badge">首发</span>' : "",
@@ -1143,6 +1154,9 @@ function renderSquad() {
         <td><span class="badge ${p.pos}">${POS_LABEL[p.pos]}</span></td>
         <td>${p.age}</td>
         <td class="${ovrClass(ovr)}"><strong>${ovr}</strong></td>
+        <td class="num-stat" title="${escapeHtml(t("squad.appsTitle") || "本赛季出场")}">${apps}</td>
+        <td class="num-stat ${gCls}" title="${escapeHtml(gTitle)}">${colG}</td>
+        <td class="num-stat ${aCls}" title="${escapeHtml(aTitle)}">${colA}</td>
         <td>${p.fitness}%</td>
         <td>${p.morale}</td>
         <td>${formatMoney(p.value)}</td>

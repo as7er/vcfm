@@ -2386,6 +2386,18 @@ html[data-theme="light"] .avatar {
   box-shadow: inset 0 0 0 1px rgba(0,0,0,0.15);
 }
 .num-cell { width: 2.5rem; text-align: center; }
+#squad-table .num-stat {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  min-width: 2.2rem;
+}
+#squad-table th:nth-child(7),
+#squad-table th:nth-child(8),
+#squad-table th:nth-child(9) {
+  text-align: center;
+  white-space: nowrap;
+}
 .kit-chip {
   display: inline-block;
   width: 14px;
