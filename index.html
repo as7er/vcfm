@@ -2,7 +2,10 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#0b1220" />
   <title>VC 足球经理</title>
   <link rel="stylesheet" href="css/style.css" />
 </head>
@@ -21,11 +24,21 @@
             <select id="select-club"></select>
           </label>
           <p class="hint" style="margin:0">三级联赛：乙级 → 甲级 → 超联。开局只能从乙级起步，争取升级！</p>
+
+          <div class="slot-section">
+            <div class="row-between" style="margin-bottom:0.4rem">
+              <strong style="font-size:0.9rem">存档槽</strong>
+              <span class="muted" id="active-slot-label" style="font-size:0.8rem"></span>
+            </div>
+            <div id="save-slots" class="save-slots"></div>
+            <p class="hint save-tip">换手机/浏览器请先<strong>导出存档</strong>；清缓存会丢进度。</p>
+          </div>
+
           <button id="btn-new-game" class="btn primary">开始新赛季</button>
-          <button id="btn-load-game" class="btn">读取存档</button>
-          <div class="start-save-row" style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.35rem">
+          <button id="btn-load-game" class="btn">读取当前槽</button>
+          <div class="start-save-row">
             <button id="btn-export-save" class="btn small" type="button">导出存档</button>
-            <button id="btn-import-save" class="btn small" type="button">导入存档</button>
+            <button id="btn-import-save" class="btn small" type="button">导入到当前槽</button>
             <input id="input-import-save" type="file" accept="application/json,.json" hidden />
           </div>
         </div>
@@ -72,10 +85,13 @@
             <div class="card">
               <h2>下一场比赛</h2>
               <div id="next-match" class="next-match">暂无赛程</div>
-              <button id="btn-play-match" class="btn primary" disabled>进入比赛</button>
-              <button id="btn-advance" class="btn">推进一天</button>
-              <button id="btn-advance-matchday" class="btn">推进到比赛日</button>
-              <button id="btn-next-season" class="btn primary" style="display:none;margin-top:0.5rem">进入下一赛季</button>
+              <div class="dash-actions">
+                <button id="btn-play-match" class="btn primary" disabled>进入比赛</button>
+                <button id="btn-advance" class="btn">推进一天</button>
+                <button id="btn-advance-matchday" class="btn">推进到比赛日</button>
+                <button id="btn-advance-season-end" class="btn" type="button" title="自动推进，遇到我方比赛会停下">推进到赛季末</button>
+                <button id="btn-next-season" class="btn primary" style="display:none">进入下一赛季</button>
+              </div>
             </div>
             <div class="card">
               <h2>联赛排名</h2>

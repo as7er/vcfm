@@ -1,10 +1,65 @@
-/** 本地存档：localStorage + 导出/导入文件 */
+/** 本地存档：多槽位 localStorage + 导出/导入文件 */
 
-const KEY = "vc_fm_save_v1";
+const LEGACY_KEY = "vc_fm_save_v1";
+const SLOT_PREFIX = "vc_fm_slot_";
+const ACTIVE_KEY = "vc_fm_active_slot";
+const META_KEY = "vc_fm_slots_meta";
+export const SLOT_COUNT = 3;
 
-export function saveGame(world) {
+function slotKey(slot) {
+  return `${SLOT_PREFIX}${slot}`;
+}
+
+function readMeta() {
   try {
-    localStorage.setItem(KEY, JSON.stringify(world));
+    const raw = localStorage.getItem(META_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) || {};
+  } catch {
+    return {};
+  }
+}
+
+function writeMeta(meta) {
+  try {
+    localStorage.setItem(META_KEY, JSON.stringify(meta));
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function metaFromWorld(world) {
+  if (!world) return null;
+  const club = (world.clubs || []).find((c) => c.id === world.userClubId);
+  return {
+    season: world.season,
+    day: world.day,
+    manager: world.managerName || world.manager || "",
+    clubId: world.userClubId,
+    clubName: club?.name || world.userClubId || "—",
+    money: club?.money ?? null,
+    savedAt: Date.now(),
+  };
+}
+
+/** 一次性：旧单键存档迁到槽 1 */
+export function migrateLegacySave() {
+  try {
+    const legacy = localStorage.getItem(LEGACY_KEY);
+    if (!legacy) return false;
+    if (localStorage.getItem(slotKey(1))) {
+      // 槽 1 已有内容：只删 legacy 避免双份（可选保留 legacy 作备份）
+      return false;
+    }
+    localStorage.setItem(slotKey(1), legacy);
+    const world = JSON.parse(legacy);
+    const meta = readMeta();
+    meta[1] = metaFromWorld(world);
+    writeMeta(meta);
+    if (!localStorage.getItem(ACTIVE_KEY)) {
+      localStorage.setItem(ACTIVE_KEY, "1");
+    }
+    // 保留 LEGACY_KEY 一段时间作兼容；读写优先槽位
     return true;
   } catch (e) {
     console.error(e);
@@ -12,10 +67,86 @@ export function saveGame(world) {
   }
 }
 
-export function loadGame() {
+export function getActiveSlot() {
+  migrateLegacySave();
+  const n = parseInt(localStorage.getItem(ACTIVE_KEY) || "1", 10);
+  if (n >= 1 && n <= SLOT_COUNT) return n;
+  return 1;
+}
+
+export function setActiveSlot(slot) {
+  const s = Math.max(1, Math.min(SLOT_COUNT, Number(slot) || 1));
+  localStorage.setItem(ACTIVE_KEY, String(s));
+  return s;
+}
+
+export function listSlots() {
+  migrateLegacySave();
+  const meta = readMeta();
+  const out = [];
+  for (let i = 1; i <= SLOT_COUNT; i++) {
+    const raw = localStorage.getItem(slotKey(i));
+    let info = meta[i] || null;
+    if (raw && !info) {
+      try {
+        info = metaFromWorld(JSON.parse(raw));
+        meta[i] = info;
+        writeMeta(meta);
+      } catch {
+        info = { clubName: "损坏存档", season: "?", day: "?" };
+      }
+    }
+    out.push({
+      slot: i,
+      empty: !raw,
+      ...info,
+    });
+  }
+  return out;
+}
+
+export function hasAnySave() {
+  migrateLegacySave();
+  for (let i = 1; i <= SLOT_COUNT; i++) {
+    if (localStorage.getItem(slotKey(i))) return true;
+  }
+  return !!localStorage.getItem(LEGACY_KEY);
+}
+
+export function hasSave(slot = null) {
+  migrateLegacySave();
+  if (slot == null) {
+    return !!localStorage.getItem(slotKey(getActiveSlot())) || !!localStorage.getItem(LEGACY_KEY);
+  }
+  return !!localStorage.getItem(slotKey(slot));
+}
+
+export function saveGame(world, slot = null) {
   try {
-    const raw = localStorage.getItem(KEY);
+    const s = slot != null ? slot : getActiveSlot();
+    const key = slotKey(s);
+    localStorage.setItem(key, JSON.stringify(world));
+    // 兼容旧读取路径
+    if (s === 1) localStorage.setItem(LEGACY_KEY, JSON.stringify(world));
+    const meta = readMeta();
+    meta[s] = metaFromWorld(world);
+    writeMeta(meta);
+    setActiveSlot(s);
+    return true;
+  } catch (e) {
+    console.error(e);
+    return false;
+  }
+}
+
+export function loadGame(slot = null) {
+  try {
+    migrateLegacySave();
+    const s = slot != null ? slot : getActiveSlot();
+    let raw = localStorage.getItem(slotKey(s));
+    if (!raw && s === 1) raw = localStorage.getItem(LEGACY_KEY);
     if (!raw) return null;
+    setActiveSlot(s);
     return JSON.parse(raw);
   } catch (e) {
     console.error(e);
@@ -23,12 +154,27 @@ export function loadGame() {
   }
 }
 
-export function hasSave() {
-  return !!localStorage.getItem(KEY);
+export function clearSave(slot = null) {
+  const s = slot != null ? slot : getActiveSlot();
+  localStorage.removeItem(slotKey(s));
+  if (s === 1) localStorage.removeItem(LEGACY_KEY);
+  const meta = readMeta();
+  delete meta[s];
+  writeMeta(meta);
 }
 
-export function clearSave() {
-  localStorage.removeItem(KEY);
+export function formatSlotLabel(info) {
+  if (!info || info.empty) return `槽 ${info?.slot ?? "?"} · 空`;
+  const when = info.savedAt
+    ? new Date(info.savedAt).toLocaleString("zh-CN", {
+        month: "numeric",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";
+  const base = `槽 ${info.slot} · ${info.clubName || "—"} · S${info.season ?? "?"} D${info.day ?? "?"}`;
+  return when ? `${base} · ${when}` : base;
 }
 
 /** 下载 JSON 存档文件 */

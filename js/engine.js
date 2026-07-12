@@ -1094,7 +1094,7 @@ export function advanceToNextMatchDay(world, maxDays = 60) {
         days,
         userMatches: m ? [m] : [],
         pendingMatch: m,
-        msg: m ? 比赛日到了（推进  天） : 已推进  天,
+        msg: m ? `比赛日到了（推进 ${days} 天）` : `已推进 ${days} 天`,
       };
     }
     last = advanceDay(world);
@@ -1105,7 +1105,7 @@ export function advanceToNextMatchDay(world, maxDays = 60) {
         days,
         userMatches: last.userMatches,
         pendingMatch: last.userMatches[0],
-        msg: 推进  天，比赛日到了,
+        msg: `推进 ${days} 天，比赛日到了`,
       };
     }
     if (world.seasonOver) {
@@ -1113,7 +1113,7 @@ export function advanceToNextMatchDay(world, maxDays = 60) {
         ok: true,
         days,
         userMatches: [],
-        msg: 推进  天，赛季结束,
+        msg: `推进 ${days} 天，赛季结束`,
       };
     }
   }
@@ -1121,9 +1121,63 @@ export function advanceToNextMatchDay(world, maxDays = 60) {
     ok: true,
     days,
     userMatches: last.userMatches || [],
-    msg: 已推进  天,
+    msg: `已推进 ${days} 天`,
   };
 }
+
+/**
+ * 推进到赛季末：自动连推，遇到我方比赛日则停下。
+ * stopOnUserMatch=true（默认）适合通勤。
+ */
+export function advanceToSeasonEnd(world, { maxDays = 400, stopOnUserMatch = true } = {}) {
+  if (world.seasonOver) {
+    return { ok: false, msg: "赛季已结束", days: 0, userMatches: [] };
+  }
+  const ready = getNextPlayableMatch(world);
+  if (ready && ready.day <= world.day && !ready.played) {
+    return {
+      ok: false,
+      msg: "今天有比赛，请先进入比赛！",
+      days: 0,
+      userMatches: [ready],
+      pendingMatch: ready,
+    };
+  }
+
+  let days = 0;
+  let last = { userMatches: [] };
+  while (days < maxDays && !world.seasonOver) {
+    last = advanceDay(world);
+    days += 1;
+    if (stopOnUserMatch && last.userMatches && last.userMatches.length) {
+      return {
+        ok: true,
+        days,
+        userMatches: last.userMatches,
+        pendingMatch: last.userMatches[0],
+        stoppedForMatch: true,
+        msg: `推进 ${days} 天，遇到我方比赛，已停下`,
+      };
+    }
+    if (world.seasonOver) {
+      return {
+        ok: true,
+        days,
+        userMatches: [],
+        stoppedForMatch: false,
+        msg: `推进 ${days} 天，赛季结束`,
+      };
+    }
+  }
+  return {
+    ok: true,
+    days,
+    userMatches: last.userMatches || [],
+    stoppedForMatch: !!(last.userMatches && last.userMatches.length),
+    msg: `已推进 ${days} 天（未到赛季末）`,
+  };
+}
+
 
 function posCount(players, pos) {
   return players.filter((p) => p.pos === pos).length;

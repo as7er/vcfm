@@ -38,6 +38,7 @@ import {
 import {
   advanceDay,
   advanceToNextMatchDay,
+  advanceToSeasonEnd,
   simulateMatch,
   getSortedTable,
   getUserClub,
@@ -70,8 +71,15 @@ import {
   saveGame,
   loadGame,
   hasSave,
+  hasAnySave,
+  listSlots,
+  getActiveSlot,
+  setActiveSlot,
+  formatSlotLabel,
+  SLOT_COUNT,
   exportSaveDownload,
   importSaveText,
+  migrateLegacySave,
 } from "./save.js";
 import {
   ensureBoardObjective,
@@ -124,6 +132,47 @@ function showScreen(name) {
 }
 
 // ---------- Start ----------
+function refreshSlotUI() {
+  migrateLegacySave();
+  const active = getActiveSlot();
+  const label = $("#active-slot-label");
+  if (label) label.textContent = `当前：槽 ${active}`;
+  const box = $("#save-slots");
+  if (!box) return;
+  const slots = listSlots();
+  box.innerHTML = slots
+    .map((s) => {
+      const activeCls = s.slot === active ? " active" : "";
+      const emptyCls = s.empty ? " empty" : "";
+      const title = formatSlotLabel(s);
+      const sub = s.empty
+        ? "点击选中，再「开始新赛季」"
+        : `经理 ${escapeHtml(s.manager || "—")}`;
+      return `<button type="button" class="slot-card${activeCls}${emptyCls}" data-slot="${s.slot}">
+        <div class="slot-title">${escapeHtml(title)}</div>
+        <div class="slot-sub">${sub}</div>
+      </button>`;
+    })
+    .join("");
+  box.querySelectorAll("[data-slot]").forEach((btn) => {
+    btn.onclick = () => {
+      setActiveSlot(+btn.dataset.slot);
+      refreshSlotUI();
+      const info = listSlots().find((x) => x.slot === +btn.dataset.slot);
+      $("#start-hint").textContent = info?.empty
+        ? `已选槽 ${btn.dataset.slot}（空），可开始新赛季`
+        : `已选槽 ${btn.dataset.slot}，可读取或覆盖`;
+    };
+  });
+
+  if (hasAnySave()) {
+    const filled = slots.filter((s) => !s.empty).length;
+    if (!$("#start-hint").textContent) {
+      $("#start-hint").textContent = `共 ${filled}/${SLOT_COUNT} 个存档 · 换设备请导出`;
+    }
+  }
+}
+
 function initStart() {
   const sel = $("#select-club");
   // 开局只能选最低级（乙级）
@@ -135,8 +184,9 @@ function initStart() {
     )
     .join("");
 
-  if (hasSave()) {
-    $("#start-hint").textContent = "检测到本地存档，可读取继续。";
+  refreshSlotUI();
+  if (hasAnySave()) {
+    $("#start-hint").textContent = `检测到存档（当前槽 ${getActiveSlot()}），可读取继续。换设备请先导出。`;
   }
 
   $("#btn-new-game").onclick = () => {
@@ -147,7 +197,8 @@ function initStart() {
       $("#start-hint").textContent = "只能选择乙级联赛球队开局。";
       return;
     }
-    if (hasSave() && !confirm("开始新赛季将覆盖本地存档，确定？")) return;
+    const slot = getActiveSlot();
+    if (hasSave(slot) && !confirm(`开始新赛季将覆盖「槽 ${slot}」存档，确定？`)) return;
     world = createWorld(clubId, manager);
     ensureMedia(world);
     for (const c of world.clubs) ensureStaff(c);
@@ -155,14 +206,15 @@ function initStart() {
     const u = world.clubs.find((c) => c.id === clubId);
     mediaSeasonKickoff(world, u, DIVISIONS[u.division || 3]?.name || "乙级联赛");
     ensureBoardObjective(world);
-    saveGame(world);
+    saveGame(world, slot);
     enterMain();
   };
 
   $("#btn-load-game").onclick = () => {
-    const data = loadGame();
+    const slot = getActiveSlot();
+    const data = loadGame(slot);
     if (!data) {
-      $("#start-hint").textContent = "没有找到存档。";
+      $("#start-hint").textContent = `槽 ${slot} 没有存档。`;
       return;
     }
     world = data;
@@ -171,13 +223,15 @@ function initStart() {
   };
 
   $("#btn-export-save").onclick = () => {
-    if (!hasSave()) {
-      $("#start-hint").textContent = "没有可导出的存档。";
+    const slot = getActiveSlot();
+    if (!hasSave(slot)) {
+      $("#start-hint").textContent = `槽 ${slot} 没有可导出的存档。`;
       return;
     }
-    const data = loadGame();
-    if (exportSaveDownload(data)) toast("存档已下载");
-    else toast("导出失败");
+    const data = loadGame(slot);
+    if (exportSaveDownload(data)) {
+      toast("存档已下载 · 请保存到网盘/文件，换设备可导入");
+    } else toast("导出失败");
   };
 
   $("#btn-import-save").onclick = () => {
@@ -195,11 +249,13 @@ function initStart() {
         toast("存档文件无效");
         return;
       }
-      if (hasSave() && !confirm("导入将覆盖当前本地存档，确定？")) return;
+      const slot = getActiveSlot();
+      if (hasSave(slot) && !confirm(`导入将覆盖「槽 ${slot}」，确定？`)) return;
       world = data;
       migrateWorld(world);
-      saveGame(world);
-      toast("导入成功");
+      saveGame(world, slot);
+      toast(`已导入到槽 ${slot}`);
+      refreshSlotUI();
       enterMain();
     } catch (err) {
       console.error(err);
@@ -269,26 +325,31 @@ function bindMainOnce() {
   });
 
   $("#btn-save").onclick = () => {
-    if (saveGame(world)) toast("存档成功");
+    if (saveGame(world)) toast(`已存到槽 ${getActiveSlot()}`);
     else toast("存档失败");
   };
 
   $("#btn-export-save-main").onclick = () => {
     if (!world) return;
-    if (exportSaveDownload(world)) toast("存档已下载");
+    if (exportSaveDownload(world)) toast("存档已下载 · 换设备请导入此文件");
     else toast("导出失败");
   };
 
   $("#btn-menu").onclick = () => {
     autosave("menu");
-    if (confirm("返回主菜单？（已自动存档）")) {
+    if (confirm(`返回主菜单？（已自动存到槽 ${getActiveSlot()}）`)) {
       showScreen("start");
-      if (hasSave()) $("#start-hint").textContent = "检测到本地存档，可读取继续。";
+      refreshSlotUI();
+      $("#start-hint").textContent = hasAnySave()
+        ? `已存档（槽 ${getActiveSlot()}）。换设备请导出备份。`
+        : "";
     }
   };
 
   $("#btn-advance").onclick = () => onAdvance();
   $("#btn-advance-matchday").onclick = () => onAdvanceToMatchday();
+  const seasonEndBtn = $("#btn-advance-season-end");
+  if (seasonEndBtn) seasonEndBtn.onclick = () => onAdvanceToSeasonEnd();
   $("#btn-play-match").onclick = () => openMatch();
   $("#btn-next-season").onclick = () => {
     const res = startNextSeason(world);
@@ -620,6 +681,7 @@ function renderDashboard() {
   const nextSeasonBtn = $("#btn-next-season");
   const advanceBtn = $("#btn-advance");
   const advanceMatchBtn = $("#btn-advance-matchday");
+  const advanceSeasonBtn = $("#btn-advance-season-end");
 
   const seasonDone =
     world.seasonOver ||
@@ -638,12 +700,14 @@ function renderDashboard() {
     playBtn.textContent = "赛季已结束";
     advanceBtn.disabled = true;
     if (advanceMatchBtn) advanceMatchBtn.disabled = true;
+    if (advanceSeasonBtn) advanceSeasonBtn.disabled = true;
     nextSeasonBtn.style.display = "inline-block";
   } else if (!next) {
     box.textContent = "暂无下场比赛，可推进日程。";
     playBtn.disabled = true;
     advanceBtn.disabled = false;
     if (advanceMatchBtn) advanceMatchBtn.disabled = false;
+    if (advanceSeasonBtn) advanceSeasonBtn.disabled = false;
     nextSeasonBtn.style.display = "none";
   } else {
     const home = world.clubs.find((c) => c.id === next.home);
@@ -661,8 +725,9 @@ function renderDashboard() {
     playBtn.disabled = !ready;
     playBtn.textContent = ready ? "进入比赛" : "尚未到比赛日";
     advanceBtn.disabled = false;
-    // 比赛日当天：应先踢比赛，禁用跳到下场
+    // 比赛日当天：应先踢比赛，禁用跳到下场 / 赛季末
     if (advanceMatchBtn) advanceMatchBtn.disabled = ready;
+    if (advanceSeasonBtn) advanceSeasonBtn.disabled = ready;
     nextSeasonBtn.style.display = "none";
   }
 
@@ -1306,6 +1371,39 @@ function onAdvanceToMatchday() {
     toast(res.msg || `推进 ${res.days} 天`);
   }
   autosave("advance-matchday");
+  refreshAll();
+}
+
+/** 推进到赛季末：遇我方比赛停下（无「连推 N 天」） */
+function onAdvanceToSeasonEnd() {
+  if (world.seasonOver || (world.fixtures.length && world.fixtures.every((f) => f.played))) {
+    toast("赛季已结束，请进入下一赛季");
+    return;
+  }
+  if (
+    !confirm(
+      "将自动推进日程，直到赛季结束；途中遇到我方比赛会停下。\n（不会跳过你的比赛）\n确定？"
+    )
+  ) {
+    return;
+  }
+  const res = advanceToSeasonEnd(world, { stopOnUserMatch: true });
+  if (!res.ok && !res.days) {
+    toast(res.msg || "无法推进");
+    if (res.userMatches?.length) pendingMatch = res.userMatches[0];
+    refreshAll();
+    return;
+  }
+  if (res.userMatches && res.userMatches.length) {
+    pendingMatch = res.userMatches[0];
+    const label = pendingMatch.roundLabel || `第 ${pendingMatch.round} 轮`;
+    toast(`${res.msg || `推进 ${res.days} 天`} · ${label}`);
+  } else if (world.seasonOver) {
+    toast(res.msg || `推进 ${res.days} 天 · 赛季结束`);
+  } else {
+    toast(res.msg || `推进 ${res.days} 天`);
+  }
+  autosave("advance-season-end");
   refreshAll();
 }
 

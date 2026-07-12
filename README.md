@@ -7,9 +7,10 @@
 **https://as7er.github.io/vc-football-manager/**
 
 - 手机浏览器打开即可，电脑不用开
-- 进度存在**当前浏览器**本地（localStorage）
-- 换设备请用游戏内 **导出 / 导入存档**
+- 进度存在**当前浏览器**本地（localStorage，**3 个存档槽**）
+- 换设备请用游戏内 **导出 / 导入存档**（清缓存会丢进度）
 - 建议「添加到主屏幕」，更像 App
+- 手机端：页签可横滑；可用 **推进到赛季末**（遇我方比赛会停）
 
 仓库：https://github.com/as7er/vc-football-manager
 
