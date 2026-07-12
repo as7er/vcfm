@@ -622,15 +622,25 @@ html[data-theme="light"] .start-card h1 {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.6rem 1rem;
+  color: var(--text);
   transition: 0.15s ease;
 }
 .btn:hover:not(:disabled) { border-color: var(--primary); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
-.btn.primary:hover:not(:disabled) { background: var(--primary-hover); }
+.btn.primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  font-weight: 600;
+}
+.btn.primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+  color: #fff;
+}
 .btn.small { padding: 0.35rem 0.7rem; font-size: 0.85rem; }
 .btn.ghost { background: transparent; }
-.btn.danger { border-color: var(--bad); color: var(--bad); }
+.btn.danger { border-color: var(--bad); color: var(--bad); background: transparent; }
 
 /* Main layout */
 .topbar {
@@ -1199,6 +1209,13 @@ html[data-theme="light"] .mp-card-bar { background: rgba(0, 0, 0, 0.08); }
   white-space: nowrap;
   text-align: center;
   margin-inline: auto;
+}
+html[data-theme="light"] .mp-name {
+  color: #0f172a;
+  text-shadow: none;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(15, 23, 42, 0.08);
 }
 .mp-ball {
   position: absolute;
@@ -2195,7 +2212,7 @@ html[data-theme="light"] .slot-delete {
   }
 }
 
-/* ===== 日间模式补丁：表单/进度条/弹层/提示 ===== */
+/* ===== 日间模式全面补丁 ===== */
 html[data-theme="light"] .btn {
   background: #ffffff;
   color: var(--text);
@@ -2204,14 +2221,22 @@ html[data-theme="light"] .btn {
 html[data-theme="light"] .btn:hover:not(:disabled) {
   background: #f8fafc;
 }
-/* primary 必须覆盖上面的白底，否则变成「白底白字」看不见 */
-html[data-theme="light"] .btn.primary {
+/* primary 必须覆盖白底，否则白底白字 */
+html[data-theme="light"] .btn.primary,
+html[data-theme="light"] button.btn.primary,
+html[data-theme="light"] #btn-new-game,
+html[data-theme="light"] #btn-play-match,
+html[data-theme="light"] #btn-next-season,
+html[data-theme="light"] #btn-sim-fast,
+html[data-theme="light"] #btn-ht-continue {
   background: var(--primary) !important;
   border-color: var(--primary) !important;
   color: #ffffff !important;
   box-shadow: 0 2px 8px rgba(37, 99, 235, 0.28);
 }
-html[data-theme="light"] .btn.primary:hover:not(:disabled) {
+html[data-theme="light"] .btn.primary:hover:not(:disabled),
+html[data-theme="light"] button.btn.primary:hover:not(:disabled),
+html[data-theme="light"] #btn-new-game:hover:not(:disabled) {
   background: var(--primary-hover) !important;
   border-color: var(--primary-hover) !important;
   color: #ffffff !important;
@@ -2224,22 +2249,34 @@ html[data-theme="light"] .btn.danger {
 html[data-theme="light"] .btn.ghost {
   background: transparent;
   box-shadow: none;
+  color: var(--text);
 }
 html[data-theme="light"] .topbar {
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.94);
   backdrop-filter: blur(8px);
+  border-bottom-color: var(--border);
 }
 html[data-theme="light"] .card {
   box-shadow: 0 2px 12px rgba(30, 50, 90, 0.06);
 }
-html[data-theme="light"] .bar {
+html[data-theme="light"] .bar,
+html[data-theme="light"] .training-fit-row .bar,
+html[data-theme="light"] .report-bar-wrap {
   background: var(--bar-track);
 }
+html[data-theme="light"] select,
+html[data-theme="light"] input[type="text"],
+html[data-theme="light"] input:not([type]),
 html[data-theme="light"] .ht-subs select,
 html[data-theme="light"] .ht-tactics select,
-html[data-theme="light"] .ht-tactics input[type="range"] {
-  background: var(--input-bg);
+html[data-theme="light"] .ht-tactics input[type="range"],
+html[data-theme="light"] #formation-select,
+html[data-theme="light"] .filters select,
+html[data-theme="light"] .start-form input,
+html[data-theme="light"] .start-form select {
+  background: #ffffff;
   color: var(--text);
+  border-color: var(--input-border);
 }
 html[data-theme="light"] option {
   background: #ffffff;
@@ -2259,13 +2296,17 @@ html[data-theme="light"] .season-summary-card {
   color: var(--text);
 }
 html[data-theme="light"] .match-speed-bar .btn.active {
-  color: #fff;
+  background: var(--primary) !important;
+  border-color: var(--primary) !important;
+  color: #fff !important;
 }
 html[data-theme="light"] .modal {
   background: rgba(15, 23, 42, 0.4);
 }
 html[data-theme="light"] #toast {
+  background: #ffffff !important;
   border: 1px solid var(--border) !important;
+  color: var(--text) !important;
   box-shadow: 0 8px 24px rgba(30, 50, 90, 0.15) !important;
 }
 html[data-theme="light"] .mp-card-meta .bad {
@@ -2273,33 +2314,112 @@ html[data-theme="light"] .mp-card-meta .bad {
 }
 html[data-theme="light"] .badge {
   background: rgba(37, 99, 235, 0.12);
+  color: var(--primary);
 }
-html[data-theme="light"] .badge.GK { background: rgba(161, 98, 7, 0.12); }
-html[data-theme="light"] .badge.DEF { background: rgba(37, 99, 235, 0.12); }
-html[data-theme="light"] .badge.MID { background: rgba(15, 138, 79, 0.12); }
-html[data-theme="light"] .badge.ATT { background: rgba(201, 42, 54, 0.12); }
-html[data-theme="light"] .news-list li {
-  background: #f8fafc;
-}
-html[data-theme="light"] .prematch-brief {
-  background: #f8fafc;
-}
+html[data-theme="light"] .badge.GK { background: rgba(161, 98, 7, 0.12); color: var(--warn); }
+html[data-theme="light"] .badge.DEF { background: rgba(37, 99, 235, 0.12); color: var(--primary); }
+html[data-theme="light"] .badge.MID { background: rgba(15, 138, 79, 0.12); color: var(--good); }
+html[data-theme="light"] .badge.ATT { background: rgba(201, 42, 54, 0.12); color: var(--bad); }
+html[data-theme="light"] .news-list li,
+html[data-theme="light"] .prematch-brief,
 html[data-theme="light"] .facility-card,
 html[data-theme="light"] .staff-card,
 html[data-theme="light"] .media-card,
-html[data-theme="light"] .honor-item {
-  background: #f8fafc;
-}
-html[data-theme="light"] .training-opt {
-  background: #ffffff;
-}
+html[data-theme="light"] .honor-item,
+html[data-theme="light"] .next-match,
+html[data-theme="light"] .rank-box,
+html[data-theme="light"] .training-summary,
+html[data-theme="light"] .career-dash,
 html[data-theme="light"] .slot-section {
   background: #f8fafc;
+  color: var(--text);
 }
-html[data-theme="light"] .slot-card {
+html[data-theme="light"] .training-opt,
+html[data-theme="light"] .slot-card,
+html[data-theme="light"] .poach-row {
+  background: #ffffff;
+  color: var(--text);
+}
+html[data-theme="light"] .match-log,
+html[data-theme="light"] .match-header,
+html[data-theme="light"] .match-ht-panel,
+html[data-theme="light"] .match-report,
+html[data-theme="light"] .mp-wrap {
+  background: #ffffff;
+  border-color: var(--border);
+  color: var(--text);
+}
+html[data-theme="light"] .match-log .event {
+  border-bottom-color: var(--border);
+}
+html[data-theme="light"] .transfer-window-box {
+  background: #f8fafc;
+  color: var(--text);
+}
+html[data-theme="light"] .transfer-window-box.open {
+  background: #ecfdf5 !important;
+  border-color: #86efac !important;
+  color: #0f6b3e !important;
+}
+html[data-theme="light"] .transfer-window-box.closed {
+  background: #fef2f2 !important;
+  border-color: #fca5a5 !important;
+  color: #b91c1c !important;
+}
+html[data-theme="light"] .prefs-seg {
   background: #ffffff;
 }
-html[data-theme="light"] .start-form input,
-html[data-theme="light"] .start-form select {
+html[data-theme="light"] .prefs-seg button.active {
+  color: #ffffff;
+}
+html[data-theme="light"] .tab.active {
+  color: var(--text);
+}
+html[data-theme="light"] .money {
+  color: var(--good);
+}
+html[data-theme="light"] .hint,
+html[data-theme="light"] .muted,
+html[data-theme="light"] .slot-sub,
+html[data-theme="light"] .save-tip {
+  color: var(--muted);
+}
+html[data-theme="light"] .scout-report {
+  background: #f8fafc;
+  color: var(--text);
+}
+html[data-theme="light"] .modal-card {
   background: #ffffff;
+  color: var(--text);
+}
+html[data-theme="light"] table th {
+  color: var(--muted);
+}
+html[data-theme="light"] .form-dot.W {
+  background: rgba(15, 138, 79, 0.15);
+  color: var(--good);
+}
+html[data-theme="light"] .form-dot.D {
+  background: rgba(161, 98, 7, 0.14);
+  color: var(--warn);
+}
+html[data-theme="light"] .form-dot.L {
+  background: rgba(201, 42, 54, 0.12);
+  color: var(--bad);
+}
+/* range 滑块日间可读 */
+html[data-theme="light"] input[type="range"] {
+  accent-color: var(--primary);
+}
+/* 滚动条（WebKit） */
+html[data-theme="light"] ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+html[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: #c5d0e3;
+  border-radius: 99px;
+}
+html[data-theme="light"] ::-webkit-scrollbar-track {
+  background: #eef2f8;
 }
