@@ -1,6 +1,6 @@
 {
-  "name": "VC 足球经理",
-  "short_name": "VC足球经理",
+  "name": "VCFM",
+  "short_name": "VCFM",
   "description": "轻量足球经理 · 通勤也能玩",
   "start_url": "./index.html",
   "scope": "./",

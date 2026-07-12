@@ -137,13 +137,13 @@ export function settleManagerSeason(world, userPos, userDiv, promoNews = []) {
     club.honors.unshift({
       season: world.season,
       type: "cup",
-      title: "VC 联赛杯冠军",
+      title: "VCFM 杯冠军",
       detail: "",
     });
     c.trophies.unshift({
       season: world.season,
       type: "cup",
-      title: "VC 联赛杯冠军",
+      title: "VCFM 杯冠军",
       detail: club.name,
     });
   }

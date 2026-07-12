@@ -1,7 +1,7 @@
 /** 媒体系统：通稿、赛后、转会、传闻 */
 
 const OUTLETS = [
-  { id: "vc_sport", name: "VC体育", bias: 0 },
+  { id: "vc_sport", name: "VCFM体育", bias: 0 },
   { id: "league_daily", name: "联赛日报", bias: 0 },
   { id: "midnight", name: "午夜足球", bias: -0.1 },
   { id: "fan_voice", name: "球迷之声", bias: 0.15 },
@@ -58,7 +58,7 @@ function outletByCategory(cat) {
   if (cat === "tactics") return "战术板";
   if (cat === "rumor") return pick(["更衣室八卦", "午夜足球"]);
   if (cat === "fan") return "球迷之声";
-  return pick(["VC体育", "联赛日报", "午夜足球"]);
+  return pick(["VCFM体育", "联赛日报", "午夜足球"]);
 }
 
 /** 用户比赛后通稿 */
@@ -144,7 +144,7 @@ export function mediaTransfer(world, { type, playerName, clubName, otherName, fe
 /** 青训 / 升级 / 日常 */
 export function mediaYouthPromote(world, clubName, playerName, ovr, pot) {
   pushMedia(world, {
-    outlet: pick(["VC体育", "战术板"]),
+    outlet: pick(["VCFM体育", "战术板"]),
     headline: `青训出品：${playerName} 升入${clubName}一线队（能力${ovr}/潜力${pot}）`,
     body: `学院总监表示：“他训练态度一流，已经做好为成年队出战的准备。”球迷期待再出一个自家青训明星。`,
     tone: "positive",
@@ -220,9 +220,9 @@ export function mediaDailyPulse(world, userClub) {
 
 export function mediaSeasonKickoff(world, userClub, divName) {
   pushMedia(world, {
-    outlet: "VC体育",
+    outlet: "VCFM体育",
     headline: `${world.season} 赛季特刊：${userClub.name} 出征${divName}`,
-    body: `新赛季正式拉开帷幕。VC体育专访写到：“从乙级一路向上是无数经理的梦，而${userClub.short}已经站在了当下属于他们的战场。”本季共 20 队同组厮杀，升级名额愈发珍贵。`,
+    body: `新赛季正式拉开帷幕。VCFM体育专访写到：“从乙级一路向上是无数经理的梦，而${userClub.short}已经站在了当下属于他们的战场。”本季共 20 队同组厮杀，升级名额愈发珍贵。`,
     tone: "positive",
     category: "league",
   });
@@ -271,7 +271,7 @@ export function narrativeAfterUserMatch(world, userClub, opp, myG, opG, isCup = 
   }
   if (myG - opG >= 3) {
     pushMedia(world, {
-      outlet: "VC体育",
+      outlet: "VCFM体育",
       headline: `大胜特写：${name} ${myG}-${opG} 打爆${opp.name}`,
       body: `比分牌几乎来不及翻转。有记者写道：“这不是比赛，是体检——对手多项指标不合格。”`,
       tone: "positive",
@@ -342,7 +342,7 @@ export function narrativeInjuryWave(world, userClub) {
     .map((p) => p.name)
     .join("、");
   pushMedia(world, {
-    outlet: "VC体育",
+    outlet: "VCFM体育",
     headline: `伤病名单拉长：${userClub.short || userClub.name} 多人缺阵`,
     body: `目前伤号包括 ${names}${hurt.length > 3 ? " 等" : ""}。队医组表示恢复计划优先保证联赛，杯赛或将轮换。`,
     tone: "negative",

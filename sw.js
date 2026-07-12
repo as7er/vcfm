@@ -1,5 +1,5 @@
-/* VC 足球经理 · 简易离线缓存（GitHub Pages 友好） */
-const CACHE = "vc-fm-v6";
+/* VCFM · 简易离线缓存（GitHub Pages 友好） */
+const CACHE = "vcfm-v1";
 const ASSETS = [
   "./",
   "./index.html",

@@ -1,12 +1,12 @@
-# VC 足球经理
+# VCFM
 
-轻量网页足球经理，灵感来自 [Football Manager](https://www.footballmanager.com/)。纯前端、无后端，适合通勤摸鱼：手机浏览器打开就能玩。
+轻量网页足球经理（**V**C **F**ootball **M**anager 缩写），灵感来自 [Football Manager](https://www.footballmanager.com/)。纯前端、无后端，适合通勤摸鱼：手机浏览器打开就能玩。
 
-> 本作为粉丝向简化娱乐作品，与 Sports Interactive / SEGA 无关联。
+> 粉丝向简化娱乐作品，与 Sports Interactive / SEGA 无关联。
 
 ## 在线游玩
 
-**https://as7er.github.io/vc-football-manager/**
+**https://as7er.github.io/vcfm/**
 
 | 说明 | 详情 |
 |------|------|
@@ -16,7 +16,9 @@
 | 安装 | 支持 PWA：浏览器「添加到主屏幕」更像 App |
 | 语言 | 中文 / English · 日间 / 夜间主题 |
 
-仓库：https://github.com/as7er/vc-football-manager
+仓库：https://github.com/as7er/vcfm
+
+> 旧地址 `vc-football-manager` 会在 GitHub 仓库重命名后自动跳转一段时间；书签请改为上方新链接。
 
 ## 怎么玩（30 秒）
 
@@ -28,7 +30,7 @@
 
 ## 主要系统
 
-- **联赛**：超联 / 甲级 / 乙级，升降级 + VC 联赛杯  
+- **联赛**：超联 / 甲级 / 乙级，升降级 + **VCFM 杯**  
 - **比赛**：情境（天气/德比）、细事件、中场干预、2D 俯视球场（镜头跟随、射门轨迹、点球员看卡）  
 - **纪律**：累计黄牌停赛、红牌停赛；赛前简报；60'/75' 教练提示  
 - **阵容**：体能、士气、伤病、潜力、球衣号码、自动阵容  
@@ -51,7 +53,7 @@ python -m http.server 8080
 npx serve .
 ```
 
-改完代码推送到 `master` 后，GitHub Pages 会更新在线版（可能有 1～2 分钟缓存；手机可强刷或清站点数据）。
+改完代码推送到 `master` 后，GitHub Pages 会更新在线版（可能有缓存；手机可强刷）。
 
 ## 技术栈
 
@@ -68,4 +70,4 @@ npx serve .
 
 ## 反馈
 
-Issue / PR 欢迎：https://github.com/as7er/vc-football-manager/issues
+Issue / PR 欢迎：https://github.com/as7er/vcfm/issues

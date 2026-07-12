@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="VC FM">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="VCFM">
   <defs>
     <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#1a5c3a"/>
@@ -6,8 +6,8 @@
     </linearGradient>
   </defs>
   <rect width="512" height="512" rx="96" fill="url(#g)"/>
-  <circle cx="256" cy="256" r="140" fill="none" stroke="#e8eefc" stroke-width="18"/>
-  <path d="M256 116 L256 396 M116 256 L396 256" stroke="#e8eefc" stroke-width="10" opacity="0.5"/>
-  <circle cx="256" cy="256" r="36" fill="#3d8bfd"/>
-  <text x="256" y="430" text-anchor="middle" fill="#8b9bb8" font-family="Segoe UI,sans-serif" font-size="48" font-weight="700">VC</text>
+  <circle cx="256" cy="240" r="120" fill="none" stroke="#e8eefc" stroke-width="16"/>
+  <path d="M256 120 L256 360 M136 240 L376 240" stroke="#e8eefc" stroke-width="9" opacity="0.45"/>
+  <circle cx="256" cy="240" r="30" fill="#3d8bfd"/>
+  <text x="256" y="430" text-anchor="middle" fill="#e8eefc" font-family="Segoe UI,sans-serif" font-size="56" font-weight="700">VCFM</text>
 </svg>

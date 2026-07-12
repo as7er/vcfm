@@ -1071,7 +1071,7 @@ export function finalizeMatch(state) {
       if (myG > opG) result = "获胜";
       else if (myG < opG) result = "落败";
     }
-    const tag = isCup ? `🏆 ${fixture.roundLabel || "联赛杯"}` : `第 ${fixture.round} 轮`;
+    const tag = isCup ? `🏆 ${fixture.roundLabel || "VCFM 杯"}` : `第 ${fixture.round} 轮`;
     const ctx = [];
     if (state.derby) ctx.push("德比");
     if (state.weather.key !== "clear") ctx.push(state.weather.name);
@@ -1098,10 +1098,10 @@ export function finalizeMatch(state) {
       narrativeAfterUserMatch(world, me, opp, myG, opG, false);
     } else {
       pushMedia(world, {
-        outlet: "VC体育",
+        outlet: "VCFM体育",
         headline: `${tag}：${me.name} ${myG}-${opG} ${opp.name}，${result}`,
         body: fixture.penalties
-          ? "90 分钟难解难分，最终在点球大战中分出胜负。联赛杯永远充满戏剧性。"
+          ? "90 分钟难解难分，最终在点球大战中分出胜负。VCFM 杯永远充满戏剧性。"
           : `一场跨级别的较量吸引了媒体目光。${result.includes("晋级") ? "赢家笑到最后。" : "苦主只能专注联赛。"}`,
         tone: result.includes("晋级") ? "positive" : "negative",
         category: "cup",
@@ -1118,7 +1118,7 @@ export function finalizeMatch(state) {
           grantHonor(p, {
             season: world.season,
             type: "cup_winner",
-            title: "VC 联赛杯冠军",
+            title: "VCFM 杯冠军",
             detail: champ.name,
             clubId: champ.id,
             clubName: champ.name,
@@ -1128,7 +1128,7 @@ export function finalizeMatch(state) {
         if (champ.id === world.userClubId) {
           pushMedia(world, {
             outlet: "联赛日报",
-            headline: `金杯！${champ.name} 问鼎 VC 联赛杯`,
+            headline: `金杯！${champ.name} 问鼎 VCFM 杯`,
             body: "三级别球队同场竞技的舞台上，他们站到了最高领奖台。",
             tone: "positive",
             category: "cup",

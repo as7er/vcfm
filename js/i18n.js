@@ -3,8 +3,10 @@
  * 设置存 localStorage，与存档无关。
  */
 
-export const THEME_KEY = "vc-fm-theme";
-export const LANG_KEY = "vc-fm-lang";
+export const THEME_KEY = "vcfm-theme";
+export const LANG_KEY = "vcfm-lang";
+const OLD_THEME_KEY = "vc-fm-theme";
+const OLD_LANG_KEY = "vc-fm-lang";
 
 export const THEMES = ["dark", "light"];
 export const LANGS = ["zh", "en"];
@@ -12,8 +14,8 @@ export const LANGS = ["zh", "en"];
 const dict = {
   zh: {
     // meta
-    "app.title": "VC 足球经理",
-    "app.subtitle": "简化版足球经理 · 灵感来自 FM",
+    "app.title": "VCFM",
+    "app.subtitle": "轻量足球经理 · 灵感来自 FM",
 
     // prefs
     "prefs.theme": "主题",
@@ -260,7 +262,7 @@ const dict = {
     "match.htScore": "半场 {home} {hg} - {ag} {away} · 可改战术与换人（最多 {max} 次，已用 {used}）",
     "match.err": "比赛模拟出错：{msg}",
     "match.err2": "下半场出错：{msg}",
-    "match.cup": "联赛杯",
+    "match.cup": "VCFM 杯",
     "match.leagueRound": "联赛第 {n} 轮",
 
     // toast / common
@@ -294,8 +296,8 @@ const dict = {
   },
 
   en: {
-    "app.title": "VC Football Manager",
-    "app.subtitle": "Lightweight FM-inspired football manager",
+    "app.title": "VCFM",
+    "app.subtitle": "Lightweight football manager · FM-inspired",
 
     "prefs.theme": "Theme",
     "prefs.theme.dark": "Night",
@@ -526,7 +528,7 @@ const dict = {
     "match.htScore": "HT {home} {hg} - {ag} {away} · tactics & subs (max {max}, used {used})",
     "match.err": "Match error: {msg}",
     "match.err2": "2nd half error: {msg}",
-    "match.cup": "League Cup",
+    "match.cup": "VCFM Cup",
     "match.leagueRound": "League round {n}",
 
     "toast.saved": "Saved to slot {n}",
@@ -584,7 +586,7 @@ export function t(key, vars) {
 
 export function detectLang() {
   try {
-    const saved = localStorage.getItem(LANG_KEY);
+    const saved = localStorage.getItem(LANG_KEY) || localStorage.getItem(OLD_LANG_KEY);
     if (saved && LANGS.includes(saved)) return saved;
   } catch (_) {}
   const nav = (navigator.language || "zh").toLowerCase();
@@ -594,7 +596,7 @@ export function detectLang() {
 
 export function detectTheme() {
   try {
-    const saved = localStorage.getItem(THEME_KEY);
+    const saved = localStorage.getItem(THEME_KEY) || localStorage.getItem(OLD_THEME_KEY);
     if (saved && THEMES.includes(saved)) return saved;
   } catch (_) {}
   // 默认夜间（与当前深色 UI 一致）；若系统偏好浅色可跟系统

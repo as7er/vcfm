@@ -1,4 +1,4 @@
-/** VC 足球经理 · UI 主逻辑 */
+/** VCFM · UI 主逻辑 */
 
 import {
   CLUB_TEMPLATES,
@@ -162,9 +162,17 @@ let pendingSubs = []; // 中场待确认换人 {outId, inId, outName, inName}
 /** @type {import('./matchview.js').MatchView | null} */
 let matchView = null;
 /** 直播倍速 1 / 2 / 4 */
-let matchSpeed = Number(localStorage.getItem("vc-fm-match-speed") || "2") || 2;
+function readPref(key, oldKey, fallback) {
+  try {
+    return localStorage.getItem(key) || (oldKey ? localStorage.getItem(oldKey) : null) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+let matchSpeed = Number(readPref("vcfm-match-speed", "vc-fm-match-speed", "2")) || 2;
 /** 导出提醒：上次导出时间戳 */
-const EXPORT_TIP_KEY = "vc-fm-last-export";
+const EXPORT_TIP_KEY = "vcfm-last-export";
+const OLD_EXPORT_TIP_KEY = "vc-fm-last-export";
 
 /** 自动存档（静默，失败仅 console） */
 function autosave(msg) {
@@ -433,7 +441,7 @@ function bindMainOnce() {
     btn.addEventListener("click", () => {
       matchSpeed = Number(btn.dataset.matchSpeed) || 2;
       try {
-        localStorage.setItem("vc-fm-match-speed", String(matchSpeed));
+        localStorage.setItem("vcfm-match-speed", String(matchSpeed));
       } catch (_) {
         /* ignore */
       }
@@ -2478,7 +2486,9 @@ function maybeShowSeasonSummary() {
 
 function checkExportReminder() {
   try {
-    const last = Number(localStorage.getItem(EXPORT_TIP_KEY) || 0);
+    const last = Number(
+      localStorage.getItem(EXPORT_TIP_KEY) || localStorage.getItem(OLD_EXPORT_TIP_KEY) || 0
+    );
     const days = last ? (Date.now() - last) / 86400000 : 999;
     const tip = $("#export-reminder");
     if (!tip) return;

@@ -1,4 +1,4 @@
-/** VC 联赛杯：三级共 60 队淘汰赛 */
+/** VCFM 杯：三级共 60 队淘汰赛 */
 
 import { uid } from "./models.js";
 
@@ -31,7 +31,7 @@ export function createLeagueCup(world) {
       id: uid("cup"),
       competition: "cup",
       round: "R56",
-      roundLabel: "联赛杯第1轮",
+      roundLabel: "VCFM 杯第1轮",
       day,
       home: play[i],
       away: play[i + 1],
@@ -43,7 +43,7 @@ export function createLeagueCup(world) {
   }
 
   return {
-    name: "VC 联赛杯",
+    name: "VCFM 杯",
     season: world.season,
     stage: "R56", // R56 → R32 → R16 → QF → SF → F → done
     byes,
@@ -94,12 +94,12 @@ export function allCupUserFixtures(world) {
 
 const STAGE_ORDER = ["R56", "R32", "R16", "QF", "SF", "F", "done"];
 const STAGE_LABEL = {
-  R56: "联赛杯第1轮",
-  R32: "联赛杯32强",
-  R16: "联赛杯16强",
-  QF: "联赛杯四分之一决赛",
-  SF: "联赛杯半决赛",
-  F: "联赛杯决赛",
+  R56: "VCFM 杯第1轮",
+  R32: "VCFM 杯32强",
+  R16: "VCFM 杯16强",
+  QF: "VCFM 杯四分之一决赛",
+  SF: "VCFM 杯半决赛",
+  F: "VCFM 杯决赛",
 };
 const NEXT_STAGE = {
   R56: "R32",
@@ -147,7 +147,7 @@ export function advanceCupBracket(world) {
     const champ = world.clubs.find((c) => c.id === cup.champion);
     world.news.unshift({
       day: world.day,
-      text: `🏆 VC 联赛杯冠军：${champ?.name || cup.champion}！`,
+      text: `🏆 VCFM 杯冠军：${champ?.name || cup.champion}！`,
     });
     return;
   }

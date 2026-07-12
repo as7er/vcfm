@@ -172,7 +172,7 @@ export function buildPreMatchBriefing(world, fixture, userClub) {
     isHome,
     isCup: fixture.competition === "cup",
     roundLabel: fixture.competition === "cup"
-      ? fixture.roundLabel || "联赛杯"
+      ? fixture.roundLabel || "VCFM 杯"
       : `联赛第 ${fixture.round || "?"} 轮`,
     me: { name: me.name, pts: myT.pts, form: me.form || [] },
     opp: {

@@ -1,16 +1,50 @@
 /** 本地存档：多槽位 localStorage + 导出/导入文件 */
 
-const LEGACY_KEY = "vc_fm_save_v1";
-const SLOT_PREFIX = "vc_fm_slot_";
-const ACTIVE_KEY = "vc_fm_active_slot";
-const META_KEY = "vc_fm_slots_meta";
+// 新键名（VCFM）；旧键兼容读取后迁移
+const LEGACY_KEY = "vcfm_save_v1";
+const SLOT_PREFIX = "vcfm_slot_";
+const ACTIVE_KEY = "vcfm_active_slot";
+const META_KEY = "vcfm_slots_meta";
+const OLD_LEGACY_KEY = "vc_fm_save_v1";
+const OLD_SLOT_PREFIX = "vc_fm_slot_";
+const OLD_ACTIVE_KEY = "vc_fm_active_slot";
+const OLD_META_KEY = "vc_fm_slots_meta";
 export const SLOT_COUNT = 3;
 
 function slotKey(slot) {
   return `${SLOT_PREFIX}${slot}`;
 }
 
+function oldSlotKey(slot) {
+  return `${OLD_SLOT_PREFIX}${slot}`;
+}
+
+/** 把旧 vc_fm_* 键迁到 vcfm_*（只迁一次，不删旧键以免丢档） */
+function migrateKeyNames() {
+  try {
+    if (!localStorage.getItem(ACTIVE_KEY) && localStorage.getItem(OLD_ACTIVE_KEY)) {
+      localStorage.setItem(ACTIVE_KEY, localStorage.getItem(OLD_ACTIVE_KEY));
+    }
+    if (!localStorage.getItem(META_KEY) && localStorage.getItem(OLD_META_KEY)) {
+      localStorage.setItem(META_KEY, localStorage.getItem(OLD_META_KEY));
+    }
+    for (let i = 1; i <= SLOT_COUNT; i++) {
+      const nk = slotKey(i);
+      const ok = oldSlotKey(i);
+      if (!localStorage.getItem(nk) && localStorage.getItem(ok)) {
+        localStorage.setItem(nk, localStorage.getItem(ok));
+      }
+    }
+    if (!localStorage.getItem(LEGACY_KEY) && localStorage.getItem(OLD_LEGACY_KEY)) {
+      localStorage.setItem(LEGACY_KEY, localStorage.getItem(OLD_LEGACY_KEY));
+    }
+  } catch (e) {
+    console.error(e);
+  }
+}
+
 function readMeta() {
+  migrateKeyNames();
   try {
     const raw = localStorage.getItem(META_KEY);
     if (!raw) return {};
@@ -68,6 +102,7 @@ export function migrateLegacySave() {
 }
 
 export function getActiveSlot() {
+  migrateKeyNames();
   migrateLegacySave();
   const n = parseInt(localStorage.getItem(ACTIVE_KEY) || "1", 10);
   if (n >= 1 && n <= SLOT_COUNT) return n;
@@ -81,6 +116,7 @@ export function setActiveSlot(slot) {
 }
 
 export function listSlots() {
+  migrateKeyNames();
   migrateLegacySave();
   const meta = readMeta();
   const out = [];
@@ -185,7 +221,7 @@ export function exportSaveDownload(world) {
     const a = document.createElement("a");
     const club = world.userClubId || "club";
     a.href = URL.createObjectURL(blob);
-    a.download = `vc_fm_${world.season || "s"}_D${world.day || 0}_${club}.json`;
+    a.download = `vcfm_${world.season || "s"}_D${world.day || 0}_${club}.json`;
     a.click();
     URL.revokeObjectURL(a.href);
     return true;

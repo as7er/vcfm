@@ -386,7 +386,7 @@ export function advanceDay(world) {
 
   ensureCup(world);
 
-  // 今天的比赛：联赛 + 联赛杯（非用户场次自动踢完）
+  // 今天的比赛：联赛 + VCFM 杯（非用户场次自动踢完）
   const todayLeague = world.fixtures.filter((f) => f.day === world.day && !f.played);
   const todayCup = cupFixturesOnDay(world, world.day);
   const today = [...todayLeague, ...todayCup];
@@ -640,7 +640,7 @@ export function startNextSeason(world) {
   const divName = DIVISIONS[user.division]?.name || "";
   world.news.unshift({
     day: 1,
-    text: `📅 ${world.season} 赛季开始！${user.name} 征战${divName}。联赛 + VC联赛杯赛程已生成。`,
+    text: `📅 ${world.season} 赛季开始！${user.name} 征战${divName}。联赛 + VCFM 杯赛程已生成。`,
   });
   mediaSeasonKickoff(world, user, divName);
   ensureBoardObjective(world);

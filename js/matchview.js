@@ -90,7 +90,7 @@ export class MatchView {
 
     wrap.innerHTML = `
       <div class="mp-boards">
-        <span>VC LEAGUE</span><span>FM-STYLE 2D</span><span>LIVE</span><span>VC 足球经理</span>
+        <span>VCFM LEAGUE</span><span>2D PITCH</span><span>LIVE</span><span>VCFM</span>
       </div>
       <div class="mp-field" id="mp-field">
         <div class="mp-camera" id="mp-camera">

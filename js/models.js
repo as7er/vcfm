@@ -676,7 +676,7 @@ export function createWorld(userClubId, managerName) {
     news: [
       {
         day: 1,
-        text: `${managerName} 正式执教 ${user.name}，从${divName}起步！每级 20 队 · 联赛杯跨级淘汰 · 注意球员合同年限。`,
+        text: `${managerName} 正式执教 ${user.name}，从${divName}起步！每级 20 队 · VCFM 杯跨级淘汰 · 注意球员合同年限。`,
       },
     ],
     matchIndex: 0,
