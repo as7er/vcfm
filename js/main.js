@@ -1541,15 +1541,21 @@ function renderTactics() {
   pitch.innerHTML = formation.slots
     .map((slot, i) => {
       const p = players[i];
-      const label = p ? p.name.split(/\s+/).pop() : "?";
+      // 名牌：优先姓；单名则用全名；不再塞球衣号（号在头像上）
+      let label = "?";
+      if (p) {
+        const parts = String(p.name || "").trim().split(/\s+/).filter(Boolean);
+        label = parts.length > 1 ? parts[parts.length - 1] : parts[0] || "?";
+      }
       const num = p && p.number != null ? p.number : p ? p.ovr : "-";
       const style = p
         ? `background:${kitBg};color:${kitNc};border-color:${kit.primary || "#fff"}`
         : "";
       const av = p ? playerAvatarHtml(p, club, 22) : "";
-      return `<div class="player-dot" style="left:${slot.x}%;top:${slot.y}%">
+      const full = p ? `${p.number != null ? `#${p.number} ` : ""}${p.name}` : "";
+      return `<div class="player-dot" style="left:${slot.x}%;top:${slot.y}%" title="${escapeHtml(full)}">
         <div class="circle kit-dot" style="${style}">${av || num}</div>
-        <div class="name">${p && p.number != null ? `#${p.number} ` : ""}${escapeHtml(label)}</div>
+        <div class="name">${escapeHtml(label)}</div>
       </div>`;
     })
     .join("");
