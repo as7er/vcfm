@@ -581,13 +581,7 @@ export function createClub(template) {
     money: template.money,
     division,
     players,
-    tactics: {
-      formation: "4-3-3",
-      style: "balanced",
-      pressing: 3,
-      tempo: 3,
-      lineup: [], // player ids, 11 人，按阵型槽位
-    },
+    tactics: defaultTactics(),
     form: [], // W/D/L 最近
     youth: {
       level: division === 1 ? 2 : 1,
@@ -613,24 +607,60 @@ function playerSelectable(p) {
   return true;
 }
 
+/** 默认战术（含宽度 / 防线） */
+export function defaultTactics() {
+  return {
+    formation: "4-3-3",
+    style: "balanced",
+    pressing: 3,
+    tempo: 3,
+    width: 3,
+    defensiveLine: 3,
+    lineup: [],
+  };
+}
+
+/** 读档补齐战术字段 */
+export function ensureTactics(club) {
+  if (!club) return null;
+  const d = defaultTactics();
+  if (!club.tactics || typeof club.tactics !== "object") {
+    club.tactics = { ...d };
+  } else {
+    const t = club.tactics;
+    if (!t.formation || !FORMATIONS[t.formation]) t.formation = d.formation;
+    if (!t.style) t.style = d.style;
+    if (t.pressing == null) t.pressing = d.pressing;
+    if (t.tempo == null) t.tempo = d.tempo;
+    if (t.width == null) t.width = d.width;
+    if (t.defensiveLine == null) t.defensiveLine = d.defensiveLine;
+    if (!Array.isArray(t.lineup)) t.lineup = [];
+    t.pressing = Math.max(1, Math.min(5, +t.pressing || 3));
+    t.tempo = Math.max(1, Math.min(5, +t.tempo || 3));
+    t.width = Math.max(1, Math.min(5, +t.width || 3));
+    t.defensiveLine = Math.max(1, Math.min(5, +t.defensiveLine || 3));
+  }
+  return club.tactics;
+}
+
+function xiSortScore(p) {
+  return (p.ovr || 10) * ((p.fitness || 100) / 100) * (0.85 + (p.morale || 70) / 500);
+}
+
 export function autoLineup(club) {
+  ensureTactics(club);
   const formation = FORMATIONS[club.tactics.formation] || FORMATIONS["4-3-3"];
   const used = new Set();
   const lineup = [];
   for (const slot of formation.slots) {
     const candidates = club.players
       .filter((p) => p.pos === slot.pos && !used.has(p.id) && playerSelectable(p))
-      .sort((a, b) => {
-        const sa = b.ovr * (b.fitness / 100) * (0.85 + b.morale / 500);
-        const sb = a.ovr * (a.fitness / 100) * (0.85 + a.morale / 500);
-        return sa - sb;
-      });
-    // 位置不够时用其他位置顶
+      .sort((a, b) => xiSortScore(b) - xiSortScore(a));
     let pickP = candidates[0];
     if (!pickP) {
       pickP = club.players
         .filter((p) => !used.has(p.id) && playerSelectable(p))
-        .sort((a, b) => b.ovr - a.ovr)[0];
+        .sort((a, b) => (b.ovr || 0) - (a.ovr || 0))[0];
     }
     if (pickP) {
       used.add(pickP.id);
@@ -641,24 +671,139 @@ export function autoLineup(club) {
   return lineup;
 }
 
+/**
+ * 保留用户已选首发：仅替换伤停/不存在/人数不足的位置
+ * AI 队或 lineup 空时退回 autoLineup
+ */
+export function ensureMatchLineup(club, { forceAuto = false } = {}) {
+  ensureTactics(club);
+  if (forceAuto || !club.tactics.lineup?.length) {
+    return autoLineup(club);
+  }
+  const formation = FORMATIONS[club.tactics.formation] || FORMATIONS["4-3-3"];
+  const need = formation.slots.length;
+  const map = new Map((club.players || []).map((p) => [p.id, p]));
+  const used = new Set();
+  const next = [];
+
+  for (let i = 0; i < need; i++) {
+    const id = club.tactics.lineup[i];
+    const p = id ? map.get(id) : null;
+    if (p && playerSelectable(p) && !used.has(p.id)) {
+      used.add(p.id);
+      next.push(p.id);
+      continue;
+    }
+    const slot = formation.slots[i];
+    const candidates = club.players
+      .filter((x) => x.pos === slot.pos && !used.has(x.id) && playerSelectable(x))
+      .sort((a, b) => xiSortScore(b) - xiSortScore(a));
+    let pickP = candidates[0];
+    if (!pickP) {
+      pickP = club.players
+        .filter((x) => !used.has(x.id) && playerSelectable(x))
+        .sort((a, b) => (b.ovr || 0) - (a.ovr || 0))[0];
+    }
+    if (pickP) {
+      used.add(pickP.id);
+      next.push(pickP.id);
+    }
+  }
+  club.tactics.lineup = next;
+  return next;
+}
+
 export function getLineupPlayers(club) {
+  ensureTactics(club);
   const map = new Map(club.players.map((p) => [p.id, p]));
-  return club.tactics.lineup.map((id) => map.get(id)).filter(Boolean);
+  return (club.tactics.lineup || []).map((id) => map.get(id)).filter(Boolean);
+}
+
+/** 替补席（不在首发且可选） */
+export function getBenchForTactics(club) {
+  ensureTactics(club);
+  const xi = new Set(club.tactics.lineup || []);
+  return (club.players || [])
+    .filter((p) => p && !xi.has(p.id) && playerSelectable(p))
+    .sort((a, b) => (b.ovr || 0) - (a.ovr || 0));
+}
+
+/**
+ * 互换两个首发槽位
+ * @returns {{ ok: boolean, msg?: string }}
+ */
+export function swapLineupSlots(club, slotA, slotB) {
+  ensureTactics(club);
+  const lineup = club.tactics.lineup || [];
+  const a = +slotA;
+  const b = +slotB;
+  if (!Number.isFinite(a) || !Number.isFinite(b) || a === b) {
+    return { ok: false, msg: "无效槽位" };
+  }
+  if (a < 0 || b < 0 || a >= lineup.length || b >= lineup.length) {
+    return { ok: false, msg: "槽位越界" };
+  }
+  const tmp = lineup[a];
+  lineup[a] = lineup[b];
+  lineup[b] = tmp;
+  club.tactics.lineup = lineup;
+  return { ok: true };
+}
+
+/**
+ * 把球员放入指定首发槽（替补上场 / 槽位替换）
+ * - 若球员已在首发其他槽：与目标槽互换
+ * - 若在替补：替换目标槽原球员（原球员下替补）
+ * @returns {{ ok: boolean, msg?: string, outOfPos?: boolean }}
+ */
+export function setLineupSlot(club, slotIndex, playerId) {
+  ensureTactics(club);
+  const formation = FORMATIONS[club.tactics.formation] || FORMATIONS["4-3-3"];
+  const need = formation.slots.length;
+  let lineup = [...(club.tactics.lineup || [])];
+  while (lineup.length < need) lineup.push(null);
+
+  const idx = +slotIndex;
+  if (!Number.isFinite(idx) || idx < 0 || idx >= need) {
+    return { ok: false, msg: "无效槽位" };
+  }
+  const map = new Map((club.players || []).map((p) => [p.id, p]));
+  const player = map.get(playerId);
+  if (!player) return { ok: false, msg: "找不到球员" };
+  if (!playerSelectable(player)) {
+    return { ok: false, msg: "该球员不可用（伤停）" };
+  }
+
+  const existing = lineup.indexOf(playerId);
+  if (existing === idx) return { ok: true, msg: "无变化" };
+  if (existing >= 0) {
+    // 已在首发：互换
+    const tmp = lineup[idx];
+    lineup[idx] = playerId;
+    lineup[existing] = tmp;
+  } else {
+    // 替补顶上：直接替换该槽
+    lineup[idx] = playerId;
+  }
+  club.tactics.lineup = lineup.filter((id, i) => i < need);
+  const slotPos = formation.slots[idx]?.pos;
+  const outOfPos = slotPos && player.pos && player.pos !== slotPos;
+  return { ok: true, outOfPos, slotPos, playerPos: player.pos };
 }
 
 export function teamStrength(club) {
+  ensureTactics(club);
   let xi = getLineupPlayers(club);
   if (xi.length < 11) {
-    autoLineup(club);
+    ensureMatchLineup(club);
     xi = getLineupPlayers(club);
   }
   if (!xi.length) return club.power;
   const avgOvr = xi.reduce((s, p) => s + p.ovr, 0) / xi.length;
   const fit = xi.reduce((s, p) => s + p.fitness, 0) / xi.length / 100;
   const mor = xi.reduce((s, p) => s + p.morale, 0) / xi.length / 100;
-  const t = club.tactics;
-  const press = 0.96 + t.pressing * 0.015;
-  return avgOvr * 5 * fit * (0.9 + mor * 0.2) * press;
+  // 压迫不再双重计入实力；体能/士气为主
+  return avgOvr * 5 * fit * (0.9 + mor * 0.2);
 }
 
 /** 按级别生成并合并赛程（各级共用相同比赛日） */

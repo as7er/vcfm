@@ -6,10 +6,17 @@ import {
   teamStrength,
   getLineupPlayers,
   autoLineup,
+  ensureMatchLineup,
+  ensureTactics,
   formatMoney,
   ensurePlayerHistory,
 } from "./models.js";
-import { STYLE_MOD } from "./data.js";
+import {
+  STYLE_MOD,
+  FORMATION_MOD,
+  styleMatchupMod,
+  FORMATIONS,
+} from "./data.js";
 import {
   coachMatchMod,
   doctorInjuryMod,
@@ -106,12 +113,70 @@ export function isBigMatch(world, home, away, isCup) {
   return false;
 }
 
-function applyStyle(strength, tactics, side) {
+/**
+ * 综合战术修正：风格 + 压迫/节奏 + 宽度/防线 + 阵型 + 风格克制
+ * @param {object} tactics 我方
+ * @param {object} [oppTactics] 对方（用于克制）
+ */
+function applyStyle(strength, tactics, side, oppTactics = null) {
+  const t = tactics || {};
+  const mod = STYLE_MOD[t.style] || STYLE_MOD.balanced;
+  const form = FORMATION_MOD[t.formation] || FORMATION_MOD["4-3-3"];
+  const press = 1 + ((t.pressing || 3) - 3) * 0.035;
+  const tempo = 1 + ((t.tempo || 3) - 3) * 0.03;
+  // 宽度：偏宽利于进攻与边路，略损中路防守；偏窄反之
+  const widthDelta = ((t.width || 3) - 3) * 0.025;
+  // 防线：偏高压迫前场/易被打身后；偏低更稳
+  const lineDelta = ((t.defensiveLine || 3) - 3) * 0.028;
+  const mu = styleMatchupMod(t.style || "balanced", oppTactics?.style || "balanced");
+
+  if (side === "atk") {
+    let v = strength * mod.atk * form.atk * tempo;
+    v *= 0.97 + press * 0.03;
+    v *= 1 + widthDelta;
+    v *= 1 + lineDelta * 0.6;
+    v *= mu.atk;
+    // 中场人数优势略提串联
+    v *= 0.97 + (form.midfield || 1) * 0.03;
+    return v;
+  }
+  let d = strength * mod.def * form.def * press;
+  d *= 1 - widthDelta * 0.7;
+  d *= 1 - lineDelta; // 高位防线防守更脆
+  d *= mu.def;
+  d *= 0.98 + (form.midfield || 1) * 0.02;
+  return d;
+}
+
+/** 风格/压迫对控球 tick 的权重 */
+function possessionWeight(tactics) {
   const mod = STYLE_MOD[tactics?.style] || STYLE_MOD.balanced;
-  const press = 1 + ((tactics?.pressing || 3) - 3) * 0.03;
-  const tempo = 1 + ((tactics?.tempo || 3) - 3) * 0.025;
-  if (side === "atk") return strength * mod.atk * tempo * (0.97 + press * 0.03);
-  return strength * mod.def * press;
+  const press = 1 + ((tactics?.pressing || 3) - 3) * 0.04;
+  const tempo = 1 + ((tactics?.tempo || 3) - 3) * 0.02;
+  return (mod.possession || 1) * press * (2 - tempo * 0.15);
+}
+
+/** 犯规风险乘子 */
+function foulRiskOf(tactics) {
+  const mod = STYLE_MOD[tactics?.style] || STYLE_MOD.balanced;
+  const press = 1 + Math.max(0, (tactics?.pressing || 3) - 3) * 0.12;
+  const line = 1 + Math.max(0, (tactics?.defensiveLine || 3) - 3) * 0.06;
+  return (mod.foulRisk || 1) * press * line;
+}
+
+/** 威胁频率乘子（节奏快/进攻型更多射门尝试） */
+function chanceMultOf(tactics) {
+  const mod = STYLE_MOD[tactics?.style] || STYLE_MOD.balanced;
+  const tempo = 1 + ((tactics?.tempo || 3) - 3) * 0.05;
+  return (mod.chance || 1) * tempo;
+}
+
+/** 体能消耗相关 */
+function fitnessMultOf(tactics) {
+  const mod = STYLE_MOD[tactics?.style] || STYLE_MOD.balanced;
+  const press = 1 + Math.max(0, (tactics?.pressing || 3) - 3) * 0.08;
+  const line = 1 + Math.max(0, (tactics?.defensiveLine || 3) - 3) * 0.04;
+  return (mod.fitness || 1) * press * line;
 }
 
 function formScore(club, n = 5) {
@@ -127,31 +192,57 @@ function formScore(club, n = 5) {
 
 function aiTuneTactics(club, opponent, world) {
   if (!club?.tactics || club.id === world.userClubId) return;
+  ensureTactics(club);
   const t = club.tactics;
   const fs = formScore(club, 5);
   const myP = club.power || 50;
   const opP = opponent?.power || 50;
   const diff = myP - opP;
+  const oppStyle = opponent?.tactics?.style || "balanced";
+
   if (fs.len >= 3 && fs.score <= -2) {
     t.style = chance(0.5) ? "defend" : "counter";
     t.pressing = Math.max(1, Math.min(3, (t.pressing || 3) - 1));
     t.tempo = Math.max(1, Math.min(3, (t.tempo || 3) - 1));
+    t.defensiveLine = Math.max(1, (t.defensiveLine || 3) - 1);
+    t.width = Math.max(2, (t.width || 3) - 1);
+    if (chance(0.45)) t.formation = chance(0.5) ? "5-3-2" : "4-5-1";
   } else if (fs.len >= 3 && fs.score >= 2) {
     t.style = chance(0.55) ? "attack" : "balanced";
     t.pressing = Math.min(5, Math.max(3, (t.pressing || 3) + 1));
     t.tempo = Math.min(5, Math.max(3, (t.tempo || 3) + 1));
+    t.defensiveLine = Math.min(5, (t.defensiveLine || 3) + 1);
+    if (chance(0.35)) t.formation = chance(0.5) ? "4-3-3" : "3-4-3";
   } else if (diff <= -12) {
     t.style = "counter";
     t.pressing = 2;
-    t.tempo = 2;
+    t.tempo = 4;
+    t.defensiveLine = 1;
+    t.width = 3;
+    t.formation = chance(0.5) ? "4-5-1" : "5-3-2";
   } else if (diff >= 12) {
     t.style = chance(0.4) ? "attack" : "possession";
     t.pressing = 4;
-    t.tempo = 3;
+    t.tempo = t.style === "possession" ? 2 : 4;
+    t.defensiveLine = 4;
+    t.width = 4;
+    t.formation = chance(0.5) ? "4-2-3-1" : "4-3-3";
+  } else {
+    // 对阵风格克制：对方猛攻 → 防反；对方龟缩 → 控球/高压
+    if (oppStyle === "attack" && chance(0.55)) {
+      t.style = "counter";
+      t.defensiveLine = 2;
+      t.pressing = 2;
+    } else if (oppStyle === "defend" && chance(0.5)) {
+      t.style = chance(0.5) ? "possession" : "attack";
+      t.pressing = 4;
+      t.defensiveLine = 4;
+    } else if (oppStyle === "possession" && chance(0.45)) {
+      t.style = "counter";
+      t.tempo = 4;
+    }
   }
-  const xi = getLineupPlayers(club);
-  const hurt = xi.filter((p) => p && (p.injured > 0 || (p.fitness || 100) < 55)).length;
-  if (hurt >= 2 || !t.lineup?.length) autoLineup(club);
+  ensureMatchLineup(club, { forceAuto: true });
 }
 
 function emptySideStats() {
@@ -171,10 +262,32 @@ function emptySideStats() {
 
 function recomputeSides(state) {
   const { home, away, weather, derby, bigMatch, isCup } = state;
-  let homeAtk = applyStyle(teamStrength(home), home.tactics, "atk");
-  let homeDef = applyStyle(teamStrength(home), home.tactics, "def");
-  let awayAtk = applyStyle(teamStrength(away), away.tactics, "atk");
-  let awayDef = applyStyle(teamStrength(away), away.tactics, "def");
+  ensureTactics(home);
+  ensureTactics(away);
+  const hs = teamStrength(home);
+  const as = teamStrength(away);
+  let homeAtk = applyStyle(hs, home.tactics, "atk", away.tactics);
+  let homeDef = applyStyle(hs, home.tactics, "def", away.tactics);
+  let awayAtk = applyStyle(as, away.tactics, "atk", home.tactics);
+  let awayDef = applyStyle(as, away.tactics, "def", home.tactics);
+
+  // 缓存控球/犯规/威胁权重供 tryAttack 使用
+  state._possW = {
+    home: possessionWeight(home.tactics),
+    away: possessionWeight(away.tactics),
+  };
+  state._foulW = {
+    home: foulRiskOf(home.tactics),
+    away: foulRiskOf(away.tactics),
+  };
+  state._chanceW = {
+    home: chanceMultOf(home.tactics),
+    away: chanceMultOf(away.tactics),
+  };
+  state._fitW = {
+    home: fitnessMultOf(home.tactics),
+    away: fitnessMultOf(away.tactics),
+  };
 
   const hCoach = coachMatchMod(home);
   const aCoach = coachMatchMod(away);
@@ -251,10 +364,13 @@ export function createMatchSession(world, fixture) {
 
   ensureStaff(home);
   ensureStaff(away);
+  ensureTactics(home);
+  ensureTactics(away);
   if (home.id !== world.userClubId) aiTuneTactics(home, away, world);
   if (away.id !== world.userClubId) aiTuneTactics(away, home, world);
-  autoLineup(home);
-  autoLineup(away);
+  // 用户保留手动/上次首发；AI 强制重排
+  ensureMatchLineup(home, { forceAuto: home.id !== world.userClubId });
+  ensureMatchLineup(away, { forceAuto: away.id !== world.userClubId });
 
   const isCup = fixture.competition === "cup";
   // 与赛前简报同一天气（已锁定则复用）
@@ -413,8 +529,9 @@ function tryAttack(state, minute, club, opp, atk, def, xgPer90) {
 
   const st = state.stats[sk];
   const oppSt = state.stats[oppSk];
-  // 控球按攻势强度加权（非每分钟双方各 +1）
-  const hold = Math.max(0.15, atk / (atk + def + 1));
+  // 控球：攻防比 × 风格 possession 权重
+  const possW = state._possW?.[sk] || 1;
+  const hold = Math.max(0.12, (atk * possW) / (atk * possW + def + 1));
   if (chance(hold * 0.55 + xgPer90 * 0.08)) {
     st.possessionTicks += 1 + (chance(hold) ? 1 : 0);
   }
@@ -447,7 +564,8 @@ function tryAttack(state, minute, club, opp, atk, def, xgPer90) {
     return;
   }
 
-  const threatChance = (xgPer90 / 90) * 1.85 * (state.weather.error || 1);
+  const chanceW = state._chanceW?.[sk] || 1;
+  const threatChance = (xgPer90 / 90) * 1.85 * (state.weather.error || 1) * chanceW;
   if (!chance(threatChance)) return;
 
   st.shots++;
@@ -504,21 +622,26 @@ function tryAttack(state, minute, club, opp, atk, def, xgPer90) {
 }
 
 function tryCardOrFoul(state, minute) {
-  const foulBase = 0.04 * (state.derby ? 1.35 : 1) * (state.bigMatch ? 1.1 : 1);
+  // 犯规倾向受双方压迫/风格影响（加权抽哪边犯规）
+  const hw = state._foulW?.home || 1;
+  const aw = state._foulW?.away || 1;
+  const foulBase =
+    0.04 * (state.derby ? 1.35 : 1) * (state.bigMatch ? 1.1 : 1) * ((hw + aw) / 2);
   if (!chance(foulBase)) return;
 
-  const homeSide = chance(0.5);
+  const homeSide = chance(hw / (hw + aw));
   const club = homeSide ? state.home : state.away;
   const sk = homeSide ? "home" : "away";
+  const foulW = state._foulW?.[sk] || 1;
   const xi = activeXi(state, club);
   const p = pickDefender(xi) || xi[0];
   if (!p) return;
 
   state.stats[sk].fouls++;
 
-  // 黄牌 / 红牌
+  // 黄牌 / 红牌：高压更容易吃牌
   const cardRoll = rng();
-  const yellowRate = 0.35 * (state.derby ? 1.2 : 1);
+  const yellowRate = 0.35 * (state.derby ? 1.2 : 1) * Math.min(1.45, 0.85 + foulW * 0.2);
   if (cardRoll < 0.04) {
     // 直红
     state.sentOff[sk].add(p.id);
@@ -683,11 +806,14 @@ export async function simulateMinutes(state, fromMin, toMin, { onEvent } = {}) {
     tryInjury(state, minute);
     midMatchCoachPrompt(state, minute);
 
-    // 体能微耗
+    // 体能微耗（压迫/高位/进攻风格更费）
     if (minute % 15 === 0) {
       for (const club of [state.home, state.away]) {
+        const sk = club === state.home ? "home" : "away";
+        const fitW = state._fitW?.[sk] || fitnessMultOf(club.tactics);
         for (const p of activeXi(state, club)) {
-          const drain = 1 + (club.tactics.pressing > 3 ? 1 : 0) + (state.weather.pace < 0.92 ? 1 : 0);
+          const drain =
+            Math.max(1, Math.round(fitW + (state.weather.pace < 0.92 ? 0.5 : 0)));
           p.fitness = Math.max(30, (p.fitness || 100) - drain);
         }
       }
@@ -766,6 +892,7 @@ function midMatchCoachPrompt(state, minute) {
 export function aiHalfTime(state) {
   for (const club of [state.home, state.away]) {
     if (club.id === state.world.userClubId) continue;
+    ensureTactics(club);
     const opp = club === state.home ? state.away : state.home;
     const myG = club === state.home ? state.hg : state.ag;
     const opG = club === state.home ? state.ag : state.hg;
@@ -774,9 +901,13 @@ export function aiHalfTime(state) {
       t.style = chance(0.5) ? "attack" : "balanced";
       t.pressing = Math.min(5, (t.pressing || 3) + 1);
       t.tempo = Math.min(5, (t.tempo || 3) + 1);
+      t.defensiveLine = Math.min(5, (t.defensiveLine || 3) + 1);
+      t.width = Math.min(5, (t.width || 3) + 1);
     } else if (myG > opG + 1) {
       t.style = chance(0.4) ? "defend" : "possession";
       t.pressing = Math.max(1, (t.pressing || 3) - 1);
+      t.defensiveLine = Math.max(1, (t.defensiveLine || 3) - 1);
+      t.tempo = Math.max(1, (t.tempo || 3) - 1);
     }
     // 换下疲劳/受伤
     const sk = sideKey(state, club);
@@ -791,28 +922,46 @@ export function aiHalfTime(state) {
 
 /**
  * 用户中场指令
- * orders: { style?, pressing?, tempo?, subs?: [{outId, inId}] }
+ * orders: { style?, pressing?, tempo?, width?, defensiveLine?, formation?, subs?: [{outId, inId}] }
  */
 export function applyUserHalfTime(state, orders = {}) {
   const club = state.userClub;
   if (!club) return { ok: false, msg: "无用户球队" };
+  ensureTactics(club);
   const t = club.tactics;
   if (orders.style) t.style = orders.style;
   if (orders.pressing != null) t.pressing = clamp(+orders.pressing, 1, 5);
   if (orders.tempo != null) t.tempo = clamp(+orders.tempo, 1, 5);
+  if (orders.width != null) t.width = clamp(+orders.width, 1, 5);
+  if (orders.defensiveLine != null) t.defensiveLine = clamp(+orders.defensiveLine, 1, 5);
+  if (orders.formation && FORMATIONS[orders.formation]) {
+    t.formation = orders.formation;
+    // 换阵型时尽量保留原人，按新槽位重排不足位
+    ensureMatchLineup(club);
+  }
 
   const msgs = [];
-  if (orders.style || orders.pressing != null || orders.tempo != null) {
+  const tacTouched =
+    orders.style ||
+    orders.pressing != null ||
+    orders.tempo != null ||
+    orders.width != null ||
+    orders.defensiveLine != null ||
+    orders.formation;
+  if (tacTouched) {
     pushEv(
       state,
       45,
       "tactics",
-      `📋 中场调整：${styleLabel(t.style)} · 压迫 ${t.pressing} · 节奏 ${t.tempo}`,
+      `📋 中场调整：${styleLabel(t.style)} · 压迫 ${t.pressing} · 节奏 ${t.tempo} · 宽度 ${t.width} · 防线 ${t.defensiveLine}`,
       {
         teamId: club.id,
         style: t.style,
         pressing: t.pressing,
         tempo: t.tempo,
+        width: t.width,
+        defensiveLine: t.defensiveLine,
+        formation: t.formation,
       }
     );
     msgs.push("战术已更新");
@@ -832,6 +981,7 @@ export function applyUserHalfTime(state, orders = {}) {
 export function applyLiveTactics(state, orders = {}) {
   const club = state.userClub;
   if (!club || !state || state.finished) return { ok: false, msg: "无法调整" };
+  ensureTactics(club);
   const t = club.tactics;
   let changed = false;
   if (orders.style && orders.style !== t.style) {
@@ -846,25 +996,41 @@ export function applyLiveTactics(state, orders = {}) {
     t.tempo = clamp(+orders.tempo, 1, 5);
     changed = true;
   }
+  if (orders.width != null && +orders.width !== t.width) {
+    t.width = clamp(+orders.width, 1, 5);
+    changed = true;
+  }
+  if (orders.defensiveLine != null && +orders.defensiveLine !== t.defensiveLine) {
+    t.defensiveLine = clamp(+orders.defensiveLine, 1, 5);
+    changed = true;
+  }
   if (!changed) return { ok: true, msg: "无变化", tactics: { ...t } };
   const minute = state.minute || 46;
   pushEv(
     state,
     minute,
     "tactics",
-    `📋 ${minute}' 场边调整：${styleLabel(t.style)} · 压迫 ${t.pressing} · 节奏 ${t.tempo}`,
+    `📋 ${minute}' 场边调整：${styleLabel(t.style)} · 压迫 ${t.pressing} · 节奏 ${t.tempo} · 宽度 ${t.width} · 防线 ${t.defensiveLine}`,
     {
       teamId: club.id,
       style: t.style,
       pressing: t.pressing,
       tempo: t.tempo,
+      width: t.width,
+      defensiveLine: t.defensiveLine,
     }
   );
   recomputeSides(state);
   return {
     ok: true,
     msg: "战术已更新",
-    tactics: { style: t.style, pressing: t.pressing, tempo: t.tempo },
+    tactics: {
+      style: t.style,
+      pressing: t.pressing,
+      tempo: t.tempo,
+      width: t.width,
+      defensiveLine: t.defensiveLine,
+    },
     event: state.events[state.events.length - 1],
   };
 }
@@ -1176,9 +1342,10 @@ function drainFitness(club, isHome, state) {
   const injuryMod = doctorInjuryMod(club) * trainingInjuryMod(club);
   const sk = club.id === state.home.id ? "home" : "away";
   const sent = state.sentOff[sk];
+  const fitW = state._fitW?.[sk] || fitnessMultOf(club.tactics);
   for (const p of getLineupPlayers(club)) {
     if (sent.has(p.id)) continue;
-    const drain = 4 + Math.floor(rng() * 6) + (club.tactics.pressing > 3 ? 2 : 0);
+    const drain = 4 + Math.floor(rng() * 6) + Math.round((fitW - 1) * 4);
     p.fitness = Math.max(35, p.fitness - drain);
     if (chance(0.015 * injuryMod) && !state.injuredOut.has(p.id)) {
       p.injured = 1 + Math.floor(rng() * 3);
@@ -1537,8 +1704,10 @@ function runMinutesSync(state, fromMin, toMin) {
     midMatchCoachPrompt(state, minute);
     if (minute % 15 === 0) {
       for (const club of [state.home, state.away]) {
+        const sk = club === state.home ? "home" : "away";
+        const fitW = state._fitW?.[sk] || fitnessMultOf(club.tactics);
         for (const p of activeXi(state, club)) {
-          const drain = 1 + (club.tactics.pressing > 3 ? 1 : 0);
+          const drain = Math.max(1, Math.round(fitW));
           p.fitness = Math.max(30, (p.fitness || 100) - drain);
         }
       }

@@ -343,10 +343,20 @@
             <div class="card">
               <h2 data-i18n="tac.formation">阵型</h2>
               <select id="formation-select"></select>
-              <div id="pitch" class="pitch"></div>
+              <p class="hint" id="formation-desc" style="margin:0.35rem 0 0.6rem"></p>
+              <div id="pitch" class="pitch" aria-label="tactics pitch"></div>
+              <div class="tac-bench-wrap">
+                <div class="row-between" style="align-items:center;gap:0.5rem;margin:0.65rem 0 0.35rem">
+                  <h3 class="tac-bench-title" data-i18n="tac.bench">替补席</h3>
+                  <span class="hint" id="tac-pick-hint" data-i18n="tac.dragHint">拖到场上换人；或点选再点槽位</span>
+                </div>
+                <div id="tac-bench" class="tac-bench" role="list"></div>
+              </div>
+              <p class="hint" data-i18n="tac.pitchHint" style="margin-top:0.6rem">拖拽互换首发，或把替补拖上场；点名牌可查看资料。首发会尽量保留到开球。</p>
             </div>
             <div class="card">
               <h2 data-i18n="tac.style">战术倾向</h2>
+              <div class="tac-presets" id="tac-presets" role="group" aria-label="presets"></div>
               <label><span data-i18n="tac.styleLabel">风格</span>
                 <select id="style-select">
                   <option value="balanced" data-i18n="style.balanced">均衡</option>
@@ -358,13 +368,22 @@
               </label>
               <label><span data-i18n="tac.pressing">压迫强度</span>
                 <input id="pressing" type="range" min="1" max="5" value="3" />
-                <span id="pressing-val">3</span>
+                <span id="pressing-val" class="tac-slider-val">3 · 标准</span>
               </label>
               <label><span data-i18n="tac.tempo">传球节奏</span>
                 <input id="tempo" type="range" min="1" max="5" value="3" />
-                <span id="tempo-val">3</span>
+                <span id="tempo-val" class="tac-slider-val">3 · 标准</span>
               </label>
-              <p class="hint" data-i18n="tac.hint">阵型与战术会影响比赛模拟结果。</p>
+              <label><span data-i18n="tac.width">进攻宽度</span>
+                <input id="width" type="range" min="1" max="5" value="3" />
+                <span id="width-val" class="tac-slider-val">3 · 标准</span>
+              </label>
+              <label><span data-i18n="tac.defLine">防线高度</span>
+                <input id="defensive-line" type="range" min="1" max="5" value="3" />
+                <span id="defensive-line-val" class="tac-slider-val">3 · 标准</span>
+              </label>
+              <div id="tac-summary" class="tac-summary" aria-live="polite"></div>
+              <p class="hint" data-i18n="tac.hint">阵型、风格与滑条会影响攻防、控球、犯规与体能；风格之间存在克制。</p>
               <button id="btn-auto-xi" class="btn" data-i18n="tac.autoXi">自动排出最佳十一人</button>
             </div>
           </div>
@@ -738,11 +757,20 @@
                 <option value="counter" data-i18n="style.counter">反击</option>
               </select>
             </label>
+            <label><span data-i18n="tac.formation">阵型</span>
+              <select id="ht-formation"></select>
+            </label>
             <label><span data-i18n="match.pressing">压迫</span> <span id="ht-pressing-val">3</span>
               <input type="range" id="ht-pressing" min="1" max="5" value="3" />
             </label>
             <label><span data-i18n="match.tempo">节奏</span> <span id="ht-tempo-val">3</span>
               <input type="range" id="ht-tempo" min="1" max="5" value="3" />
+            </label>
+            <label><span data-i18n="tac.width">宽度</span> <span id="ht-width-val">3</span>
+              <input type="range" id="ht-width" min="1" max="5" value="3" />
+            </label>
+            <label><span data-i18n="tac.defLine">防线</span> <span id="ht-def-line-val">3</span>
+              <input type="range" id="ht-def-line" min="1" max="5" value="3" />
             </label>
           </div>
           <div class="ht-subs">
@@ -788,6 +816,16 @@
             <input type="range" id="live-tempo" min="1" max="5" value="3" />
             <em id="live-tempo-val">3</em>
           </label>
+          <label class="match-live-tac-range">
+            <span data-i18n="tac.width">宽度</span>
+            <input type="range" id="live-width" min="1" max="5" value="3" />
+            <em id="live-width-val">3</em>
+          </label>
+          <label class="match-live-tac-range">
+            <span data-i18n="tac.defLine">防线</span>
+            <input type="range" id="live-def-line" min="1" max="5" value="3" />
+            <em id="live-def-line-val">3</em>
+          </label>
           <button type="button" id="btn-live-tac-apply" class="btn small primary" data-i18n="match.applyTac">应用</button>
         </div>
 
@@ -828,11 +866,11 @@
     <div id="season-summary" class="season-summary hidden" role="dialog" aria-modal="true"></div>
   </div>
 
-  <script type="module" src="js/main.js?v=46"></script>
+  <script type="module" src="js/main.js?v=48"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {
-        navigator.serviceWorker.register("./sw.js?v=46").then(function (reg) {
+        navigator.serviceWorker.register("./sw.js?v=48").then(function (reg) {
           // 每次打开检查更新，避免卡在旧缓存
           try { reg.update(); } catch (e) {}
           if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });

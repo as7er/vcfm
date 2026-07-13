@@ -3,11 +3,15 @@
 import {
   CLUB_TEMPLATES,
   FORMATIONS,
+  FORMATION_MOD,
   POS_LABEL,
   NATIONALITIES,
   DIVISIONS,
   START_DIVISION,
   playerDisplaySurname,
+  TACTIC_PRESETS,
+  tacticsSliderLabel,
+  STYLE_MOD,
 } from "./data.js";
 import { ensureMedia, mediaSeasonKickoff } from "./media.js";
 import { t, initPrefs, getLang } from "./i18n.js";
@@ -37,9 +41,12 @@ import {
   YOUTH_LEVELS,
   YOUTH_UPGRADE_COST,
   ensureKit,
+  ensureTactics,
   assignSquadNumbers,
   kitBackground,
   ensurePlayerNumber,
+  swapLineupSlots,
+  setLineupSlot,
 } from "./models.js";
 import {
   advanceDay,
@@ -689,6 +696,7 @@ function migrateWorld(w) {
     ensureStaff(c);
     ensureYouthAcademy(c);
     ensureKit(c);
+    ensureTactics(c);
     assignSquadNumbers(c);
     ensureTraining(c);
     ensureFacilities(c);
@@ -822,34 +830,89 @@ function bindMainOnce() {
   // tactics
   const formSel = $("#formation-select");
   formSel.innerHTML = Object.keys(FORMATIONS)
-    .map((k) => `<option value="${k}">${FORMATIONS[k].name}</option>`)
+    .map((k) => {
+      const f = FORMATIONS[k];
+      return `<option value="${k}">${f.name}${f.desc ? ` · ${f.desc}` : ""}</option>`;
+    })
     .join("");
+  // 中场阵型下拉
+  const htForm = $("#ht-formation");
+  if (htForm) {
+    htForm.innerHTML = Object.keys(FORMATIONS)
+      .map((k) => `<option value="${k}">${FORMATIONS[k].name}</option>`)
+      .join("");
+  }
 
   formSel.onchange = () => {
     const club = getUserClub(world);
+    ensureTactics(club);
     club.tactics.formation = formSel.value;
     autoLineup(club);
     renderTactics();
+    saveGame(world);
   };
 
   $("#style-select").onchange = (e) => {
+    ensureTactics(getUserClub(world));
     getUserClub(world).tactics.style = e.target.value;
+    renderTacticsSummary();
+    saveGame(world);
   };
 
-  $("#pressing").oninput = (e) => {
-    getUserClub(world).tactics.pressing = +e.target.value;
-    $("#pressing-val").textContent = e.target.value;
+  const bindTacSlider = (id, key, valId) => {
+    const el = $(id);
+    if (!el) return;
+    el.oninput = (e) => {
+      const club = getUserClub(world);
+      ensureTactics(club);
+      club.tactics[key] = +e.target.value;
+      const lab = tacticsSliderLabel(key === "defensiveLine" ? "defensiveLine" : key, e.target.value, getLang());
+      const valEl = $(valId);
+      if (valEl) valEl.textContent = `${e.target.value} · ${lab}`;
+      renderTacticsSummary();
+      saveGame(world);
+    };
   };
-  $("#tempo").oninput = (e) => {
-    getUserClub(world).tactics.tempo = +e.target.value;
-    $("#tempo-val").textContent = e.target.value;
-  };
+  bindTacSlider("#pressing", "pressing", "#pressing-val");
+  bindTacSlider("#tempo", "tempo", "#tempo-val");
+  bindTacSlider("#width", "width", "#width-val");
+  bindTacSlider("#defensive-line", "defensiveLine", "#defensive-line-val");
+
+  // 预设按钮
+  const presetBox = $("#tac-presets");
+  if (presetBox && !presetBox._bound) {
+    presetBox._bound = true;
+    presetBox.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-tac-preset]");
+      if (!btn || !world) return;
+      const id = btn.getAttribute("data-tac-preset");
+      const preset = TACTIC_PRESETS[id];
+      if (!preset) return;
+      const club = getUserClub(world);
+      ensureTactics(club);
+      const t0 = club.tactics;
+      t0.style = preset.style;
+      t0.pressing = preset.pressing;
+      t0.tempo = preset.tempo;
+      t0.width = preset.width;
+      t0.defensiveLine = preset.defensiveLine;
+      if (preset.formation && FORMATIONS[preset.formation]) {
+        t0.formation = preset.formation;
+        autoLineup(club);
+      }
+      renderTactics();
+      renderSquad();
+      saveGame(world);
+      toast(t("tac.presetApplied", { name: t(`tac.preset.${id}`) }));
+    });
+  }
 
   $("#btn-auto-xi").onclick = () => {
     autoLineup(getUserClub(world));
     renderTactics();
     renderSquad();
     toast(t("toast.autoXi"));
+    saveGame(world);
   };
 
   $("#btn-refresh-market").onclick = () => renderTransfer();
@@ -982,30 +1045,32 @@ function bindMainOnce() {
   });
 
   // 中场调整
-  const htPress = $("#ht-pressing");
-  const htTempo = $("#ht-tempo");
-  if (htPress) {
-    htPress.oninput = () => {
-      $("#ht-pressing-val").textContent = htPress.value;
+  const bindHtVal = (inputId, valId) => {
+    const el = $(inputId);
+    if (!el) return;
+    el.oninput = () => {
+      const v = $(valId);
+      if (v) v.textContent = el.value;
     };
-  }
-  if (htTempo) {
-    htTempo.oninput = () => {
-      $("#ht-tempo-val").textContent = htTempo.value;
-    };
-  }
+  };
+  bindHtVal("#ht-pressing", "#ht-pressing-val");
+  bindHtVal("#ht-tempo", "#ht-tempo-val");
+  bindHtVal("#ht-width", "#ht-width-val");
+  bindHtVal("#ht-def-line", "#ht-def-line-val");
   $("#btn-ht-add-sub")?.addEventListener("click", () => onHtAddSub());
   $("#btn-ht-continue")?.addEventListener("click", () => finishHalfTime(true));
   $("#btn-ht-skip")?.addEventListener("click", () => finishHalfTime(false));
   $("#btn-live-tac-apply")?.addEventListener("click", () => onLiveTacApply());
-  $("#live-pressing")?.addEventListener("input", (e) => {
-    const el = $("#live-pressing-val");
-    if (el) el.textContent = e.target.value;
-  });
-  $("#live-tempo")?.addEventListener("input", (e) => {
-    const el = $("#live-tempo-val");
-    if (el) el.textContent = e.target.value;
-  });
+  const bindLiveVal = (inputId, valId) => {
+    $(inputId)?.addEventListener("input", (e) => {
+      const el = $(valId);
+      if (el) el.textContent = e.target.value;
+    });
+  };
+  bindLiveVal("#live-pressing", "#live-pressing-val");
+  bindLiveVal("#live-tempo", "#live-tempo-val");
+  bindLiveVal("#live-width", "#live-width-val");
+  bindLiveVal("#live-def-line", "#live-def-line-val");
 }
 
 // ---------- Refresh ----------
@@ -2110,20 +2175,347 @@ function renderYouth() {
   });
 }
 
-function renderTactics() {
-  const club = getUserClub(world);
-  const t = club.tactics;
-  $("#formation-select").value = t.formation;
-  $("#style-select").value = t.style;
-  $("#pressing").value = t.pressing;
-  $("#tempo").value = t.tempo;
-  $("#pressing-val").textContent = t.pressing;
-  $("#tempo-val").textContent = t.tempo;
+function tacValText(key, n) {
+  const lab = tacticsSliderLabel(key, n, getLang());
+  return `${n} · ${lab}`;
+}
 
-  if (!t.lineup?.length) autoLineup(club);
-  const formation = FORMATIONS[t.formation] || FORMATIONS["4-3-3"];
+function renderTacPresets() {
+  const box = $("#tac-presets");
+  if (!box) return;
+  const order = ["balanced", "solid", "high_press", "tiki", "park_counter", "all_out"];
+  box.innerHTML = order
+    .map((id) => {
+      if (!TACTIC_PRESETS[id]) return "";
+      return `<button type="button" class="btn small tac-preset-btn" data-tac-preset="${id}">${escapeHtml(
+        t(`tac.preset.${id}`)
+      )}</button>`;
+    })
+    .join("");
+}
+
+function renderTacticsSummary() {
+  const el = $("#tac-summary");
+  if (!el || !world) return;
+  const club = getUserClub(world);
+  ensureTactics(club);
+  const tac = club.tactics;
+  const en = getLang() === "en";
+  const form = FORMATIONS[tac.formation] || FORMATIONS["4-3-3"];
+  const fmod = FORMATION_MOD[tac.formation] || FORMATION_MOD["4-3-3"];
+  const smod = STYLE_MOD[tac.style] || STYLE_MOD.balanced;
+  const atkBias = ((fmod.atk || 1) * (smod.atk || 1) - 1) * 100;
+  const defBias = ((fmod.def || 1) * (smod.def || 1) - 1) * 100;
+  const fitCost =
+    (smod.fitness || 1) *
+    (1 + Math.max(0, (tac.pressing || 3) - 3) * 0.08) *
+    (1 + Math.max(0, (tac.defensiveLine || 3) - 3) * 0.04);
+  const foulRisk =
+    (smod.foulRisk || 1) *
+    (1 + Math.max(0, (tac.pressing || 3) - 3) * 0.12);
+  const bits = [];
+  bits.push(
+    en
+      ? `<strong>${form.name}</strong>${form.desc ? ` · ${form.desc}` : ""}`
+      : `<strong>${form.name}</strong>${form.desc ? ` · ${form.desc}` : ""}`
+  );
+  bits.push(
+    en
+      ? `Attack bias ${atkBias >= 0 ? "+" : ""}${atkBias.toFixed(0)}% · Defend ${defBias >= 0 ? "+" : ""}${defBias.toFixed(0)}%`
+      : `进攻倾向 ${atkBias >= 0 ? "+" : ""}${atkBias.toFixed(0)}% · 防守 ${defBias >= 0 ? "+" : ""}${defBias.toFixed(0)}%`
+  );
+  bits.push(
+    en
+      ? `Possession weight ×${(smod.possession || 1).toFixed(2)} · Fitness cost ×${fitCost.toFixed(2)} · Foul risk ×${foulRisk.toFixed(2)}`
+      : `控球权重 ×${(smod.possession || 1).toFixed(2)} · 体能消耗 ×${fitCost.toFixed(2)} · 犯规风险 ×${foulRisk.toFixed(2)}`
+  );
+  if (tac.style === "counter") {
+    bits.push(en ? "Counters attack & possession styles well." : "克制：擅长打进攻型 / 控球型。");
+  } else if (tac.style === "attack") {
+    bits.push(en ? "Vulnerable to deep counters." : "注意：容易被低位反击针对。");
+  } else if (tac.style === "possession") {
+    bits.push(en ? "Holds ball; less effective vs high press counters." : "控球主导；对高压反击略吃亏。");
+  } else if (tac.style === "defend") {
+    bits.push(en ? "Solid block; fewer chances created." : "防守稳固，创造机会偏少。");
+  }
+  el.innerHTML = bits.map((b) => `<div>${b}</div>`).join("");
+}
+
+/** 战术板拖拽 / 点选状态 */
+const tacPick = {
+  mode: null, // 'slot' | 'bench'
+  slot: null,
+  playerId: null,
+  dragging: false,
+};
+
+function clearTacPick() {
+  tacPick.mode = null;
+  tacPick.slot = null;
+  tacPick.playerId = null;
+  document.querySelectorAll(".tac-slot.selected, .tac-bench-chip.selected").forEach((el) => {
+    el.classList.remove("selected");
+  });
+  const hint = $("#tac-pick-hint");
+  if (hint) hint.textContent = t("tac.dragHint");
+}
+
+function applyTacPickHighlight() {
+  document.querySelectorAll(".tac-slot.selected, .tac-bench-chip.selected").forEach((el) => {
+    el.classList.remove("selected");
+  });
+  if (tacPick.mode === "slot" && tacPick.slot != null) {
+    document
+      .querySelector(`.tac-slot[data-slot="${tacPick.slot}"]`)
+      ?.classList.add("selected");
+  }
+  if (tacPick.mode === "bench" && tacPick.playerId) {
+    document.querySelectorAll(".tac-bench-chip").forEach((el) => {
+      if (el.dataset.playerId === tacPick.playerId) el.classList.add("selected");
+    });
+  }
+  const hint = $("#tac-pick-hint");
+  if (!hint) return;
+  if (tacPick.mode === "slot") {
+    hint.textContent = t("tac.pickSlotNext");
+  } else if (tacPick.mode === "bench") {
+    hint.textContent = t("tac.pickBenchNext");
+  } else {
+    hint.textContent = t("tac.dragHint");
+  }
+}
+
+function afterLineupChange(club, res) {
+  if (res?.outOfPos) {
+    toast(
+      t("tac.outOfPos", {
+        pos: POS_LABEL[res.playerPos] || res.playerPos,
+        slot: POS_LABEL[res.slotPos] || res.slotPos,
+      })
+    );
+  }
+  clearTacPick();
+  saveGame(world);
+  renderTactics();
+  renderSquad();
+}
+
+function bindTacticsDragDrop() {
+  const pitch = $("#pitch");
+  const bench = $("#tac-bench");
+  if (!pitch || pitch._tacBound) return;
+  pitch._tacBound = true;
+
+  // 阻止名牌链接在拖拽时打开资料
+  pitch.addEventListener(
+    "click",
+    (e) => {
+      if (tacPick.dragging) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    },
+    true
+  );
+
+  pitch.addEventListener("dragstart", (e) => {
+    const slotEl = e.target.closest(".tac-slot");
+    if (!slotEl || !pitch.contains(slotEl)) return;
+    const pid = slotEl.dataset.playerId;
+    if (!pid) {
+      e.preventDefault();
+      return;
+    }
+    tacPick.dragging = true;
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData(
+      "text/plain",
+      JSON.stringify({ type: "slot", slot: +slotEl.dataset.slot, playerId: pid })
+    );
+    slotEl.classList.add("dragging");
+  });
+
+  pitch.addEventListener("dragend", (e) => {
+    e.target.closest?.(".tac-slot")?.classList.remove("dragging");
+    pitch.querySelectorAll(".drag-over").forEach((el) => el.classList.remove("drag-over"));
+    // 延后清 dragging，避免 dragend 后立刻触发 click 误选
+    setTimeout(() => {
+      tacPick.dragging = false;
+    }, 30);
+  });
+
+  pitch.addEventListener("dragover", (e) => {
+    const slotEl = e.target.closest(".tac-slot");
+    if (!slotEl) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    pitch.querySelectorAll(".drag-over").forEach((el) => el.classList.remove("drag-over"));
+    slotEl.classList.add("drag-over");
+  });
+
+  pitch.addEventListener("dragleave", (e) => {
+    const slotEl = e.target.closest(".tac-slot");
+    if (slotEl && !slotEl.contains(e.relatedTarget)) slotEl.classList.remove("drag-over");
+  });
+
+  pitch.addEventListener("drop", (e) => {
+    const slotEl = e.target.closest(".tac-slot");
+    if (!slotEl) return;
+    e.preventDefault();
+    slotEl.classList.remove("drag-over");
+    let payload = null;
+    try {
+      payload = JSON.parse(e.dataTransfer.getData("text/plain") || "{}");
+    } catch (_) {
+      return;
+    }
+    const club = getUserClub(world);
+    ensureTactics(club);
+    const toSlot = +slotEl.dataset.slot;
+    if (payload.type === "slot" && payload.slot != null) {
+      if (+payload.slot === toSlot) return;
+      const res = swapLineupSlots(club, +payload.slot, toSlot);
+      if (res.ok) afterLineupChange(club, res);
+      else toast(res.msg || t("tac.swapFail"));
+    } else if (payload.type === "bench" && payload.playerId) {
+      const res = setLineupSlot(club, toSlot, payload.playerId);
+      if (res.ok) afterLineupChange(club, res);
+      else toast(res.msg || t("tac.swapFail"));
+    }
+    tacPick.dragging = false;
+  });
+
+  // 点击：点选互换 / 替补上场（触屏友好）
+  pitch.addEventListener("click", (e) => {
+    if (tacPick.dragging) return;
+    // 点名牌链接且未在点选流程 → 放行打开资料
+    if (e.target.closest("[data-player-link]") && !tacPick.mode) return;
+    const slotEl = e.target.closest(".tac-slot");
+    if (!slotEl || !pitch.contains(slotEl)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const club = getUserClub(world);
+    ensureTactics(club);
+    const slot = +slotEl.dataset.slot;
+    const pid = slotEl.dataset.playerId || null;
+
+    if (tacPick.mode === "bench" && tacPick.playerId) {
+      const res = setLineupSlot(club, slot, tacPick.playerId);
+      if (res.ok) afterLineupChange(club, res);
+      else toast(res.msg || t("tac.swapFail"));
+      return;
+    }
+    if (tacPick.mode === "slot" && tacPick.slot != null) {
+      if (tacPick.slot === slot) {
+        clearTacPick();
+        applyTacPickHighlight();
+        return;
+      }
+      const res = swapLineupSlots(club, tacPick.slot, slot);
+      if (res.ok) afterLineupChange(club, res);
+      else toast(res.msg || t("tac.swapFail"));
+      return;
+    }
+    // 开始点选（空槽也可被换上）
+    tacPick.mode = "slot";
+    tacPick.slot = slot;
+    tacPick.playerId = pid;
+    applyTacPickHighlight();
+  });
+
+  if (bench && !bench._tacBound) {
+    bench._tacBound = true;
+    bench.addEventListener("dragstart", (e) => {
+      const chip = e.target.closest(".tac-bench-chip");
+      if (!chip || chip.classList.contains("unavailable")) {
+        e.preventDefault();
+        return;
+      }
+      tacPick.dragging = true;
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData(
+        "text/plain",
+        JSON.stringify({ type: "bench", playerId: chip.dataset.playerId })
+      );
+      chip.classList.add("dragging");
+    });
+    bench.addEventListener("dragend", (e) => {
+      e.target.closest?.(".tac-bench-chip")?.classList.remove("dragging");
+      $("#pitch")?.querySelectorAll(".drag-over").forEach((el) => el.classList.remove("drag-over"));
+      setTimeout(() => {
+        tacPick.dragging = false;
+      }, 30);
+    });
+    bench.addEventListener("click", (e) => {
+      const chip = e.target.closest(".tac-bench-chip");
+      if (!chip || chip.classList.contains("unavailable")) return;
+      if (e.target.closest("[data-player-link]") && !tacPick.mode) return;
+      if (e.target.closest("[data-player-link]") && tacPick.mode) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      const pid = chip.dataset.playerId;
+      // 若已选中首发槽 → 直接把该替补换上
+      if (tacPick.mode === "slot" && tacPick.slot != null) {
+        const club = getUserClub(world);
+        const res = setLineupSlot(club, tacPick.slot, pid);
+        if (res.ok) afterLineupChange(club, res);
+        else toast(res.msg || t("tac.swapFail"));
+        return;
+      }
+      if (tacPick.mode === "bench" && tacPick.playerId === pid) {
+        clearTacPick();
+        applyTacPickHighlight();
+        return;
+      }
+      tacPick.mode = "bench";
+      tacPick.playerId = pid;
+      tacPick.slot = null;
+      applyTacPickHighlight();
+    });
+  }
+}
+
+function renderTactics() {
+  if (!world) return;
+  const club = getUserClub(world);
+  ensureTactics(club);
+  const tac = club.tactics;
+  renderTacPresets();
+  const formSel = $("#formation-select");
+  if (formSel) formSel.value = tac.formation;
+  const styleSel = $("#style-select");
+  if (styleSel) styleSel.value = tac.style;
+  const setSlider = (id, valId, key, n) => {
+    const el = $(id);
+    if (el) el.value = n;
+    const v = $(valId);
+    if (v) v.textContent = tacValText(key, n);
+  };
+  setSlider("#pressing", "#pressing-val", "pressing", tac.pressing);
+  setSlider("#tempo", "#tempo-val", "tempo", tac.tempo);
+  setSlider("#width", "#width-val", "width", tac.width ?? 3);
+  setSlider("#defensive-line", "#defensive-line-val", "defensiveLine", tac.defensiveLine ?? 3);
+
+  const formDesc = $("#formation-desc");
+  const fmeta = FORMATIONS[tac.formation];
+  if (formDesc) {
+    const fm = FORMATION_MOD[tac.formation] || {};
+    const en = getLang() === "en";
+    formDesc.textContent = fmeta?.desc
+      ? `${fmeta.desc} · ${en ? "ATK" : "攻"}×${(fm.atk || 1).toFixed(2)} ${en ? "DEF" : "防"}×${(fm.def || 1).toFixed(2)} ${en ? "MID" : "中场"}×${(fm.midfield || 1).toFixed(2)}`
+      : "";
+  }
+
+  if (!tac.lineup?.length) autoLineup(club);
+  // 阵型槽位数变化时对齐 lineup 长度
+  const formation = FORMATIONS[tac.formation] || FORMATIONS["4-3-3"];
+  if ((tac.lineup || []).length !== formation.slots.length) {
+    autoLineup(club);
+  }
   const players = getLineupPlayers(club);
   const pitch = $("#pitch");
+  if (!pitch) return;
   ensureKit(club);
   assignSquadNumbers(club);
   const kit = ensureKit(club);
@@ -2132,30 +2524,88 @@ function renderTactics() {
   pitch.innerHTML = formation.slots
     .map((slot, i) => {
       const p = players[i];
-      // 名牌：姓（中韩取首词，其余取末词）；球衣号用角标 + 名牌前缀
       const label = p ? playerDisplaySurname(p.name, p.nationality) : "?";
       const shirtNo = p && p.number != null ? p.number : null;
       const fallback = shirtNo != null ? shirtNo : p ? p.ovr : "-";
       const style = p
         ? `background:${kitBg};color:${kitNc};border-color:${kit.primary || "#fff"}`
-        : "";
+        : "background:rgba(148,163,184,0.25);border-color:rgba(255,255,255,0.35)";
       const av = p ? playerAvatarHtml(p, club, 22) : "";
-      const full = p ? `${shirtNo != null ? `#${shirtNo} ` : ""}${p.name}` : "";
+      const full = p
+        ? `${shirtNo != null ? `#${shirtNo} ` : ""}${p.name} · ${POS_LABEL[slot.pos] || slot.pos}`
+        : `${POS_LABEL[slot.pos] || slot.pos}`;
       const badge =
         shirtNo != null
           ? `<span class="pitch-num" style="background:${kitBg};color:${kitNc};border-color:${kit.primary || "#fff"}">${shirtNo}</span>`
-          : "";
-      const nameText =
-        shirtNo != null ? `#${shirtNo} ${label}` : label;
+          : `<span class="pitch-slot-pos">${escapeHtml(slot.pos)}</span>`;
+      const nameText = shirtNo != null ? `#${shirtNo} ${label}` : label;
+      // 名牌：资料链接；拖拽句柄在整个 slot
       const nameHtml = p
-        ? playerLinkHtml(p.id, nameText, "pitch-player-link")
-        : escapeHtml(nameText);
-      return `<div class="player-dot${p ? " clickable-player" : ""}" style="left:${slot.x}%;top:${slot.y}%" title="${escapeHtml(full)}" ${p ? `data-player-link="${escapeHtml(p.id)}"` : ""}>
+        ? `<button type="button" class="player-link pitch-player-link" data-player-link="${escapeHtml(p.id)}">${escapeHtml(nameText)}</button>`
+        : `<span class="pitch-empty">${escapeHtml(POS_LABEL[slot.pos] || slot.pos)}</span>`;
+      const oop = p && p.pos !== slot.pos ? " out-of-pos" : "";
+      const empty = !p ? " empty" : "";
+      return `<div class="player-dot tac-slot${p ? " clickable-player" : ""}${oop}${empty}"
+        style="left:${slot.x}%;top:${slot.y}%"
+        title="${escapeHtml(full)}"
+        draggable="${p ? "true" : "false"}"
+        data-slot="${i}"
+        data-slot-pos="${escapeHtml(slot.pos)}"
+        ${p ? `data-player-id="${escapeHtml(p.id)}"` : ""}>
         <div class="circle kit-dot" style="${style}">${av || fallback}${badge}</div>
         <div class="name">${nameHtml}</div>
       </div>`;
     })
     .join("");
+
+  // 替补席
+  const benchEl = $("#tac-bench");
+  if (benchEl) {
+    const xiSet = new Set(tac.lineup || []);
+    const benchPlayers = (club.players || [])
+      .filter((p) => p && !xiSet.has(p.id))
+      .sort((a, b) => {
+        const ua = (a.injured || 0) > 0 || (a.suspendedMatches || 0) > 0 ? 1 : 0;
+        const ub = (b.injured || 0) > 0 || (b.suspendedMatches || 0) > 0 ? 1 : 0;
+        if (ua !== ub) return ua - ub;
+        return (b.ovr || 0) - (a.ovr || 0);
+      });
+    benchEl.innerHTML = benchPlayers.length
+      ? benchPlayers
+          .map((p) => {
+            const unavail =
+              (p.injured || 0) > 0 || (p.suspendedMatches || 0) > 0;
+            const num = p.number != null ? `#${p.number}` : "";
+            const av = playerAvatarHtml(p, club, 26);
+            const fit = Math.round(p.fitness ?? 100);
+            const status =
+              (p.injured || 0) > 0
+                ? `<em class="tac-chip-bad">${getLang() === "en" ? "INJ" : "伤"}</em>`
+                : (p.suspendedMatches || 0) > 0
+                  ? `<em class="tac-chip-bad">${getLang() === "en" ? "SUS" : "停"}</em>`
+                  : fit < 62
+                    ? `<em class="tac-chip-warn">${fit}%</em>`
+                    : `<em>${p.ovr}</em>`;
+            return `<div class="tac-bench-chip${unavail ? " unavailable" : ""}"
+              draggable="${unavail ? "false" : "true"}"
+              data-player-id="${escapeHtml(p.id)}"
+              role="listitem"
+              title="${escapeHtml(p.name)}">
+              ${av}
+              <div class="tac-chip-meta">
+                <strong>${num} ${escapeHtml(playerDisplaySurname(p.name, p.nationality))}</strong>
+                <span><i class="badge ${p.pos}">${POS_LABEL[p.pos] || p.pos}</i> ${status}</span>
+              </div>
+              <button type="button" class="btn small ghost tac-chip-info" data-player-link="${escapeHtml(p.id)}" title="${escapeHtml(getLang() === "en" ? "Profile" : "资料")}">ℹ</button>
+            </div>`;
+          })
+          .join("")
+      : `<p class="muted" style="margin:0.25rem 0">${escapeHtml(t("tac.benchEmpty"))}</p>`;
+  }
+
+  bindTacticsDragDrop();
+  applyTacPickHighlight();
+  renderTacticsSummary();
 }
 
 function closeModal() {
@@ -3873,6 +4323,7 @@ function openHalfTimePanel() {
   setLiveTacBarVisible(false);
   pendingSubs = [];
   const club = matchState.userClub;
+  ensureTactics(club);
   const tac = club?.tactics || {};
   const htScoreEl = $("#match-ht-score");
   if (htScoreEl) {
@@ -3887,10 +4338,24 @@ function openHalfTimePanel() {
     delete htScoreEl.dataset.htBase;
   }
   $("#ht-style").value = tac.style || "balanced";
+  const htForm = $("#ht-formation");
+  if (htForm) htForm.value = tac.formation || "4-3-3";
   $("#ht-pressing").value = tac.pressing ?? 3;
   $("#ht-tempo").value = tac.tempo ?? 3;
   $("#ht-pressing-val").textContent = String(tac.pressing ?? 3);
   $("#ht-tempo-val").textContent = String(tac.tempo ?? 3);
+  const htW = $("#ht-width");
+  const htDl = $("#ht-def-line");
+  if (htW) {
+    htW.value = tac.width ?? 3;
+    const el = $("#ht-width-val");
+    if (el) el.textContent = String(tac.width ?? 3);
+  }
+  if (htDl) {
+    htDl.value = tac.defensiveLine ?? 3;
+    const el = $("#ht-def-line-val");
+    if (el) el.textContent = String(tac.defensiveLine ?? 3);
+  }
   renderHtTips();
   renderHtFitnessBars();
   renderHtSubSelects();
@@ -4003,10 +4468,13 @@ function setLiveTacBarVisible(show) {
   if (!bar) return;
   bar.classList.toggle("hidden", !show);
   if (show && matchState?.userClub) {
+    ensureTactics(matchState.userClub);
     const tac = matchState.userClub.tactics || {};
     const st = $("#live-style");
     const pr = $("#live-pressing");
     const tm = $("#live-tempo");
+    const wi = $("#live-width");
+    const dl = $("#live-def-line");
     if (st) st.value = tac.style || "balanced";
     if (pr) {
       pr.value = String(tac.pressing ?? 3);
@@ -4017,6 +4485,16 @@ function setLiveTacBarVisible(show) {
       tm.value = String(tac.tempo ?? 3);
       const tv = $("#live-tempo-val");
       if (tv) tv.textContent = String(tac.tempo ?? 3);
+    }
+    if (wi) {
+      wi.value = String(tac.width ?? 3);
+      const wv = $("#live-width-val");
+      if (wv) wv.textContent = String(tac.width ?? 3);
+    }
+    if (dl) {
+      dl.value = String(tac.defensiveLine ?? 3);
+      const dv = $("#live-def-line-val");
+      if (dv) dv.textContent = String(tac.defensiveLine ?? 3);
     }
   }
 }
@@ -4035,6 +4513,8 @@ function onLiveTacApply() {
     style: $("#live-style")?.value,
     pressing: +($("#live-pressing")?.value || 3),
     tempo: +($("#live-tempo")?.value || 3),
+    width: +($("#live-width")?.value || 3),
+    defensiveLine: +($("#live-def-line")?.value || 3),
   };
   const res = applyLiveTactics(matchState, orders);
   if (!res.ok) {
@@ -4183,6 +4663,15 @@ function buildSecondHalfKickTip(applyOrders, orders) {
   if (orders?.tempo != null) {
     bits.push(en ? `Tempo ${orders.tempo}` : `节奏 ${orders.tempo}`);
   }
+  if (orders?.width != null) {
+    bits.push(en ? `Width ${orders.width}` : `宽度 ${orders.width}`);
+  }
+  if (orders?.defensiveLine != null) {
+    bits.push(en ? `Line ${orders.defensiveLine}` : `防线 ${orders.defensiveLine}`);
+  }
+  if (orders?.formation) {
+    bits.push(orders.formation);
+  }
   const nSub = orders?.subs?.length || 0;
   if (nSub) bits.push(en ? `${nSub} sub(s)` : `${nSub} 人换人`);
   return en
@@ -4202,8 +4691,11 @@ async function finishHalfTime(applyOrders) {
   const orders = applyOrders
     ? {
         style: $("#ht-style")?.value,
+        formation: $("#ht-formation")?.value,
         pressing: +($("#ht-pressing")?.value || 3),
         tempo: +($("#ht-tempo")?.value || 3),
+        width: +($("#ht-width")?.value || 3),
+        defensiveLine: +($("#ht-def-line")?.value || 3),
         subs: pendingSubs.map((s) => ({ outId: s.outId, inId: s.inId })),
       }
     : {};

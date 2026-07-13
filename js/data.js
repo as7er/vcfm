@@ -521,6 +521,7 @@ export { CLUB_TEMPLATES } from "./clubs.js";
 export const FORMATIONS = {
   "4-3-3": {
     name: "4-3-3",
+    desc: "均衡边路进攻",
     slots: [
       { pos: "GK", x: 50, y: 92 },
       { pos: "DEF", x: 18, y: 72 }, { pos: "DEF", x: 38, y: 75 },
@@ -531,6 +532,7 @@ export const FORMATIONS = {
   },
   "4-4-2": {
     name: "4-4-2",
+    desc: "双前锋 · 经典",
     slots: [
       { pos: "GK", x: 50, y: 92 },
       { pos: "DEF", x: 18, y: 72 }, { pos: "DEF", x: 38, y: 75 },
@@ -542,6 +544,7 @@ export const FORMATIONS = {
   },
   "3-5-2": {
     name: "3-5-2",
+    desc: "中场人数优势",
     slots: [
       { pos: "GK", x: 50, y: 92 },
       { pos: "DEF", x: 28, y: 74 }, { pos: "DEF", x: 50, y: 76 }, { pos: "DEF", x: 72, y: 74 },
@@ -552,6 +555,7 @@ export const FORMATIONS = {
   },
   "4-2-3-1": {
     name: "4-2-3-1",
+    desc: "双后腰 · 前腰串联",
     slots: [
       { pos: "GK", x: 50, y: 92 },
       { pos: "DEF", x: 18, y: 72 }, { pos: "DEF", x: 38, y: 75 },
@@ -563,6 +567,7 @@ export const FORMATIONS = {
   },
   "5-3-2": {
     name: "5-3-2",
+    desc: "五后卫 · 稳固",
     slots: [
       { pos: "GK", x: 50, y: 92 },
       { pos: "DEF", x: 12, y: 68 }, { pos: "DEF", x: 30, y: 74 }, { pos: "DEF", x: 50, y: 76 },
@@ -571,14 +576,227 @@ export const FORMATIONS = {
       { pos: "ATT", x: 38, y: 20 }, { pos: "ATT", x: 62, y: 20 },
     ],
   },
+  "3-4-3": {
+    name: "3-4-3",
+    desc: "三前锋 · 强攻",
+    slots: [
+      { pos: "GK", x: 50, y: 92 },
+      { pos: "DEF", x: 28, y: 74 }, { pos: "DEF", x: 50, y: 76 }, { pos: "DEF", x: 72, y: 74 },
+      { pos: "MID", x: 20, y: 50 }, { pos: "MID", x: 40, y: 52 }, { pos: "MID", x: 60, y: 52 },
+      { pos: "MID", x: 80, y: 50 },
+      { pos: "ATT", x: 22, y: 20 }, { pos: "ATT", x: 50, y: 16 }, { pos: "ATT", x: 78, y: 20 },
+    ],
+  },
+  "4-1-4-1": {
+    name: "4-1-4-1",
+    desc: "单后腰 · 中场屏障",
+    slots: [
+      { pos: "GK", x: 50, y: 92 },
+      { pos: "DEF", x: 18, y: 72 }, { pos: "DEF", x: 38, y: 75 },
+      { pos: "DEF", x: 62, y: 75 }, { pos: "DEF", x: 82, y: 72 },
+      { pos: "MID", x: 50, y: 60 },
+      { pos: "MID", x: 18, y: 42 }, { pos: "MID", x: 38, y: 45 }, { pos: "MID", x: 62, y: 45 },
+      { pos: "MID", x: 82, y: 42 },
+      { pos: "ATT", x: 50, y: 16 },
+    ],
+  },
+  "4-5-1": {
+    name: "4-5-1",
+    desc: "密集中场 · 防反",
+    slots: [
+      { pos: "GK", x: 50, y: 92 },
+      { pos: "DEF", x: 18, y: 72 }, { pos: "DEF", x: 38, y: 75 },
+      { pos: "DEF", x: 62, y: 75 }, { pos: "DEF", x: 82, y: 72 },
+      { pos: "MID", x: 15, y: 48 }, { pos: "MID", x: 32, y: 52 }, { pos: "MID", x: 50, y: 55 },
+      { pos: "MID", x: 68, y: 52 }, { pos: "MID", x: 85, y: 48 },
+      { pos: "ATT", x: 50, y: 18 },
+    ],
+  },
+};
+
+/** 阵型对攻防/宽度的实战修正（不再只是站位） */
+export const FORMATION_MOD = {
+  "4-3-3": { atk: 1.04, def: 0.98, width: 1.06, midfield: 1.0 },
+  "4-4-2": { atk: 1.03, def: 1.02, width: 1.0, midfield: 0.98 },
+  "3-5-2": { atk: 1.02, def: 0.97, width: 0.96, midfield: 1.1 },
+  "4-2-3-1": { atk: 1.05, def: 1.03, width: 1.02, midfield: 1.04 },
+  "5-3-2": { atk: 0.94, def: 1.12, width: 0.92, midfield: 0.96 },
+  "3-4-3": { atk: 1.1, def: 0.92, width: 1.1, midfield: 0.97 },
+  "4-1-4-1": { atk: 0.98, def: 1.06, width: 1.0, midfield: 1.06 },
+  "4-5-1": { atk: 0.92, def: 1.1, width: 0.95, midfield: 1.08 },
 };
 
 export const POS_LABEL = { GK: "门将", DEF: "后卫", MID: "中场", ATT: "前锋" };
 
+/**
+ * 风格修正
+ * possession → 控球权重；foulRisk → 犯规倾向；fitness → 体能消耗；chance → 威胁频率
+ */
 export const STYLE_MOD = {
-  balanced: { atk: 1, def: 1, possession: 1 },
-  attack: { atk: 1.12, def: 0.9, possession: 1.05 },
-  defend: { atk: 0.88, def: 1.14, possession: 0.95 },
-  possession: { atk: 1.02, def: 1.02, possession: 1.15 },
-  counter: { atk: 1.08, def: 1.05, possession: 0.85 },
+  balanced: {
+    atk: 1,
+    def: 1,
+    possession: 1,
+    foulRisk: 1,
+    fitness: 1,
+    chance: 1,
+  },
+  attack: {
+    atk: 1.14,
+    def: 0.88,
+    possession: 1.04,
+    foulRisk: 1.05,
+    fitness: 1.08,
+    chance: 1.12,
+  },
+  defend: {
+    atk: 0.86,
+    def: 1.16,
+    possession: 0.92,
+    foulRisk: 1.08,
+    fitness: 0.94,
+    chance: 0.88,
+  },
+  possession: {
+    atk: 1.04,
+    def: 1.04,
+    possession: 1.22,
+    foulRisk: 0.88,
+    fitness: 0.96,
+    chance: 0.95,
+  },
+  counter: {
+    atk: 1.1,
+    def: 1.06,
+    possession: 0.78,
+    foulRisk: 0.95,
+    fitness: 0.98,
+    chance: 1.06,
+  },
 };
+
+/**
+ * 风格克制：行=我方风格，列=对方风格 → 对我方 atk/def 的乘子
+ * 例：反击打进攻型有加成；控球被高压压制
+ */
+export const STYLE_MATCHUP = {
+  balanced: {
+    balanced: { atk: 1, def: 1 },
+    attack: { atk: 0.98, def: 1.02 },
+    defend: { atk: 1.02, def: 0.99 },
+    possession: { atk: 1, def: 1 },
+    counter: { atk: 0.99, def: 1.01 },
+  },
+  attack: {
+    balanced: { atk: 1.02, def: 0.97 },
+    attack: { atk: 1.04, def: 0.94 },
+    defend: { atk: 0.94, def: 0.96 },
+    possession: { atk: 1.05, def: 0.96 },
+    counter: { atk: 0.9, def: 0.92 },
+  },
+  defend: {
+    balanced: { atk: 0.98, def: 1.03 },
+    attack: { atk: 0.96, def: 1.08 },
+    defend: { atk: 0.97, def: 1.04 },
+    possession: { atk: 0.95, def: 1.02 },
+    counter: { atk: 1.0, def: 1.02 },
+  },
+  possession: {
+    balanced: { atk: 1.01, def: 1.02 },
+    attack: { atk: 0.97, def: 0.98 },
+    defend: { atk: 1.04, def: 1.03 },
+    possession: { atk: 1.02, def: 1.02 },
+    counter: { atk: 0.93, def: 0.97 },
+  },
+  counter: {
+    balanced: { atk: 1.03, def: 1.02 },
+    attack: { atk: 1.1, def: 1.04 },
+    defend: { atk: 0.96, def: 1.0 },
+    possession: { atk: 1.08, def: 1.03 },
+    counter: { atk: 1.0, def: 1.0 },
+  },
+};
+
+/** 战术预设（一键套用） */
+export const TACTIC_PRESETS = {
+  solid: {
+    id: "solid",
+    style: "defend",
+    pressing: 2,
+    tempo: 2,
+    width: 2,
+    defensiveLine: 2,
+    formation: "5-3-2",
+  },
+  high_press: {
+    id: "high_press",
+    style: "attack",
+    pressing: 5,
+    tempo: 4,
+    width: 4,
+    defensiveLine: 5,
+    formation: "4-3-3",
+  },
+  tiki: {
+    id: "tiki",
+    style: "possession",
+    pressing: 3,
+    tempo: 2,
+    width: 3,
+    defensiveLine: 4,
+    formation: "4-2-3-1",
+  },
+  park_counter: {
+    id: "park_counter",
+    style: "counter",
+    pressing: 2,
+    tempo: 4,
+    width: 3,
+    defensiveLine: 1,
+    formation: "4-5-1",
+  },
+  all_out: {
+    id: "all_out",
+    style: "attack",
+    pressing: 4,
+    tempo: 5,
+    width: 5,
+    defensiveLine: 4,
+    formation: "3-4-3",
+  },
+  balanced: {
+    id: "balanced",
+    style: "balanced",
+    pressing: 3,
+    tempo: 3,
+    width: 3,
+    defensiveLine: 3,
+    formation: "4-3-3",
+  },
+};
+
+export function styleMatchupMod(myStyle, oppStyle) {
+  const row = STYLE_MATCHUP[myStyle] || STYLE_MATCHUP.balanced;
+  return row[oppStyle] || row.balanced || { atk: 1, def: 1 };
+}
+
+/** 生成战术摘要文案用的数值标签 */
+export function tacticsSliderLabel(key, v, lang = "zh") {
+  const n = Math.max(1, Math.min(5, +v || 3));
+  const tables = {
+    zh: {
+      pressing: ["很低", "偏低", "标准", "偏高", "极高"],
+      tempo: ["很慢", "偏慢", "标准", "偏快", "极快"],
+      width: ["很窄", "偏窄", "标准", "偏宽", "很宽"],
+      defensiveLine: ["很深", "偏深", "标准", "偏高", "很高"],
+    },
+    en: {
+      pressing: ["Very low", "Low", "Standard", "High", "Max"],
+      tempo: ["Very slow", "Slow", "Standard", "Fast", "Max"],
+      width: ["Very narrow", "Narrow", "Standard", "Wide", "Very wide"],
+      defensiveLine: ["Very deep", "Deep", "Standard", "High", "Very high"],
+    },
+  };
+  const t = tables[lang === "en" ? "en" : "zh"][key];
+  return t ? t[n - 1] : String(n);
+}
