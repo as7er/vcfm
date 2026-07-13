@@ -50,8 +50,13 @@ import {
   playFirstHalf,
   continueSecondHalf,
   applySubstitution,
+  applyLiveTactics,
+  getHalfTimeTips,
   getBenchPlayers,
   getOnFieldPlayers,
+  ensureFixtureWeather,
+  isDerby,
+  isBigMatch,
   getSortedTable,
   getUserClub,
   getNextUserMatch,
@@ -107,7 +112,11 @@ import {
   ensureDiscipline,
   isAvailable,
 } from "./engine.js";
-import { buildPreMatchBriefing, suspensionSummary } from "./discipline.js";
+import {
+  buildPreMatchBriefing,
+  briefingLogLines,
+  suspensionSummary,
+} from "./discipline.js";
 import {
   saveGame,
   loadGame,
@@ -167,7 +176,253 @@ let matchState = null;
 let pendingSubs = []; // 中场待确认换人 {outId, inId, outName, inName}
 /** @type {import('./matchview.js').MatchView | null} */
 let matchView = null;
-/** 直播倍速 1 / 2 / 4 */
+
+/** 比赛播放控制：暂停 / 逐事件 + 进球回看缓存 */
+const matchPlayback = {
+  paused: false,
+  stepMode: false,
+  waitingStep: false,
+  /** @type {null | (() => void)} */
+  stepResolve: null,
+  /** 赛中可操作暂停/下一步 */
+  controlsEnabled: false,
+  /** @type {{ ev: object, snap: object, fixture: object }[]} */
+  goals: [],
+  /** 赛后回看进行中，防止连点 */
+  replaying: false,
+  /** 从赛程打开旧战报（只读，不结算） */
+  reviewMode: false,
+};
+
+function resetMatchPlayback({ keepStepMode = true } = {}) {
+  if (matchPlayback.stepResolve) {
+    try {
+      matchPlayback.stepResolve();
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  matchPlayback.paused = false;
+  if (matchView?.setFrozen) matchView.setFrozen(false);
+  if (!keepStepMode) matchPlayback.stepMode = false;
+  matchPlayback.waitingStep = false;
+  matchPlayback.stepResolve = null;
+  matchPlayback.controlsEnabled = false;
+  matchPlayback.goals = [];
+  matchPlayback.replaying = false;
+  matchPlayback.reviewMode = false;
+  updateMatchPlaybackUI();
+}
+
+function updateMatchPlaybackUI() {
+  const pauseBtn = $("#btn-match-pause");
+  const stepBtn = $("#btn-match-step");
+  const modeBtn = $("#btn-match-step-mode");
+  const en = !!matchPlayback.controlsEnabled;
+  if (pauseBtn) {
+    pauseBtn.disabled = !en;
+    pauseBtn.classList.toggle("active", matchPlayback.paused);
+    pauseBtn.textContent = matchPlayback.paused
+      ? t("match.resume")
+      : t("match.pause");
+  }
+  if (stepBtn) {
+    // 暂停中 或 逐事件等待时，可点「下一步」
+    stepBtn.disabled = !en || (!matchPlayback.paused && !matchPlayback.waitingStep && !matchPlayback.stepMode);
+    stepBtn.classList.toggle("active", matchPlayback.waitingStep);
+  }
+  if (modeBtn) {
+    modeBtn.classList.toggle("active", matchPlayback.stepMode);
+    modeBtn.setAttribute("aria-pressed", matchPlayback.stepMode ? "true" : "false");
+  }
+  updateMatchSfxUI();
+}
+
+/** 可被暂停打断的等待；逐事件模式下结束后再等用户点「下一步」 */
+async function sleepPlayback(ms) {
+  const total = Math.max(0, Number(ms) || 0);
+  const end = performance.now() + total;
+  while (performance.now() < end) {
+    while (matchPlayback.paused) {
+      updateMatchPlaybackUI();
+      await sleep(40);
+    }
+    const left = end - performance.now();
+    if (left <= 0) break;
+    await sleep(Math.min(50, left));
+  }
+  if (matchPlayback.stepMode && matchPlayback.controlsEnabled) {
+    await waitForMatchStep();
+  }
+}
+
+function waitForMatchStep() {
+  if (matchPlayback.stepResolve) {
+    // 已在等，复用
+    return new Promise((r) => {
+      const prev = matchPlayback.stepResolve;
+      matchPlayback.stepResolve = () => {
+        prev();
+        r();
+      };
+    });
+  }
+  matchPlayback.waitingStep = true;
+  updateMatchPlaybackUI();
+  return new Promise((resolve) => {
+    matchPlayback.stepResolve = () => {
+      matchPlayback.waitingStep = false;
+      matchPlayback.stepResolve = null;
+      // 点下一步时顺便解除暂停，避免卡死
+      matchPlayback.paused = false;
+      if (matchView?.setFrozen) matchView.setFrozen(false);
+      updateMatchPlaybackUI();
+      resolve();
+    };
+  });
+}
+
+function requestMatchStep() {
+  if (matchPlayback.stepResolve) {
+    matchPlayback.stepResolve();
+    return;
+  }
+  // 暂停中但还没进入 wait：解除暂停让 sleep 继续，并进入一步
+  if (matchPlayback.paused) {
+    matchPlayback.paused = false;
+    if (matchView?.setFrozen) matchView.setFrozen(false);
+    updateMatchPlaybackUI();
+  }
+}
+
+function toggleMatchPause() {
+  if (!matchPlayback.controlsEnabled) return;
+  matchPlayback.paused = !matchPlayback.paused;
+  // 冻结球场 AI（保留站位，区别于 HT/FT 钉回阵型）
+  if (matchView?.setFrozen) matchView.setFrozen(matchPlayback.paused);
+  if (!matchPlayback.paused && matchPlayback.stepResolve && !matchPlayback.stepMode) {
+    // 继续播放：若卡在逐步等待且非逐步模式，放行
+    matchPlayback.stepResolve();
+  }
+  updateMatchPlaybackUI();
+  toast(
+    matchPlayback.paused
+      ? getLang() === "en"
+        ? "Paused"
+        : "已暂停"
+      : getLang() === "en"
+        ? "Resumed"
+        : "继续比赛"
+  );
+}
+
+function toggleMatchStepMode() {
+  matchPlayback.stepMode = !matchPlayback.stepMode;
+  updateMatchPlaybackUI();
+  toast(
+    matchPlayback.stepMode
+      ? t("match.stepModeOn")
+      : t("match.stepModeOff")
+  );
+  // 关掉逐事件时若正在等下一步，放行
+  if (!matchPlayback.stepMode && matchPlayback.stepResolve) {
+    matchPlayback.stepResolve();
+  }
+}
+
+function toggleMatchSfx() {
+  const muted = matchView?.isSfxMuted?.() ?? localStorage.getItem("vcfm_sfx_muted") === "1";
+  const next = !muted;
+  if (matchView?.setSfxMuted) matchView.setSfxMuted(next);
+  else {
+    try {
+      localStorage.setItem("vcfm_sfx_muted", next ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }
+  updateMatchSfxUI();
+  toast(
+    next
+      ? getLang() === "en"
+        ? "SFX off"
+        : "音效已关"
+      : getLang() === "en"
+        ? "SFX on"
+        : "音效已开"
+  );
+  // 开音时轻响一声确认
+  if (!next && matchView?.playSfx) matchView.playSfx("whistle");
+}
+
+function updateMatchSfxUI() {
+  const btn = $("#btn-match-sfx");
+  if (!btn) return;
+  let muted = false;
+  try {
+    muted =
+      matchView?.isSfxMuted?.() ?? localStorage.getItem("vcfm_sfx_muted") === "1";
+  } catch {
+    muted = false;
+  }
+  btn.classList.toggle("active", !muted);
+  btn.classList.toggle("is-muted", !!muted);
+  btn.setAttribute("aria-pressed", muted ? "false" : "true");
+  btn.textContent = muted
+    ? getLang() === "en"
+      ? "SFX off"
+      : "静音"
+    : t("match.sfx") || (getLang() === "en" ? "SFX" : "音效");
+}
+
+/**
+ * @param {object} ev
+ * @param {object} [snap]
+ * @param {object} [fixture]
+ * @param {object|null} [scene] 进球瞬间场面（回看还原用）
+ */
+function rememberGoalReplay(ev, snap, fixture, scene = null) {
+  if (!ev || ev.type !== "goal") return;
+  matchPlayback.goals.push({
+    ev: { ...ev },
+    snap: snap ? { ...snap } : { homeGoals: 0, awayGoals: 0, minute: ev.minute },
+    fixture: fixture || pendingMatch,
+    scene: scene || null,
+  });
+}
+
+/** 赛后 / 日志点击：重看第 n 个进球 */
+async function replayStoredGoal(index) {
+  if (matchPlayback.replaying) {
+    toast(getLang() === "en" ? "Replay in progress…" : "回放进行中…");
+    return;
+  }
+  const item = matchPlayback.goals[index];
+  if (!item || !matchView?.playGoalHighlight) {
+    toast(getLang() === "en" ? "No replay for this goal" : "该进球暂无可回看");
+    return;
+  }
+  matchPlayback.replaying = true;
+  try {
+    ensureMatchPitch();
+    const spd = Math.max(0.25, Number(matchSpeed) || 1);
+    // 回看时略慢一点更好看；有场面快照则从同一帧接续
+    await matchView.playGoalHighlight(item.ev, item.snap, item.fixture, {
+      speed: Math.min(spd, 1),
+      lang: getLang(),
+      sleepFn: sleepPlayback,
+      rewatch: true,
+      scene: item.scene || null,
+    });
+  } catch (err) {
+    console.error(err);
+    toast(getLang() === "en" ? "Replay failed" : "回放失败");
+  } finally {
+    matchPlayback.replaying = false;
+  }
+}
+
+/** 直播倍速 0.5 / 1 / 2 / 4 */
 function readPref(key, oldKey, fallback) {
   try {
     return localStorage.getItem(key) || (oldKey ? localStorage.getItem(oldKey) : null) || fallback;
@@ -175,7 +430,13 @@ function readPref(key, oldKey, fallback) {
     return fallback;
   }
 }
-let matchSpeed = Number(readPref("vcfm-match-speed", "vc-fm-match-speed", "2")) || 2;
+const MATCH_SPEEDS = [0.5, 1, 1.5, 2, 4];
+let matchSpeed = (() => {
+  const raw = Number(readPref("vcfm-match-speed", "vc-fm-match-speed", "1"));
+  // 旧存档若是 2/4，仍尊重；非法值回落到「正常」×1
+  if (!MATCH_SPEEDS.includes(raw)) return 1;
+  return raw;
+})();
 /** 导出提醒：上次导出时间戳 */
 const EXPORT_TIP_KEY = "vcfm-last-export";
 const OLD_EXPORT_TIP_KEY = "vc-fm-last-export";
@@ -479,10 +740,11 @@ function bindMainOnce() {
     } else toast(t("toast.exportFail"));
   };
 
-  // 比赛倍速
+  // 比赛倍速（含 ×0.5 慢放）
   document.querySelectorAll("[data-match-speed]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      matchSpeed = Number(btn.dataset.matchSpeed) || 2;
+      const v = Number(btn.dataset.matchSpeed);
+      matchSpeed = MATCH_SPEEDS.includes(v) ? v : 1;
       try {
         localStorage.setItem("vcfm-match-speed", String(matchSpeed));
       } catch (_) {
@@ -491,6 +753,31 @@ function bindMainOnce() {
       syncMatchSpeedUI();
       toast(getLang() === "en" ? `Speed ×${matchSpeed}` : `比赛倍速 ×${matchSpeed}`);
     });
+  });
+
+  // FMM：xG / 控球 / 射门 折叠
+  $("#btn-match-stats-toggle")?.addEventListener("click", () => toggleMatchStatsPanel());
+
+  // 暂停 / 下一步 / 逐事件
+  $("#btn-match-pause")?.addEventListener("click", () => toggleMatchPause());
+  $("#btn-match-sfx")?.addEventListener("click", () => toggleMatchSfx());
+  $("#btn-match-step")?.addEventListener("click", () => requestMatchStep());
+  $("#btn-match-step-mode")?.addEventListener("click", () => toggleMatchStepMode());
+
+  // 事件流 / 赛后报告：点进球再看回放
+  $("#match-log")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-goal-replay]");
+    if (!btn) return;
+    e.preventDefault();
+    const idx = Number(btn.dataset.goalReplay);
+    if (Number.isFinite(idx)) replayStoredGoal(idx);
+  });
+  $("#match-report")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-goal-replay]");
+    if (!btn) return;
+    e.preventDefault();
+    const idx = Number(btn.dataset.goalReplay);
+    if (Number.isFinite(idx)) replayStoredGoal(idx);
   });
 
   $("#btn-menu").onclick = () => {
@@ -654,15 +941,33 @@ function bindMainOnce() {
   $("#btn-sim-live").onclick = () => runMatch("live");
   $("#btn-sim-instant").onclick = () => runMatch("instant");
   $("#btn-match-continue").onclick = () => {
-    autosave("after-match");
+    const wasReview = !!matchPlayback.reviewMode;
+    if (!wasReview) autosave("after-match");
     destroyMatchView();
     matchView = null;
+    matchPlayback.reviewMode = false;
+    // 恢复按钮文案（回顾时改成了「返回俱乐部」）
+    const cont = $("#btn-match-continue");
+    if (cont) cont.textContent = t("match.continue");
     showScreen("main");
     pendingMatch = null;
     matchState = null;
     pendingSubs = [];
     refreshAll();
+    if (wasReview) {
+      // 回到赛程页，方便连续回看
+      const tabBtn = document.querySelector('[data-tab="fixtures"]');
+      if (tabBtn) tabBtn.click();
+    }
   };
+
+  // 赛程：点击「战报」打开旧场回看
+  $("#fixtures-table")?.addEventListener("click", (e) => {
+    const btn = e.target.closest(".fix-report-btn");
+    if (!btn) return;
+    e.preventDefault();
+    openPastMatchReport(btn.dataset.fixtureKey);
+  });
 
   // 中场调整
   const htPress = $("#ht-pressing");
@@ -680,6 +985,15 @@ function bindMainOnce() {
   $("#btn-ht-add-sub")?.addEventListener("click", () => onHtAddSub());
   $("#btn-ht-continue")?.addEventListener("click", () => finishHalfTime(true));
   $("#btn-ht-skip")?.addEventListener("click", () => finishHalfTime(false));
+  $("#btn-live-tac-apply")?.addEventListener("click", () => onLiveTacApply());
+  $("#live-pressing")?.addEventListener("input", (e) => {
+    const el = $("#live-pressing-val");
+    if (el) el.textContent = e.target.value;
+  });
+  $("#live-tempo")?.addEventListener("input", (e) => {
+    const el = $("#live-tempo-val");
+    if (el) el.textContent = e.target.value;
+  });
 }
 
 // ---------- Refresh ----------
@@ -969,44 +1283,15 @@ function renderDashboard() {
     const home = world.clubs.find((c) => c.id === next.home);
     const away = world.clubs.find((c) => c.id === next.away);
     const ready = next.day <= world.day;
-    const brief = ready ? buildPreMatchBriefing(world, next, club) : null;
-    let briefHtml = "";
-    if (brief) {
-      const bits = [];
-      if (brief.suspended.length)
-        bits.push(
-          `停赛：${brief.suspended.map((s) => `${s.name}(${s.matches})`).join("、")}`
-        );
-      if (brief.injured.length)
-        bits.push(
-          `伤病：${brief.injured
-            .slice(0, 3)
-            .map((s) => s.name)
-            .join("、")}`
-        );
-      if (brief.yellowRisk.length)
-        bits.push(
-          `黄牌边缘：${brief.yellowRisk.map((s) => `${s.name}(${s.yellows})`).join("、")}`
-        );
-      if (brief.tired.length)
-        bits.push(
-          `体能低：${brief.tired.map((s) => `${s.name}${s.fit}%`).join("、")}`
-        );
-      if (brief.opp.top.length)
-        bits.push(
-          `对方核心：${brief.opp.top.map((s) => `${s.name}(${s.ovr})`).join("、")}`
-        );
-      briefHtml = bits.length
-        ? `<div class="prematch-brief">${bits.map((b) => `<div class="muted">• ${escapeHtml(b)}</div>`).join("")}</div>`
-        : `<div class="prematch-brief muted">• 人员齐全，无重大缺阵</div>`;
-    }
+    const brief = ready ? buildBriefingForFixture(next, club) : null;
+    const briefHtml = brief ? renderPrematchBriefHtml(brief, { compact: true }) : "";
     box.innerHTML = `
       <div><strong>${next.competition === "cup" ? next.roundLabel || "杯赛" : `第 ${next.round} 轮`}</strong> · 第 ${next.day} 天 · ${next.home === club.id ? "主场" : "客场"}</div>
       <div style="margin-top:0.4rem;font-size:1.25rem">
         ${clubLinkHtml(home.id, home.name)} <span class="muted">vs</span> ${clubLinkHtml(away.id, away.name)}
       </div>
       <div class="muted" style="margin-top:0.35rem">
-        ${ready ? "可以开赛 · 赛前简报" : `还需等待 ${next.day - world.day} 天`}
+        ${ready ? (getLang() === "en" ? "Matchday · Pre-match briefing" : "可以开赛 · 赛前简报") : (getLang() === "en" ? `${next.day - world.day} day(s) to go` : `还需等待 ${next.day - world.day} 天`)}
       </div>
       ${briefHtml}
     `;
@@ -2203,10 +2488,22 @@ function renderTransfer() {
   });
 }
 
+/** 赛程唯一键（无 id 时用） */
+function fixtureKey(f) {
+  if (!f) return "";
+  return `${f.home}|${f.away}|${f.day}|${f.round ?? ""}|${f.roundLabel || ""}`;
+}
+
+function findFixtureByKey(key) {
+  if (!world || !key) return null;
+  return (world.fixtures || []).find((f) => fixtureKey(f) === key) || null;
+}
+
 function renderFixtures() {
   const uid = world.userClubId;
   const list = world.fixtures.filter((f) => f.home === uid || f.away === uid);
   const tbody = $("#fixtures-table tbody");
+  const en = getLang() === "en";
   tbody.innerHTML = list
     .map((f) => {
       const home = world.clubs.find((c) => c.id === f.home);
@@ -2214,18 +2511,193 @@ function renderFixtures() {
       const score = f.played ? `${f.homeGoals} - ${f.awayGoals}` : "-";
       let status = t("fix.pending");
       if (f.played) status = t("fix.played");
-      else if (f.day === world.day) status = getLang() === "en" ? "Today" : "今日";
-      else if (f.day < world.day) status = getLang() === "en" ? "Due" : "待踢";
-      return `<tr class="${f.day === world.day && !f.played ? "me" : ""}">
+      else if (f.day === world.day) status = en ? "Today" : "今日";
+      else if (f.day < world.day) status = en ? "Due" : "待踢";
+      // 已赛且有报告 → 可回看
+      let action = status;
+      if (f.played && f.matchReport) {
+        action = `<button type="button" class="btn tiny fix-report-btn" data-fixture-key="${escapeHtml(fixtureKey(f))}" title="${escapeHtml(t("fix.viewReport") || "战报")}">${escapeHtml(t("fix.viewReport") || (en ? "Report" : "战报"))}</button>`;
+      } else if (f.played && f.events?.length) {
+        // 旧档无完整 report：尽量用事件拼简易报告入口
+        action = `<button type="button" class="btn tiny fix-report-btn" data-fixture-key="${escapeHtml(fixtureKey(f))}" title="${escapeHtml(t("fix.viewReport") || "战报")}">${escapeHtml(t("fix.viewReport") || (en ? "Report" : "战报"))}</button>`;
+      }
+      return `<tr class="${f.day === world.day && !f.played ? "me" : ""} ${f.played ? "played" : ""}">
         <td>${f.round}</td>
         <td>D${f.day}</td>
         <td>${clubLinkHtml(home.id, home.name)}</td>
-        <td>${score}</td>
+        <td class="fix-score">${score}</td>
         <td>${clubLinkHtml(away.id, away.name)}</td>
-        <td>${status}</td>
+        <td class="fix-action">${action}</td>
       </tr>`;
     })
     .join("");
+}
+
+/**
+ * 从赛程打开旧战报（只读回顾，不重新模拟）
+ */
+function openPastMatchReport(key) {
+  const fixture = findFixtureByKey(key);
+  if (!fixture || !fixture.played) {
+    toast(getLang() === "en" ? "No match report" : "暂无战报");
+    return;
+  }
+  // 旧档可能只有 events 无比分报告
+  let report = fixture.matchReport;
+  if (!report) {
+    report = buildLegacyReportFromFixture(fixture);
+  }
+  if (!report) {
+    toast(getLang() === "en" ? "Report not saved for this match" : "本场未保存完整战报（旧存档）");
+    return;
+  }
+
+  pendingMatch = fixture;
+  matchState = null;
+  pendingSubs = [];
+  matchPlayback.reviewMode = true;
+
+  const home = world.clubs.find((c) => c.id === fixture.home);
+  const away = world.clubs.find((c) => c.id === fixture.away);
+  setupMatchScoreboard(home, away, fixture);
+  setMatchScore(fixture.homeGoals ?? report.homeGoals ?? 0, fixture.awayGoals ?? report.awayGoals ?? 0);
+  setMatchMinute(90);
+  setMatchLiveState("ft");
+  updateLiveStats(report);
+  setMatchStatsPanelOpen(true);
+  $("#match-log").innerHTML = "";
+  resetMatchPlayback({ keepStepMode: true });
+  matchPlayback.reviewMode = true;
+
+  // 从 events 重建进球回看列表
+  rebuildGoalReplaysFromFixture(fixture);
+  // 事件流摘要
+  for (const ev of fixture.events || []) {
+    if (ev.type === "tick" || !ev.text) continue;
+    if (ev.type === "goal") {
+      const gi = matchPlayback.goals.findIndex(
+        (g) => g.ev.minute === ev.minute && g.ev.playerId === ev.playerId
+      );
+      appendMatchEvent(ev, { goalIndex: gi >= 0 ? gi : undefined });
+    } else {
+      appendMatchEvent(ev);
+    }
+  }
+
+  hideHtPanel();
+  hidePrematchBriefPanel();
+  setLiveTacBarVisible(false);
+  ensureMatchPitch(true);
+  if (matchView) {
+    matchView.phase = "pause";
+    matchView.setBanner(getLang() === "en" ? "FULL-TIME" : "完场回顾", "info");
+    matchView._syncClickable?.();
+  }
+
+  showMatchReport(report, { review: true });
+  if (report.ratings?.motm && matchView?.highlightMotm) {
+    matchView.highlightMotm(report.ratings.motm);
+  }
+
+  $("#btn-sim-fast").disabled = true;
+  $("#btn-sim-live").disabled = true;
+  const inst = $("#btn-sim-instant");
+  if (inst) inst.disabled = true;
+  $("#btn-match-continue").disabled = false;
+  $("#btn-match-continue").textContent =
+    t("match.backToClub") || (getLang() === "en" ? "Back" : "返回俱乐部");
+  matchPlayback.controlsEnabled = false;
+  updateMatchPlaybackUI();
+  showScreen("match");
+  toast(getLang() === "en" ? "Match report" : "赛后战报");
+}
+
+/** 旧档无 matchReport 时从 events 拼简易报告 */
+function buildLegacyReportFromFixture(f) {
+  if (!f?.played) return null;
+  const home = world.clubs.find((c) => c.id === f.home);
+  const away = world.clubs.find((c) => c.id === f.away);
+  if (!home || !away) return null;
+  const events = f.events || [];
+  const scorers = events
+    .filter((e) => e.type === "goal")
+    .map((e) => ({
+      minute: e.minute,
+      teamId: e.teamId,
+      playerId: e.playerId,
+      text: e.text,
+      penalty: !!e.penalty,
+    }));
+  const narrative = [
+    `${home.short || home.name} ${f.homeGoals ?? 0} - ${f.awayGoals ?? 0} ${away.short || away.name}`,
+  ];
+  if (scorers.length) {
+    narrative.push(
+      getLang() === "en"
+        ? `${scorers.length} goal(s) in this match.`
+        : `本场共 ${scorers.length} 粒进球。`
+    );
+  }
+  narrative.push(
+    getLang() === "en"
+      ? "Detailed xG/ratings unavailable for older saves."
+      : "旧存档未保存完整 xG/评分，仅显示比分与事件。"
+  );
+  return {
+    score: `${f.homeGoals ?? 0} - ${f.awayGoals ?? 0}`,
+    homeGoals: f.homeGoals ?? 0,
+    awayGoals: f.awayGoals ?? 0,
+    weather: f.weather ? { key: f.weather, name: f.weather, icon: "⚽" } : null,
+    derby: !!f.derby,
+    bigMatch: false,
+    home: {
+      name: home.name,
+      short: home.short,
+      shots: 0,
+      shotsOn: 0,
+      xg: 0,
+      possession: 50,
+      corners: 0,
+      fouls: 0,
+      yellows: 0,
+      reds: 0,
+      saves: 0,
+      woodwork: 0,
+    },
+    away: {
+      name: away.name,
+      short: away.short,
+      shots: 0,
+      shotsOn: 0,
+      xg: 0,
+      possession: 50,
+      corners: 0,
+      fouls: 0,
+      yellows: 0,
+      reds: 0,
+      saves: 0,
+      woodwork: 0,
+    },
+    scorers,
+    ratings: null,
+    narrative,
+  };
+}
+
+function rebuildGoalReplaysFromFixture(fixture) {
+  matchPlayback.goals = [];
+  let hg = 0;
+  let ag = 0;
+  for (const ev of fixture.events || []) {
+    if (ev.type !== "goal") continue;
+    if (ev.teamId === fixture.home) hg++;
+    else ag++;
+    matchPlayback.goals.push({
+      ev: { ...ev },
+      snap: { homeGoals: hg, awayGoals: ag, minute: ev.minute },
+      fixture,
+    });
+  }
 }
 
 // ---------- Day / Match ----------
@@ -2339,6 +2811,284 @@ function syncMatchSpeedUI() {
   });
 }
 
+/**
+ * 直播/快速模拟事件停顿（毫秒，再除以倍速）
+ * ×1 ≈ FMM「正常观赛」：空分钟也有节奏，关键戏更长
+ */
+function matchEventWaitMs(ev) {
+  if (!ev) return 420;
+  switch (ev.type) {
+    case "goal":
+      return 0; // 进球走高光回放，单独计时
+    case "tick":
+      // 每一比赛分钟的「呼吸」——之前几乎为 0，所以整体飞快
+      return 280;
+    case "chance":
+    case "woodwork":
+    case "penalty":
+    case "pen_miss":
+      // 预演已占 ~1.2s，这里只留射门结果停留
+      return 900;
+    case "save":
+      return 800;
+    case "red":
+      return 1200;
+    case "card":
+    case "injury":
+      return 950;
+    case "sub":
+    case "tactics":
+      return 800;
+    case "corner":
+      // 预演已组织，角球结果稍短
+      return 550;
+    case "kickoff":
+      return 1100;
+    case "ht":
+    case "ft":
+      return 1000;
+    case "coach":
+    case "context":
+      return 700;
+    default:
+      return 480;
+  }
+}
+
+/**
+ * 驱动球场画面 + 按倍速等待（进球自动高光回放）
+ * 支持暂停 / 逐事件；进球会写入可回看列表
+ * @param {boolean} live 是否写评论/更新比分条（直播）
+ */
+async function driveMatchEvent(ev, snap, { live = true } = {}) {
+  const spd = Math.max(0.25, Number(matchSpeed) || 1);
+  const fixture = pendingMatch;
+
+  if (ev.type === "tick") {
+    if (live && snap) setMatchMinute(snap.minute);
+    // 导演 tick：用 snap 控球偏置推连续表演（不改比分）
+    if (matchView?.onTick) matchView.onTick(snap);
+    // 空分钟也要停：否则 90 分钟几乎瞬间跳完
+    // 攻势段落中略拉长呼吸，更像「这一波」
+    let tickMs = matchEventWaitMs(ev);
+    if (matchView?._attackPhaseActive?.()) tickMs = Math.round(tickMs * 1.25);
+    const wait = live ? tickMs / spd : Math.max(12, tickMs / (spd * 8));
+    await sleepPlayback(wait);
+    return;
+  }
+
+  if (ev.type === "goal") {
+    // 先抓场面，再对齐/高光——回看才能从同一帧接
+    const scene = matchView?.captureSceneSnapshot?.() || null;
+    rememberGoalReplay(ev, snap, fixture, scene);
+    if (live) {
+      if (ev.text) appendMatchEvent(ev, { goalIndex: matchPlayback.goals.length - 1 });
+      if (snap) {
+        setMatchScore(snap.homeGoals, snap.awayGoals);
+        setMatchMinute(ev.minute);
+      }
+    }
+    if (matchView?.extendAttackFromEvent) matchView.extendAttackFromEvent(ev, fixture);
+    // 高光前轻对齐控球（完整组织在 playGoalHighlight 内）
+    if (matchView?.prepareEvent) {
+      await matchView.prepareEvent(ev, snap, fixture, {
+        speed: spd,
+        live,
+        sleepFn: sleepPlayback,
+      });
+    }
+    if (matchView?.playGoalHighlight) {
+      // 进球高光：×1 时不加速；快进档才略压缩
+      const goalSpd = Math.min(spd, live ? 1.15 : 1.5);
+      await matchView.playGoalHighlight(ev, snap, fixture, {
+        speed: goalSpd,
+        lang: getLang(),
+        sleepFn: sleepPlayback,
+        // 直播：用抓取的场面作参考（高光内仍从当前帧推进）
+        scene: scene || null,
+        rewatch: false,
+      });
+    }
+    return;
+  }
+
+  // 关键事件延长攻势 + 预演
+  if (matchView?.extendAttackFromEvent) matchView.extendAttackFromEvent(ev, fixture);
+  if (matchView?.prepareEvent) {
+    await matchView.prepareEvent(ev, snap, fixture, {
+      speed: spd,
+      live,
+      sleepFn: sleepPlayback,
+    });
+  }
+
+  if (matchView) matchView.onEvent(ev, snap, fixture);
+
+  if (live) {
+    if (ev.text) appendMatchEvent(ev);
+    if (snap) {
+      setMatchScore(snap.homeGoals, snap.awayGoals);
+      setMatchMinute(ev.minute);
+    }
+    if (ev.type === "context") {
+      const ctx = $("#match-context");
+      if (ctx) ctx.textContent = (ev.text || "").replace(/^情境：/, "");
+    }
+    if (ev.type === "ht") setMatchLiveState("ht");
+    if (ev.type === "ft") setMatchLiveState("ft");
+  }
+
+  const base = matchEventWaitMs(ev);
+  if (base > 0) {
+    // 快速模拟仍可见画面，但明显快于直播
+    const wait = live ? base / spd : base / (spd * 2.2);
+    await sleepPlayback(Math.max(50, wait));
+  }
+}
+
+/**
+ * 锁定天气 + 德比/焦点，生成完整赛前简报
+ */
+function buildBriefingForFixture(fixture, userClub) {
+  if (!fixture || !userClub || !world) return null;
+  const home = world.clubs.find((c) => c.id === fixture.home);
+  const away = world.clubs.find((c) => c.id === fixture.away);
+  if (!home || !away) return null;
+  const weather = ensureFixtureWeather(fixture);
+  const isCup = fixture.competition === "cup";
+  const derby = isDerby(home, away);
+  const bigMatch = isBigMatch(world, home, away, isCup);
+  return buildPreMatchBriefing(world, fixture, userClub, {
+    weather: { key: weather.key, name: weather.name, icon: weather.icon },
+    derby,
+    bigMatch,
+  });
+}
+
+/**
+ * 赛前简报 HTML（概览 compact / 比赛页 full）
+ * @param {object} brief
+ * @param {{ compact?: boolean }} [opts]
+ */
+function renderPrematchBriefHtml(brief, opts = {}) {
+  if (!brief) return "";
+  const en = getLang() === "en";
+  const compact = !!opts.compact;
+  const me = brief.me || {};
+  const opp = brief.opp || {};
+  const wx = brief.weather;
+  const formPill = (str, tone) => {
+    const s = str && str !== "—" ? str : en ? "n/a" : "暂无";
+    return `<span class="form-pill tone-${tone || "neutral"}">${escapeHtml(s)}</span>`;
+  };
+  const chips = [];
+  if (wx) chips.push(`<span class="brief-chip weather">${escapeHtml(wx.icon + " " + wx.name)}</span>`);
+  if (brief.derby) chips.push(`<span class="brief-chip hot">${en ? "🔥 Derby" : "🔥 德比"}</span>`);
+  if (brief.bigMatch) {
+    chips.push(
+      `<span class="brief-chip hot">${brief.isCup ? (en ? "🏆 Cup spotlight" : "🏆 焦点杯赛") : en ? "⭐ Big match" : "⭐ 焦点战"}</span>`
+    );
+  }
+  if (brief.matchup === "favorite")
+    chips.push(`<span class="brief-chip good">${en ? "Favourites" : "纸面占优"}</span>`);
+  else if (brief.matchup === "underdog")
+    chips.push(`<span class="brief-chip warn">${en ? "Underdogs" : "实力偏弱"}</span>`);
+  if (brief.boardLabel)
+    chips.push(
+      `<span class="brief-chip board">${en ? "Board" : "董事会"}: ${escapeHtml(brief.boardLabel)}</span>`
+    );
+
+  const rows = [];
+  if (!brief.isCup && (me.pos || opp.pos)) {
+    rows.push(
+      en
+        ? `Table: us #${me.pos || "—"} (${me.pts}pts) · them #${opp.pos || "—"} (${opp.pts}pts)`
+        : `积分榜：我 第${me.pos || "—"}（${me.pts}分） · 对方 第${opp.pos || "—"}（${opp.pts}分）`
+    );
+  }
+  rows.push(
+    `${en ? "Form" : "近况"}: ${en ? "Us" : "我"} ${me.formStr || "—"} · ${en ? "Them" : "对方"} ${opp.formStr || "—"}`
+  );
+  if (me.avgFit != null) {
+    rows.push(
+      en
+        ? `XI fitness avg ${me.avgFit}% · ${me.formation}`
+        : `首发体能均 ${me.avgFit}% · 阵型 ${me.formation}`
+    );
+  }
+  if (brief.suspended?.length) {
+    rows.push(
+      `${en ? "Suspended" : "停赛"}: ${brief.suspended.map((s) => `${s.name}(${s.matches})`).join(en ? ", " : "、")}`
+    );
+  }
+  if (brief.injured?.length) {
+    rows.push(
+      `${en ? "Injured" : "伤病"}: ${brief.injured
+        .slice(0, compact ? 3 : 5)
+        .map((s) => s.name)
+        .join(en ? ", " : "、")}`
+    );
+  }
+  if (brief.yellowRisk?.length) {
+    rows.push(
+      `${en ? "Card risk" : "黄牌边缘"}: ${brief.yellowRisk.map((s) => `${s.name}(${s.yellows})`).join(en ? ", " : "、")}`
+    );
+  }
+  if (brief.tired?.length) {
+    rows.push(
+      `${en ? "Low fitness" : "体能告急"}: ${brief.tired.map((s) => `${s.name}${s.fit}%`).join(en ? ", " : "、")}`
+    );
+  }
+  if (opp.top?.length) {
+    rows.push(
+      `${en ? "Threats" : "对方威胁"}: ${opp.top.map((s) => `${s.name}(${s.ovr})`).join(en ? ", " : "、")}`
+    );
+  }
+  if (!compact && opp.formation) {
+    rows.push(
+      en
+        ? `Opp setup: ${opp.formation} · power ${opp.power}`
+        : `对方部署：${opp.formation} · 实力 ${opp.power}`
+    );
+  }
+  if (brief.h2h?.length) {
+    const h = brief.h2h
+      .slice(0, 3)
+      .map((x) => `${x.venue} ${x.score}`)
+      .join(" · ");
+    rows.push(`${en ? "H2H" : "交锋"}: ${h}`);
+  } else if (!compact) {
+    rows.push(en ? "H2H: first meeting this season" : "交锋：本季首次交手");
+  }
+
+  if (!rows.length) {
+    rows.push(en ? "Squad available — no major absences" : "人员齐全，无重大缺阵");
+  }
+
+  const head = compact
+    ? ""
+    : `<div class="brief-head">
+        <strong>${escapeHtml(t("match.briefing") || (en ? "Pre-match briefing" : "赛前简报"))}</strong>
+        <span class="muted">${escapeHtml(brief.roundLabel || "")} · ${brief.isHome ? (en ? "Home" : "主场") : en ? "Away" : "客场"}</span>
+      </div>`;
+
+  const formRow =
+    !compact
+      ? `<div class="brief-form-row">
+          <span>${escapeHtml(me.short || me.name || "")} ${formPill(me.formStr, me.formTone)}</span>
+          <span class="muted">vs</span>
+          <span>${escapeHtml(opp.short || opp.name || "")} ${formPill(opp.formStr, opp.formTone)}</span>
+        </div>`
+      : "";
+
+  return `<div class="prematch-brief ${compact ? "compact" : "full"}">
+    ${head}
+    ${chips.length ? `<div class="brief-chips">${chips.join("")}</div>` : ""}
+    ${formRow}
+    ${rows.map((b) => `<div class="brief-line">• ${escapeHtml(b)}</div>`).join("")}
+  </div>`;
+}
+
 function openMatch() {
   const next = getNextUserMatch(world);
   if (!next || next.day > world.day) {
@@ -2360,24 +3110,37 @@ function openMatch() {
   setMatchMinute(0);
   setMatchLiveState("pre");
   updateLiveStats(null);
+  setMatchStatsPanelOpen(false);
   $("#match-log").innerHTML = "";
-  // 赛前简报写入日志
-  const brief = buildPreMatchBriefing(world, next, user);
-  if (brief) {
-    const lines = [`📋 赛前简报 · ${brief.roundLabel} · ${brief.isHome ? "主场" : "客场"}`];
-    if (brief.suspended.length)
-      lines.push(`停赛：${brief.suspended.map((s) => `${s.name} 停${s.matches}`).join("、")}`);
-    if (brief.injured.length)
-      lines.push(`伤病：${brief.injured.map((s) => s.name).join("、")}`);
-    if (brief.yellowRisk.length)
-      lines.push(`黄牌边缘：${brief.yellowRisk.map((s) => `${s.name}(${s.yellows})`).join("、")}`);
-    if (brief.opp.top.length)
-      lines.push(`对方威胁：${brief.opp.top.map((s) => `${s.name} ${s.ovr}`).join("、")}`);
-    if (lines.length === 1) lines.push("人员齐全，无重大缺阵");
-    for (const text of lines) {
-      appendMatchEvent({ type: "briefing", text, minute: 0 });
+  resetMatchPlayback({ keepStepMode: true });
+
+  // 赛前简报：卡片 + 评论流（天气与开赛锁定一致）
+  const brief = buildBriefingForFixture(next, user);
+  const panel = $("#match-pre-brief");
+  if (panel) {
+    if (brief) {
+      panel.innerHTML = renderPrematchBriefHtml(brief, { compact: false });
+      panel.classList.remove("hidden");
+    } else {
+      panel.innerHTML = "";
+      panel.classList.add("hidden");
     }
   }
+  if (brief) {
+    for (const text of briefingLogLines(brief)) {
+      appendMatchEvent({ type: "briefing", text, minute: 0 });
+    }
+    // 计分板情境条
+    const ctx = $("#match-context");
+    if (ctx && brief.weather) {
+      const bits = [`${brief.weather.icon} ${brief.weather.name}`];
+      if (brief.derby) bits.push(getLang() === "en" ? "Derby" : "德比");
+      if (brief.bigMatch) bits.push(getLang() === "en" ? "Spotlight" : "焦点");
+      bits.push(brief.roundLabel || "");
+      ctx.textContent = bits.filter(Boolean).join(" · ");
+    }
+  }
+
   hideHtPanel();
   hideMatchReport();
   syncMatchSpeedUI();
@@ -2387,8 +3150,21 @@ function openMatch() {
   $("#btn-sim-live").disabled = false;
   const inst = $("#btn-sim-instant");
   if (inst) inst.disabled = false;
-  $("#btn-match-continue").disabled = true;
+  const contBtn = $("#btn-match-continue");
+  if (contBtn) {
+    contBtn.disabled = true;
+    contBtn.textContent = t("match.continue");
+  }
+  matchPlayback.reviewMode = false;
   showScreen("match");
+}
+
+/** 开赛后收起赛前简报卡片（评论流仍保留） */
+function hidePrematchBriefPanel() {
+  const panel = $("#match-pre-brief");
+  if (panel) {
+    panel.classList.add("hidden");
+  }
 }
 
 /** FM 风格计分板：队名、球衣色、赛事 */
@@ -2487,10 +3263,37 @@ function updateLiveStats(snapOrReport) {
   bar("#stat-sh-bar-h", (shH / shT) * 100);
   bar("#stat-sh-bar-a", (shA / shT) * 100);
   bar("#stat-poss-bar", possH);
+
+  // 球场角标迷你条（不挡视线）
+  if (matchView?.updateLiveStrip) {
+    matchView.updateLiveStrip({
+      home: { xg: xgH, possession: possH },
+      away: { xg: xgA, possession: 100 - possH },
+    });
+  }
 }
 
 function clampPct(n) {
   return Math.max(4, Math.min(96, n));
+}
+
+/** FMM：xG/控球/射门 折叠抽屉 */
+function setMatchStatsPanelOpen(open) {
+  const panel = $("#match-live-stats");
+  const btn = $("#btn-match-stats-toggle");
+  if (!panel) return;
+  const isOpen = !!open;
+  panel.classList.toggle("collapsed", !isOpen);
+  if (isOpen) panel.removeAttribute("hidden");
+  else panel.setAttribute("hidden", "");
+  if (btn) btn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+}
+
+function toggleMatchStatsPanel() {
+  const panel = $("#match-live-stats");
+  if (!panel) return;
+  const open = panel.classList.contains("collapsed") || panel.hasAttribute("hidden");
+  setMatchStatsPanelOpen(open);
 }
 
 /** @param {'pre'|'live'|'ht'|'ft'} state */
@@ -2533,9 +3336,29 @@ function setMatchBusy(busy) {
 async function runMatch(mode) {
   if (!pendingMatch || pendingMatch.played || liveRunning) return;
   setMatchBusy(true);
-  $("#match-log").innerHTML = "";
+  hidePrematchBriefPanel();
   hideHtPanel();
   hideMatchReport();
+  // 保留赛前简报行，只清掉旧比赛残留（若有）
+  const logEl = $("#match-log");
+  if (logEl) {
+    const kept = [...logEl.querySelectorAll(".event.briefing")];
+    logEl.innerHTML = "";
+    for (const n of kept) logEl.appendChild(n);
+    // 若无简报（异常路径），补写一次
+    if (!kept.length && pendingMatch) {
+      const user = getUserClub(world);
+      const brief = buildBriefingForFixture(pendingMatch, user);
+      if (brief) {
+        for (const text of briefingLogLines(brief)) {
+          appendMatchEvent({ type: "briefing", text, minute: 0 });
+        }
+      }
+    }
+  }
+  resetMatchPlayback({ keepStepMode: true });
+  matchPlayback.controlsEnabled = true;
+  updateMatchPlaybackUI();
 
   try {
     // 确保球场已挂载
@@ -2544,13 +3367,22 @@ async function runMatch(mode) {
 
     if (mode === "instant") {
       const result = simulateMatch(world, pendingMatch);
-      // 快速回放 2D（受倍速影响）
+      // 快速回放 2D（受倍速影响；进球会高光）
       if (matchView) {
         await matchView.replayEvents(result.events, pendingMatch, {
-          speed: 1.5 * matchSpeed,
+          // 一键完赛：在所选倍速上再略快一点，但仍尊重 ×1 正常观感
+          speed: Math.max(0.5, Number(matchSpeed) || 1) * (Number(matchSpeed) <= 1 ? 1.05 : 1.35),
+          sleepFn: sleepPlayback,
           onStep: (ev, snap) => {
-            if (ev.type === "tick" || !ev.text) return;
-            appendMatchEvent(ev);
+            if (ev.type === "tick") return;
+            if (ev.type === "goal") {
+              rememberGoalReplay(ev, snap, pendingMatch);
+              if (ev.text) {
+                appendMatchEvent(ev, { goalIndex: matchPlayback.goals.length - 1 });
+              }
+            } else if (ev.text) {
+              appendMatchEvent(ev);
+            }
             setMatchScore(snap.homeGoals, snap.awayGoals);
             setMatchMinute(ev.minute || 90);
           },
@@ -2558,7 +3390,12 @@ async function runMatch(mode) {
       } else {
         for (const ev of result.events || []) {
           if (ev.type === "tick" || !ev.text) continue;
-          appendMatchEvent(ev);
+          if (ev.type === "goal") {
+            rememberGoalReplay(ev, { homeGoals: 0, awayGoals: 0, minute: ev.minute }, pendingMatch);
+            appendMatchEvent(ev, { goalIndex: matchPlayback.goals.length - 1 });
+          } else {
+            appendMatchEvent(ev);
+          }
         }
       }
       setMatchScore(result.homeGoals, result.awayGoals);
@@ -2576,40 +3413,24 @@ async function runMatch(mode) {
     ensureMatchPitch(true);
     const live = mode === "live";
     matchState._liveMode = live;
-    const spd = Math.max(1, matchSpeed);
     const onEvent = async (ev, snap) => {
       if (snap?.home) updateLiveStats(snap);
-      if (ev.type === "tick") {
-        if (live) setMatchMinute(snap.minute);
-        return;
-      }
-      if (matchView) matchView.onEvent(ev, snap, pendingMatch);
-      if (live) {
-        if (ev.text) appendMatchEvent(ev);
-        setMatchScore(snap.homeGoals, snap.awayGoals);
-        setMatchMinute(ev.minute);
-        if (ev.type === "context") {
-          const ctx = $("#match-context");
-          if (ctx) ctx.textContent = ev.text.replace(/^情境：/, "");
-        }
-        if (ev.type === "ht") setMatchLiveState("ht");
-        await sleep(
-          (ev.type === "goal"
-            ? 480
-            : ev.type === "kickoff" || ev.type === "ht" || ev.type === "coach"
-              ? 200
-              : 70) / spd
-        );
-      }
+      await driveMatchEvent(ev, snap, { live });
     };
 
     await playFirstHalf(matchState, { onEvent });
 
     // 非直播：上半场事件写入日志（画面已在 onEvent 驱动）
     if (!live) {
+      let goalCursor = 0;
       for (const ev of matchState.events) {
         if (ev.type === "tick" || !ev.text) continue;
-        appendMatchEvent(ev);
+        if (ev.type === "goal") {
+          appendMatchEvent(ev, { goalIndex: goalCursor });
+          goalCursor++;
+        } else {
+          appendMatchEvent(ev);
+        }
       }
       setMatchScore(matchState.hg, matchState.ag);
       setMatchMinute(45);
@@ -2647,13 +3468,21 @@ async function runMatch(mode) {
       }
     }
 
-    // 中场暂停
+    // 中场暂停：停掉播放控制，避免卡在「下一步」
+    matchPlayback.controlsEnabled = false;
+    matchPlayback.paused = false;
+    if (matchView?.setFrozen) matchView.setFrozen(false);
+    if (matchPlayback.stepResolve) matchPlayback.stepResolve();
+    updateMatchPlaybackUI();
     setMatchLiveState("ht");
     setMatchBusy(false);
     openHalfTimePanel();
   } catch (err) {
     console.error(err);
     toast(t("match.err", { msg: err.message || err }));
+    matchPlayback.controlsEnabled = false;
+    if (matchPlayback.stepResolve) matchPlayback.stepResolve();
+    updateMatchPlaybackUI();
     setMatchBusy(false);
   }
 }
@@ -2678,28 +3507,40 @@ function ensureMatchPitch(remount = false) {
 
 function hideHtPanel() {
   $("#match-ht-panel")?.classList.add("hidden");
+  const fit = $("#match-ht-fitness");
+  if (fit) {
+    fit.classList.add("hidden");
+    fit.innerHTML = "";
+  }
 }
 
 function openHalfTimePanel() {
   const panel = $("#match-ht-panel");
   if (!panel || !matchState) return;
   panel.classList.remove("hidden");
+  setLiveTacBarVisible(false);
   pendingSubs = [];
   const club = matchState.userClub;
   const tac = club?.tactics || {};
-  $("#match-ht-score").textContent = t("match.htScore", {
-    home: matchState.home.name,
-    away: matchState.away.name,
-    hg: matchState.hg,
-    ag: matchState.ag,
-    max: matchState.maxSubs,
-    used: matchState.subsUsed[matchState.userSide] || 0,
-  });
+  const htScoreEl = $("#match-ht-score");
+  if (htScoreEl) {
+    htScoreEl.textContent = t("match.htScore", {
+      home: matchState.home.name,
+      away: matchState.away.name,
+      hg: matchState.hg,
+      ag: matchState.ag,
+      max: matchState.maxSubs,
+      used: matchState.subsUsed[matchState.userSide] || 0,
+    });
+    delete htScoreEl.dataset.htBase;
+  }
   $("#ht-style").value = tac.style || "balanced";
   $("#ht-pressing").value = tac.pressing ?? 3;
   $("#ht-tempo").value = tac.tempo ?? 3;
   $("#ht-pressing-val").textContent = String(tac.pressing ?? 3);
   $("#ht-tempo-val").textContent = String(tac.tempo ?? 3);
+  renderHtTips();
+  renderHtFitnessBars();
   renderHtSubSelects();
   renderHtSubsList();
   if (matchView) {
@@ -2712,6 +3553,171 @@ function openHalfTimePanel() {
   $("#btn-sim-live").disabled = true;
   const inst = $("#btn-sim-instant");
   if (inst) inst.disabled = true;
+}
+
+/** 中场：体能告急 / 黄牌边缘 / 比分建议 */
+function renderHtTips() {
+  const box = $("#match-ht-tips");
+  if (!box || !matchState) return;
+  const tips = getHalfTimeTips(matchState);
+  const en = getLang() === "en";
+  const parts = [];
+  if (tips.scoreTip) {
+    parts.push(
+      `<div class="ht-tip score"><strong>${en ? "Score" : "比分"}</strong> ${escapeHtml(tips.scoreTip)}</div>`
+    );
+  }
+  if (tips.avgFit != null) {
+    parts.push(
+      `<div class="ht-tip fit"><strong>${en ? "Avg fitness" : "首发体能"}</strong> ${tips.avgFit}%</div>`
+    );
+  }
+  if (tips.fitness?.length) {
+    const list = tips.fitness
+      .map((p) => `${escapeHtml(p.name)} <em>${p.fitness}%</em>`)
+      .join(" · ");
+    parts.push(
+      `<div class="ht-tip warn"><strong>${en ? "Tired" : "体能告急"}</strong> ${list}</div>`
+    );
+  }
+  if (tips.yellows?.length) {
+    const list = tips.yellows
+      .map(
+        (p) =>
+          `${escapeHtml(p.name)}${p.booked ? (en ? " (booked)" : "（本场已黄）") : ` (${p.yellows})`}`
+      )
+      .join(" · ");
+    parts.push(
+      `<div class="ht-tip card"><strong>${en ? "Card risk" : "黄牌边缘"}</strong> ${list}</div>`
+    );
+  }
+  if (!parts.length) {
+    box.classList.add("hidden");
+    box.innerHTML = "";
+    return;
+  }
+  box.innerHTML = parts.join("");
+  box.classList.remove("hidden");
+}
+
+/**
+ * 中场：首发体能条（按体能升序，低体能高亮）
+ */
+function renderHtFitnessBars() {
+  const box = $("#match-ht-fitness");
+  if (!box || !matchState?.userClub) {
+    if (box) {
+      box.classList.add("hidden");
+      box.innerHTML = "";
+    }
+    return;
+  }
+  const club = matchState.userClub;
+  const sk = matchState.userSide;
+  const sent = matchState.sentOff?.[sk] || new Set();
+  const xi = getLineupPlayers(club)
+    .filter((p) => p && !sent.has(p.id))
+    .slice()
+    .sort((a, b) => (a.fitness || 100) - (b.fitness || 100));
+  if (!xi.length) {
+    box.classList.add("hidden");
+    box.innerHTML = "";
+    return;
+  }
+  const en = getLang() === "en";
+  const title = en ? "XI fitness" : "首发体能";
+  const rows = xi
+    .map((p) => {
+      const fit = Math.round(p.fitness ?? 100);
+      let cls = "ht-fit-row";
+      if (fit < 50) cls += " critical";
+      else if (fit < 62) cls += " low";
+      else if (fit < 75) cls += " mid";
+      const pos = POS_LABEL[p.pos] || p.pos || "";
+      return `<div class="${cls}" title="${escapeHtml(p.name)} ${fit}%">
+        <span class="ht-fit-pos">${escapeHtml(pos)}</span>
+        <span class="ht-fit-name">${playerLinkHtml(p.id, p.name)}</span>
+        <div class="ht-fit-bar"><i style="width:${fit}%"></i></div>
+        <span class="ht-fit-val">${fit}%</span>
+      </div>`;
+    })
+    .join("");
+  box.innerHTML = `<div class="ht-fit-title">${escapeHtml(title)}</div>${rows}`;
+  box.classList.remove("hidden");
+}
+
+function setLiveTacBarVisible(show) {
+  const bar = $("#match-live-tac");
+  if (!bar) return;
+  bar.classList.toggle("hidden", !show);
+  if (show && matchState?.userClub) {
+    const tac = matchState.userClub.tactics || {};
+    const st = $("#live-style");
+    const pr = $("#live-pressing");
+    const tm = $("#live-tempo");
+    if (st) st.value = tac.style || "balanced";
+    if (pr) {
+      pr.value = String(tac.pressing ?? 3);
+      const pv = $("#live-pressing-val");
+      if (pv) pv.textContent = String(tac.pressing ?? 3);
+    }
+    if (tm) {
+      tm.value = String(tac.tempo ?? 3);
+      const tv = $("#live-tempo-val");
+      if (tv) tv.textContent = String(tac.tempo ?? 3);
+    }
+  }
+}
+
+function onLiveTacApply() {
+  if (!matchState?.userClub || matchState.finished) {
+    toast(getLang() === "en" ? "Not available" : "当前无法调整");
+    return;
+  }
+  // 仅下半场 live 有意义；上半场/中场用 HT 面板
+  if (matchState.phase === "ht" || matchState.phase === "h1") {
+    toast(getLang() === "en" ? "Use half-time panel" : "请在中场面板调整");
+    return;
+  }
+  const orders = {
+    style: $("#live-style")?.value,
+    pressing: +($("#live-pressing")?.value || 3),
+    tempo: +($("#live-tempo")?.value || 3),
+  };
+  const res = applyLiveTactics(matchState, orders);
+  if (!res.ok) {
+    toast(res.msg || "失败");
+    return;
+  }
+  if (res.msg === "无变化") {
+    toast(t("match.tacNoChange") || (getLang() === "en" ? "No change" : "无变化"));
+    return;
+  }
+  // 画面 + 评论反馈
+  const side = matchState.userSide === "away" ? "away" : "home";
+  const styleKey = res.tactics.style || "balanced";
+  const styleName = t("style." + styleKey) || styleKey;
+  if (matchView?.showTacticsFeedback) {
+    matchView.showTacticsFeedback(side, {
+      style: res.tactics.style,
+      pressing: res.tactics.pressing,
+      tempo: res.tactics.tempo,
+      styleLabel: styleName,
+      label: res.event?.text?.replace(/^📋\s*/, "") || undefined,
+    });
+  }
+  if (res.event?.text) appendMatchEvent(res.event);
+  // 高压迫 → 表现层开一段攻势
+  if (res.tactics.pressing >= 4 && matchView?.beginAttackPhase) {
+    matchView.beginAttackPhase(side, { ms: 12000, intensity: 0.75, caption: false });
+  }
+  toast(
+    t("match.tacApplied", {
+      style: styleName,
+      press: res.tactics.pressing,
+      tempo: res.tactics.tempo,
+    }) || (getLang() === "en" ? "Tactics applied" : "战术已应用")
+  );
 }
 
 function renderHtSubSelects() {
@@ -2783,13 +3789,63 @@ function onHtAddSub() {
   });
   renderHtSubSelects();
   renderHtSubsList();
-  toast(`${outP.name} → ${inP.name}`);
+  // 中场面板：立刻可见反馈（真正上场在下半场开始时）
+  const en = getLang() === "en";
+  toast(
+    t("match.subQueued", { out: outP.name, inn: inP.name }) ||
+      (en ? `Queued: ${outP.name} → ${inP.name}` : `已登记：${outP.name} → ${inP.name}`)
+  );
+  const tip = $("#match-ht-score");
+  if (tip && pendingSubs.length) {
+    const base = tip.dataset.htBase || tip.textContent;
+    tip.dataset.htBase = base;
+    const names = pendingSubs.map((s) => `${s.outName}→${s.inName}`).join(" · ");
+    tip.textContent = `${base} · ${en ? "Subs" : "换人"}: ${names}`;
+  }
+}
+
+/** 下半场开球提示文案（比分 + 是否已调） */
+function buildSecondHalfKickTip(applyOrders, orders) {
+  const en = getLang() === "en";
+  if (!matchState) return en ? "2nd half" : "下半场";
+  const club = matchState.userClub;
+  const myG = club === matchState.home ? matchState.hg : matchState.ag;
+  const opG = club === matchState.home ? matchState.ag : matchState.hg;
+  let scoreBit = "";
+  if (myG < opG) scoreBit = en ? "Trailing" : "落后";
+  else if (myG > opG) scoreBit = en ? "Leading" : "领先";
+  else scoreBit = en ? "Level" : "平局";
+
+  if (!applyOrders) {
+    return en
+      ? `${scoreBit} — no changes, 2nd half`
+      : `${scoreBit} · 不调整，下半场开始`;
+  }
+  const bits = [scoreBit];
+  if (orders?.style) {
+    bits.push(t("style." + orders.style) || orders.style);
+  }
+  if (orders?.pressing != null) {
+    bits.push(en ? `Press ${orders.pressing}` : `压迫 ${orders.pressing}`);
+  }
+  if (orders?.tempo != null) {
+    bits.push(en ? `Tempo ${orders.tempo}` : `节奏 ${orders.tempo}`);
+  }
+  const nSub = orders?.subs?.length || 0;
+  if (nSub) bits.push(en ? `${nSub} sub(s)` : `${nSub} 人换人`);
+  return en
+    ? `${bits.join(" · ")} — 2nd half`
+    : `${bits.join(" · ")} · 下半场开始`;
 }
 
 async function finishHalfTime(applyOrders) {
   if (!matchState || matchState.finished || liveRunning) return;
   hideHtPanel();
   setMatchBusy(true);
+  matchPlayback.controlsEnabled = true;
+  matchPlayback.paused = false;
+  if (matchView?.setFrozen) matchView.setFrozen(false);
+  updateMatchPlaybackUI();
 
   const orders = applyOrders
     ? {
@@ -2801,45 +3857,51 @@ async function finishHalfTime(applyOrders) {
     : {};
 
   const eventCountBefore = matchState.events.length;
+  const goalsBefore = matchPlayback.goals.length;
+  const kickTip = buildSecondHalfKickTip(applyOrders, orders);
   try {
     const live = !!matchState._liveMode;
     setMatchLiveState("live");
-    // 先应用中场指令再刷新 2D（换人后号码/站位）
-    // continueSecondHalf 内部会 applyUserHalfTime；此处先手动应用以更新 pitch
-    const spd = Math.max(1, matchSpeed);
+    // 下半场：直播时显示场边战术条
+    if (live) setLiveTacBarVisible(true);
+
+    // 开球提示（横幅 + 评论）
+    if (matchView?.showSecondHalfKickoff) {
+      matchView.showSecondHalfKickoff({ text: kickTip, lang: getLang() });
+    }
+    appendMatchEvent({
+      type: "coach",
+      minute: 46,
+      text: `💬 ${kickTip}`,
+    });
+    toast(kickTip);
+
+    // continueSecondHalf：中场战术/换人事件会立刻 onEvent
     const onEvent = async (ev, snap) => {
       if (snap?.home) updateLiveStats(snap);
-      if (ev.type === "tick") {
-        if (live) setMatchMinute(snap.minute);
-        return;
-      }
-      if (matchView) matchView.onEvent(ev, snap, pendingMatch);
-      if (live) {
-        if (ev.text) appendMatchEvent(ev);
-        setMatchScore(snap.homeGoals, snap.awayGoals);
-        setMatchMinute(ev.minute);
-        if (ev.type === "ft") setMatchLiveState("ft");
-        await sleep((ev.type === "goal" ? 480 : ev.type === "coach" ? 160 : 70) / spd);
-      }
+      await driveMatchEvent(ev, snap, { live });
     };
 
     if (matchView) {
       matchView.phase = "play";
-      matchView.setBanner("");
     }
 
     const result = await continueSecondHalf(matchState, orders, { onEvent });
 
     if (!live) {
+      // 快速模拟：onEvent 不写日志，此处补刷（含中场战术/换人）
+      let goalCursor = goalsBefore;
       for (const ev of matchState.events.slice(eventCountBefore)) {
         if (ev.type === "tick" || !ev.text) continue;
-        appendMatchEvent(ev);
-      }
-    } else {
-      for (const ev of matchState.events.slice(eventCountBefore)) {
-        if ((ev.type === "tactics" || ev.type === "sub") && ev.text) appendMatchEvent(ev);
+        if (ev.type === "goal") {
+          appendMatchEvent(ev, { goalIndex: goalCursor });
+          goalCursor++;
+        } else {
+          appendMatchEvent(ev);
+        }
       }
     }
+    // 直播：sub/tactics 已在 driveMatchEvent 实时写入，无需完场再补
 
     setMatchScore(result.homeGoals, result.awayGoals);
     setMatchMinute(90);
@@ -2851,6 +3913,9 @@ async function finishHalfTime(applyOrders) {
   } catch (err) {
     console.error(err);
     toast(t("match.err2", { msg: err.message || err }));
+    matchPlayback.controlsEnabled = false;
+    if (matchPlayback.stepResolve) matchPlayback.stepResolve();
+    updateMatchPlaybackUI();
     setMatchBusy(false);
   }
 }
@@ -2863,9 +3928,14 @@ function hideMatchReport() {
   }
 }
 
-function showMatchReport(report) {
+/**
+ * @param {object} report
+ * @param {{ review?: boolean }} [opts]
+ */
+function showMatchReport(report, opts = {}) {
   const el = $("#match-report");
   if (!el || !report) return;
+  const review = !!opts.review || !!matchPlayback.reviewMode;
   const h = report.home;
   const a = report.away;
   const row = (label, hv, av, bar) => {
@@ -2889,13 +3959,21 @@ function showMatchReport(report) {
     .filter(Boolean)
     .join(" · ");
 
+  // 进球列表：尽量与本场回放缓存对齐，可点击再看
+  let scorerGoalIdx = 0;
   const scorerHtml = (report.scorers || [])
     .map((s) => {
       const raw = String(s.text || "").replace(/^⚽\s*/, "");
-      if (s.playerId) return playerLinkHtml(s.playerId, raw);
-      return escapeHtml(raw);
+      const namePart = s.playerId ? playerLinkHtml(s.playerId, raw) : escapeHtml(raw);
+      const gi = scorerGoalIdx;
+      const hasReplay = gi < matchPlayback.goals.length;
+      if (hasReplay) scorerGoalIdx++;
+      const replayBtn = hasReplay
+        ? ` <button type="button" class="btn tiny goal-replay-btn" data-goal-replay="${gi}" title="${escapeHtml(t("match.watchReplay"))}">${t("match.watchReplay")}</button>`
+        : "";
+      return `<div class="report-scorer-row">${namePart}${replayBtn}</div>`;
     })
-    .join("<br>");
+    .join("");
 
   const ratings = report.ratings;
   const rateSideHtml = (list, sideLabel) => {
@@ -2924,16 +4002,10 @@ function showMatchReport(report) {
     </div>`;
   };
   let ratingsHtml = "";
+  const motm = ratings?.motm;
   if (ratings?.home?.length || ratings?.away?.length) {
-    const motm = ratings.motm;
-    const motmHtml = motm
-      ? `<div class="report-motm">${t("match.motm") || "本场最佳"}：${
-          motm.playerId ? playerLinkHtml(motm.playerId, motm.name) : escapeHtml(motm.name || "")
-        } <strong class="${ratingClass(motm.rating)}">${formatRating(motm.rating)}</strong></div>`
-      : "";
     ratingsHtml = `<div class="report-ratings">
       <strong>${t("match.ratings") || "球员评分"}</strong>
-      ${motmHtml}
       <div class="report-ratings-grid">
         ${rateSideHtml(ratings.home, h.short || h.name)}
         ${rateSideHtml(ratings.away, a.short || a.name)}
@@ -2941,9 +4013,49 @@ function showMatchReport(report) {
     </div>`;
   }
 
+  // MOTM 大卡 + 文字复盘（经理可读）
+  let motmCardHtml = "";
+  if (motm) {
+    const bits = [];
+    if (motm.goals) bits.push(`${motm.goals}G`);
+    if (motm.assists) bits.push(`${motm.assists}A`);
+    if (motm.saves) bits.push(`${motm.saves}S`);
+    const note = bits.length ? bits.join(" · ") : motm.pos || "";
+    const nameHtml = motm.playerId
+      ? playerLinkHtml(motm.playerId, motm.name)
+      : escapeHtml(motm.name || "—");
+    motmCardHtml = `<div class="report-motm-card">
+      <div class="report-motm-label">${escapeHtml(t("match.motm") || "本场最佳")}</div>
+      <div class="report-motm-body">
+        <span class="report-motm-pos">${escapeHtml(motm.pos || "")}</span>
+        <div class="report-motm-info">
+          <strong>${nameHtml}</strong>
+          ${note ? `<span class="muted">${escapeHtml(note)}</span>` : ""}
+        </div>
+        <div class="report-motm-rating rating-cell ${ratingClass(motm.rating)}">
+          <em>${formatRating(motm.rating)}</em>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  const narrative = Array.isArray(report.narrative) ? report.narrative : [];
+  const narrativeHtml = narrative.length
+    ? `<div class="report-narrative">
+        <strong>${escapeHtml(t("match.narrative") || "本场复盘")}</strong>
+        <ul>${narrative.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>
+      </div>`
+    : "";
+
+  const reviewBadge = review
+    ? `<span class="report-review-badge">${escapeHtml(t("fix.viewReport") || (getLang() === "en" ? "Archive" : "历史战报"))}</span>`
+    : "";
+
   el.innerHTML = `
-    <h3>${t("match.report")}</h3>
+    <h3>${t("match.report")}${reviewBadge}</h3>
     <div class="match-report-meta">${escapeHtml(t("match.reportMeta", { meta: meta || t("match.regular"), score: report.score }))}</div>
+    ${motmCardHtml}
+    ${narrativeHtml}
     <table class="report-table">
       <thead><tr>
         <th>${escapeHtml(h.short || h.name)}</th>
@@ -2963,10 +4075,20 @@ function showMatchReport(report) {
         ${row(t("match.woodwork"), h.woodwork, a.woodwork, false)}
       </tbody>
     </table>
-    ${scorerHtml ? `<div class="report-scorers"><strong>${t("match.scorers")}</strong><br>${scorerHtml}</div>` : ""}
+    ${scorerHtml ? `<div class="report-scorers"><strong>${t("match.scorers")}</strong>${scorerHtml}</div>` : ""}
+    ${
+      matchPlayback.goals.length
+        ? `<p class="hint report-replay-hint">${escapeHtml(t("match.replayHint"))}</p>`
+        : ""
+    }
     ${ratingsHtml}
   `;
   el.classList.remove("hidden");
+
+  // 完场：球场上高亮 MOTM
+  if (motm && matchView?.highlightMotm) {
+    matchView.highlightMotm(motm);
+  }
 }
 
 function finishMatchUI() {
@@ -2977,9 +4099,20 @@ function finishMatchUI() {
   const inst = $("#btn-sim-instant");
   if (inst) inst.disabled = true;
   hideHtPanel();
+  setLiveTacBarVisible(false);
+  // 完赛后关闭暂停控制，保留进球回看列表
+  matchPlayback.controlsEnabled = false;
+  matchPlayback.paused = false;
+  matchPlayback.waitingStep = false;
+  if (matchPlayback.stepResolve) matchPlayback.stepResolve();
+  updateMatchPlaybackUI();
 }
 
-function appendMatchEvent(ev) {
+/**
+ * @param {object} ev
+ * @param {{ goalIndex?: number }} [opts]
+ */
+function appendMatchEvent(ev, opts = {}) {
   if (!ev || !ev.text) return;
   const div = document.createElement("div");
   div.className = `event ${ev.type || ""}`;
@@ -2990,7 +4123,15 @@ function appendMatchEvent(ev) {
         ? "—"
         : "";
   const text = localizeMatchEvent(ev);
-  div.innerHTML = `<span class="ev-min">${escapeHtml(min)}</span><span class="ev-text">${escapeHtml(text)}</span>`;
+  const goalIndex = opts.goalIndex;
+  const canReplay =
+    ev.type === "goal" && goalIndex != null && goalIndex >= 0 && goalIndex < matchPlayback.goals.length;
+  if (canReplay) {
+    div.classList.add("event-replayable");
+    div.innerHTML = `<span class="ev-min">${escapeHtml(min)}</span><span class="ev-text"><button type="button" class="ev-goal-link" data-goal-replay="${goalIndex}" title="${escapeHtml(t("match.watchReplay"))}">${escapeHtml(text)}</button></span>`;
+  } else {
+    div.innerHTML = `<span class="ev-min">${escapeHtml(min)}</span><span class="ev-text">${escapeHtml(text)}</span>`;
+  }
   const log = $("#match-log");
   log.appendChild(div);
   log.scrollTop = log.scrollHeight;

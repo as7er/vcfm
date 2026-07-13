@@ -41,7 +41,7 @@ function clamp(n, a, b) {
 
 // ---------- 情境 ----------
 
-const WEATHERS = [
+export const WEATHERS = [
   { key: "clear", name: "晴朗", icon: "☀️", atk: 1, def: 1, pace: 1, error: 1, injury: 1 },
   { key: "rain", name: "雨战", icon: "🌧️", atk: 0.93, def: 1.05, pace: 0.9, error: 1.25, injury: 1.1 },
   { key: "wind", name: "大风", icon: "💨", atk: 0.96, def: 0.98, pace: 0.94, error: 1.15, injury: 1 },
@@ -49,7 +49,7 @@ const WEATHERS = [
   { key: "heat", name: "酷热", icon: "🔥", atk: 0.98, def: 0.97, pace: 0.88, error: 1.08, injury: 1.15 },
 ];
 
-function pickWeather() {
+export function pickWeather() {
   const r = rng();
   if (r < 0.42) return WEATHERS[0];
   if (r < 0.62) return WEATHERS[1];
@@ -58,8 +58,32 @@ function pickWeather() {
   return WEATHERS[4];
 }
 
+/** 按 key 取天气；未知则重新抽取 */
+export function weatherByKey(key) {
+  return WEATHERS.find((w) => w.key === key) || pickWeather();
+}
+
+/**
+ * 赛前锁定天气（简报与开赛一致）
+ * @returns {typeof WEATHERS[0]}
+ */
+export function ensureFixtureWeather(fixture) {
+  if (!fixture) return pickWeather();
+  if (fixture.preWeather && typeof fixture.preWeather === "object" && fixture.preWeather.key) {
+    return weatherByKey(fixture.preWeather.key);
+  }
+  if (fixture.weather && typeof fixture.weather === "string") {
+    const w = weatherByKey(fixture.weather);
+    fixture.preWeather = { key: w.key, name: w.name, icon: w.icon };
+    return w;
+  }
+  const w = pickWeather();
+  fixture.preWeather = { key: w.key, name: w.name, icon: w.icon };
+  return w;
+}
+
 /** 同级固定种子宿敌（约 1/7 对阵） */
-function isDerby(home, away) {
+export function isDerby(home, away) {
   if (!home || !away) return false;
   if ((home.division || 3) !== (away.division || 3)) return false;
   const key = [home.id, away.id].sort().join("|");
@@ -68,7 +92,7 @@ function isDerby(home, away) {
   return Math.abs(h) % 7 === 0;
 }
 
-function isBigMatch(world, home, away, isCup) {
+export function isBigMatch(world, home, away, isCup) {
   if (isCup) {
     const dh = home.division || 3;
     const da = away.division || 3;
@@ -233,7 +257,8 @@ export function createMatchSession(world, fixture) {
   autoLineup(away);
 
   const isCup = fixture.competition === "cup";
-  const weather = pickWeather();
+  // 与赛前简报同一天气（已锁定则复用）
+  const weather = ensureFixtureWeather(fixture);
   const derby = isDerby(home, away);
   const bigMatch = isBigMatch(world, home, away, isCup);
 
@@ -259,7 +284,8 @@ export function createMatchSession(world, fixture) {
     sentOff: { home: new Set(), away: new Set() }, // player ids
     injuredOut: new Set(),
     subsUsed: { home: 0, away: 0 },
-    maxSubs: 3,
+    /** 正式比赛：每队最多 5 次换人（与当代足球/FMM 一致） */
+    maxSubs: 5,
     userSide:
       home.id === world.userClubId ? "home" : away.id === world.userClubId ? "away" : null,
     userClub,
@@ -586,7 +612,7 @@ function aiAutoSub(state, club, outId, minute) {
 export function applySubstitution(state, club, outId, inId, minute, silent = false) {
   const sk = sideKey(state, club);
   if (state.subsUsed[sk] >= state.maxSubs) {
-    return { ok: false, msg: "换人次数已用尽（最多 3 次）" };
+    return { ok: false, msg: `换人次数已用尽（最多 ${state.maxSubs} 次）` };
   }
   const lineup = club.tactics.lineup || [];
   const idx = lineup.indexOf(outId);
@@ -630,6 +656,7 @@ export function applySubstitution(state, club, outId, inId, minute, silent = fal
  */
 export async function simulateMinutes(state, fromMin, toMin, { onEvent } = {}) {
   for (let minute = fromMin; minute <= toMin; minute++) {
+    state.minute = minute;
     if (minute === 46 && fromMin <= 45) {
       // 半场由外部处理
     }
@@ -780,7 +807,13 @@ export function applyUserHalfTime(state, orders = {}) {
       state,
       45,
       "tactics",
-      `📋 中场调整：${styleLabel(t.style)} · 压迫 ${t.pressing} · 节奏 ${t.tempo}`
+      `📋 中场调整：${styleLabel(t.style)} · 压迫 ${t.pressing} · 节奏 ${t.tempo}`,
+      {
+        teamId: club.id,
+        style: t.style,
+        pressing: t.pressing,
+        tempo: t.tempo,
+      }
     );
     msgs.push("战术已更新");
   }
@@ -790,6 +823,95 @@ export function applyUserHalfTime(state, orders = {}) {
   }
   recomputeSides(state);
   return { ok: true, msg: msgs.join("；") || "继续比赛" };
+}
+
+/**
+ * 赛中即时战术（下半场直播中改压迫/风格/节奏）
+ * 写入 events 供画面反馈；立即 recomputeSides
+ */
+export function applyLiveTactics(state, orders = {}) {
+  const club = state.userClub;
+  if (!club || !state || state.finished) return { ok: false, msg: "无法调整" };
+  const t = club.tactics;
+  let changed = false;
+  if (orders.style && orders.style !== t.style) {
+    t.style = orders.style;
+    changed = true;
+  }
+  if (orders.pressing != null && +orders.pressing !== t.pressing) {
+    t.pressing = clamp(+orders.pressing, 1, 5);
+    changed = true;
+  }
+  if (orders.tempo != null && +orders.tempo !== t.tempo) {
+    t.tempo = clamp(+orders.tempo, 1, 5);
+    changed = true;
+  }
+  if (!changed) return { ok: true, msg: "无变化", tactics: { ...t } };
+  const minute = state.minute || 46;
+  pushEv(
+    state,
+    minute,
+    "tactics",
+    `📋 ${minute}' 场边调整：${styleLabel(t.style)} · 压迫 ${t.pressing} · 节奏 ${t.tempo}`,
+    {
+      teamId: club.id,
+      style: t.style,
+      pressing: t.pressing,
+      tempo: t.tempo,
+    }
+  );
+  recomputeSides(state);
+  return {
+    ok: true,
+    msg: "战术已更新",
+    tactics: { style: t.style, pressing: t.pressing, tempo: t.tempo },
+    event: state.events[state.events.length - 1],
+  };
+}
+
+/** 中场休息提示：体能告急 / 黄牌边缘（给 UI） */
+export function getHalfTimeTips(state) {
+  const club = state?.userClub;
+  if (!club) return { fitness: [], yellows: [], scoreTip: "" };
+  const sk = state.userSide;
+  const sent = state.sentOff?.[sk] || new Set();
+  const xi = getLineupPlayers(club).filter((p) => !sent.has(p.id));
+  const fitness = xi
+    .filter((p) => (p.fitness ?? 100) < 62)
+    .sort((a, b) => (a.fitness ?? 100) - (b.fitness ?? 100))
+    .slice(0, 5)
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      pos: p.pos,
+      fitness: Math.round(p.fitness ?? 100),
+    }));
+  // 本场已吃黄（从事件推）+ 赛季累计边缘
+  const booked = new Set(
+    (state.events || [])
+      .filter((e) => (e.type === "card" || e.type === "red") && e.playerId)
+      .map((e) => e.playerId)
+  );
+  const yellows = xi
+    .filter((p) => (p.yellowsSeason || 0) >= 4 || booked.has(p.id))
+    .slice(0, 5)
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      pos: p.pos,
+      yellows: p.yellowsSeason || 0,
+      booked: booked.has(p.id),
+    }));
+  const myG = club === state.home ? state.hg : state.ag;
+  const opG = club === state.home ? state.ag : state.hg;
+  let scoreTip = "";
+  if (myG < opG) scoreTip = "落后：可加强压迫或换进攻点";
+  else if (myG > opG) scoreTip = "领先：注意控场与体能";
+  else scoreTip = "平局：可微调节奏寻找突破";
+  const avgFit = xi.length
+    ? Math.round(xi.reduce((s, p) => s + (p.fitness || 100), 0) / xi.length)
+    : 80;
+  return { fitness, yellows, scoreTip, avgFit, myG, opG };
 }
 
 function styleLabel(s) {
@@ -855,10 +977,116 @@ function liveSnap(state, minute) {
   };
 }
 
+/**
+ * 赛后文字复盘（3–5 句，经理可读）
+ * 基于比分、xG、控球、关键事件，不改结果
+ */
+function buildMatchNarrative(state) {
+  const lines = [];
+  const h = state.home;
+  const a = state.away;
+  const hg = state.hg;
+  const ag = state.ag;
+  const poss = possessionPct(state);
+  const hs = state.stats.home;
+  const as = state.stats.away;
+  const hx = Math.round(hs.xg * 100) / 100;
+  const ax = Math.round(as.xg * 100) / 100;
+  const goals = state.events.filter((e) => e.type === "goal");
+  const reds = state.events.filter((e) => e.type === "red");
+  const wood = (hs.woodwork || 0) + (as.woodwork || 0);
+
+  // 1) 结果总览
+  if (hg > ag) {
+    lines.push(`${h.short || h.name} 主场 ${hg}-${ag} 击败 ${a.short || a.name}。`);
+  } else if (ag > hg) {
+    lines.push(`${a.short || a.name} 客场 ${ag}-${hg} 取胜，${h.short || h.name} 未能守住主场。`);
+  } else {
+    lines.push(`${h.short || h.name} 与 ${a.short || a.name} ${hg}-${ag} 握手言和。`);
+  }
+
+  // 2) xG / 控球读数
+  const xgDiff = hx - ax;
+  if (Math.abs(xgDiff) >= 0.35) {
+    const better = xgDiff > 0 ? h.short || h.name : a.short || a.name;
+    const worse = xgDiff > 0 ? a.short || a.name : h.short || h.name;
+    if ((xgDiff > 0 && hg < ag) || (xgDiff < 0 && ag < hg)) {
+      lines.push(
+        `场面与结果背离：${better} 期望进球更高（${Math.max(hx, ax).toFixed(2)} vs ${Math.min(hx, ax).toFixed(2)}），却未能兑现。`
+      );
+    } else if ((xgDiff > 0 && hg > ag) || (xgDiff < 0 && ag > hg)) {
+      lines.push(
+        `${better} 创造了更多威胁（xG ${Math.max(hx, ax).toFixed(2)}-${Math.min(hx, ax).toFixed(2)}），比分与场面大体一致。`
+      );
+    } else {
+      lines.push(
+        `双方期望进球 ${hx.toFixed(2)}-${ax.toFixed(2)}；${better} 稍占上风，${worse} 防守顶住了压力。`
+      );
+    }
+  } else if (Math.abs(poss.home - 50) >= 8) {
+    const ballSide = poss.home >= poss.away ? h.short || h.name : a.short || a.name;
+    lines.push(
+      `${ballSide} 控球占优（${Math.max(poss.home, poss.away)}%-${Math.min(poss.home, poss.away)}%），但转化效率决定了最终比分。`
+    );
+  } else {
+    lines.push(
+      `控球与 xG 都接近（${poss.home}%-${poss.away}% · ${hx.toFixed(2)}-${ax.toFixed(2)}），是一场拉锯战。`
+    );
+  }
+
+  // 3) 进球时间线
+  if (goals.length === 1) {
+    const g = goals[0];
+    const club = g.teamId === h.id ? h : a;
+    lines.push(`唯一进球出现在 ${g.minute}'，${club.short || club.name} 一球定胜负。`);
+  } else if (goals.length >= 2) {
+    const first = goals[0];
+    const last = goals[goals.length - 1];
+    const late = goals.filter((g) => g.minute >= 75);
+    if (late.length) {
+      lines.push(`比赛后段仍有进球：最后一球在 ${last.minute}'，${late.length} 粒进球来自 75' 之后。`);
+    } else {
+      lines.push(
+        `共 ${goals.length} 粒进球，首开纪录于 ${first.minute}'，终场前一球在 ${last.minute}'。`
+      );
+    }
+  } else {
+    lines.push(`全场零封，双方门将与防线是本场主角之一。`);
+  }
+
+  // 4) 牌 / 门框等调味
+  if (reds.length) {
+    const r = reds[0];
+    const club = r.teamId === h.id ? h : a;
+    lines.push(`${r.minute}' ${club.short || club.name} 被罚下，人数劣势改写了后段走势。`);
+  } else if (wood >= 2) {
+    lines.push(`门框作响 ${wood} 次，运气也站在了比分一边。`);
+  } else if (state.derby) {
+    lines.push(`德比火药味足，拼抢与犯规都高于平常。`);
+  } else if (state.bigMatch) {
+    lines.push(`焦点战节奏紧，双方都不敢轻易压上。`);
+  }
+
+  // 5) MOTM（若已生成评分）
+  const motm = state.matchRatings?.motm;
+  if (motm?.name) {
+    const bits = [];
+    if (motm.goals) bits.push(`${motm.goals}球`);
+    if (motm.assists) bits.push(`${motm.assists}助`);
+    if (motm.saves) bits.push(`${motm.saves}扑`);
+    const extra = bits.length ? `（${bits.join(" · ")}）` : "";
+    lines.push(`本场最佳：${motm.name}${extra}，评分 ${motm.rating}。`);
+  }
+
+  return lines.slice(0, 5);
+}
+
 function buildReport(state) {
   const poss = possessionPct(state);
   const hs = state.stats.home;
   const as = state.stats.away;
+  // 评分应在 finalize 里先算；若提前 buildReport 则 narrative 不含 MOTM
+  const narrative = buildMatchNarrative(state);
   return {
     score: `${state.hg} - ${state.ag}`,
     homeGoals: state.hg,
@@ -904,6 +1132,7 @@ function buildReport(state) {
         penalty: !!e.penalty,
       })),
     ratings: state.matchRatings || null,
+    narrative,
   };
 }
 
@@ -1117,6 +1346,7 @@ export function finalizeMatch(state) {
   }
 
   // 赛后评分（报告始终生成；ratingSum/lastRating 仅联赛写入）
+  // 须先于 buildReport，以便 narrative 写入 MOTM
   const ratings = applyMatchRatings(state);
   state.matchRatings = ratings;
 
@@ -1344,8 +1574,16 @@ export async function continueSecondHalf(state, orders = {}, opts = {}) {
   if (state.phase !== "ht" && state.phase !== "h1") {
     // allow if already at ht
   }
-  if (state.userSide && orders) {
+  const evBefore = state.events.length;
+  if (state.userSide && orders && (orders.style || orders.pressing != null || orders.tempo != null || (orders.subs && orders.subs.length))) {
     applyUserHalfTime(state, orders);
+  }
+  // 中场调整事件立刻走 onEvent（直播横幅/评论/换人动画），不要等完场再刷日志
+  if (opts.onEvent) {
+    const snap = liveSnap(state, 45);
+    for (const ev of state.events.slice(evBefore)) {
+      await opts.onEvent(ev, snap);
+    }
   }
   await playSecondHalf(state, opts);
   return finalizeMatch(state);

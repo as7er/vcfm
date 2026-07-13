@@ -1,5 +1,5 @@
 /* VCFM · 简易离线缓存（GitHub Pages 友好） */
-const CACHE = "vcfm-v18";
+const CACHE = "vcfm-v39";
 const ASSETS = [
   "./",
   "./index.html",
