@@ -54,7 +54,7 @@
 - **姓名生成**：按国籍拼音 / 罗马字（中日韩等），短名按姓显示  
 - **球员资料**：阵容、青训、数据榜、转会、战术板、训练条、赛后射手等处 **点名字** 即可打开详情  
 - **设施**：球场 / 训练 / 青训等级升级  
-- **转会**：夏窗·冬窗、合同谈判（年限/周薪）、球探报告、AI 挖角报价  
+- **转会与合同**：夏窗·冬窗、买入合同谈判、**续约 / 解约**、**外租·租入·召回**、球探报告、AI 挖角报价  
 - **经营**：董事会目标与解雇压力、职员、训练日程、周薪与设施维护  
 - **生涯**：经理战绩、赛季结算页、俱乐部荣誉墙、球员分赛季历史与个人荣誉  
 - **存档**：多槽、自动存、刷新后自动恢复当前槽、导出提醒（约 7 天未导出会提示）
@@ -141,7 +141,7 @@ Repo: https://github.com/as7er/vcfm
 - **Names**: nationality-based pools (pinyin / romaji for CHN/JPN/KOR, etc.); short labels use surnames  
 - **Player profiles**: click names on squad, youth, stats, transfers, tactics pitch, training bar, match scorers, etc.  
 - **Facilities**: stadium / training / youth upgrades  
-- **Transfers**: summer & winter windows, contract negotiation (years/wages), scout reports, AI poaching bids  
+- **Transfers & contracts**: summer/winter windows, buy negotiations, **renew / release**, **loan out·in·recall**, scout reports, AI poaching bids  
 - **Club**: board objectives & sack risk, staff, training schedule, wages & upkeep  
 - **Career**: manager record, season review, club honours, player season history & awards  
 - **Saves**: multi-slot, autosave, auto-resume on refresh, export reminder (~7 days)

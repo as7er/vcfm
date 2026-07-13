@@ -3502,6 +3502,88 @@ html[data-theme="light"] .slot-delete {
   }
 }
 
+/* ===== 合同 / 租借 ===== */
+.contracts-loans-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.cl-section h3 {
+  margin: 0 0 0.45rem;
+  font-size: 0.92rem;
+}
+.cl-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.65rem;
+  padding: 0.45rem 0.55rem;
+  margin-bottom: 0.35rem;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+.cl-main {
+  flex: 1 1 12rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+}
+.cl-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.cl-offer {
+  flex: 1 1 100%;
+  font-size: 0.75rem;
+}
+.grid-2-loans {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+@media (max-width: 720px) {
+  .grid-2-loans { grid-template-columns: 1fr; }
+}
+.badge.loan {
+  background: rgba(56, 189, 248, 0.2);
+  color: #7dd3fc;
+}
+.badge.contract-urgent {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+}
+.badge.contract-short {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fcd34d;
+}
+.contract-cell {
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.row-contract td {
+  box-shadow: inset 3px 0 0 #f59e0b;
+}
+.contract-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.65rem 0 0.25rem;
+}
+.tr-actions {
+  white-space: nowrap;
+}
+.tr-actions .btn {
+  margin: 0.1rem;
+}
+html[data-theme="light"] .cl-row {
+  background: rgba(0, 0, 0, 0.03);
+}
+
 /* ===== 赛前简报 / 生涯 / 设施 / 转会 / PWA ===== */
 .prematch-brief {
   margin-top: 0.55rem;

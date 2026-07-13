@@ -60,10 +60,27 @@ import {
   ensureContract,
   renewPlayer,
   renewOffer,
+  terminatePlayer,
+  terminateCost,
+  needsContractAttention,
   processContractsEndOfSeason,
   releaseUnrenewed,
   signFreeAgent,
 } from "./contracts.js";
+import {
+  ensureLoans,
+  loanOutPlayer,
+  loanInPlayer,
+  recallLoan,
+  returnLoan,
+  processLoansDay,
+  returnAllLoans,
+  listUserLoans,
+  userSquadWageBill,
+  previewLoanOut,
+  previewLoanIn,
+  isOnLoan,
+} from "./loans.js";
 import {
   ensureCup,
   createLeagueCup,
@@ -412,6 +429,10 @@ export function advanceDay(world) {
     }
   }
 
+  // 租借到期归还
+  ensureLoans(world);
+  processLoansDay(world);
+
   // 媒体日常脉搏
   const userClub = clubById(world, world.userClubId);
   if (userClub && !world.seasonOver) {
@@ -420,12 +441,12 @@ export function advanceDay(world) {
     narrativeInjuryWave(world, userClub);
   }
 
-  // 每周发工资（每 7 天）
+  // 每周发工资（每 7 天）——一线含租借分摊
   if (world.day % 7 === 0) {
     const user = clubById(world, world.userClubId);
     ensureStaff(user);
     ensureFacilities(user);
-    const wageBill = user.players.reduce((s, p) => s + p.wage, 0);
+    const wageBill = userSquadWageBill(world);
     const youthWage = (user.youth?.players || []).reduce((s, p) => s + (p.wage || 0), 0);
     const staffWage = staffWageBill(user);
     const facUpkeep = facilityWeeklyUpkeep(user);
@@ -619,7 +640,8 @@ export function startNextSeason(world) {
     ya.daysSinceIntake = 0;
   }
 
-  // 未续约球员离队
+  // 全部租借归还，再处理未续约离队
+  returnAllLoans(world);
   releaseUnrenewed(world);
 
   world.season += 1;
@@ -660,16 +682,47 @@ export function startNextSeason(world) {
   return { ok: true, msg: `${world.season} 赛季 · ${divName} 已开始` };
 }
 
-export function renewUserPlayer(world, playerId) {
+export function renewUserPlayer(world, playerId, opts = {}) {
   const club = getUserClub(world);
+  if (!club) return { ok: false, msg: "无球队" };
   const p = club.players.find((x) => x.id === playerId);
   if (!p) return { ok: false, msg: "球员不在阵中" };
-  const res = renewPlayer(club, p);
+  if (p.loan) return { ok: false, msg: "租借球员无法续约" };
+  const offer =
+    opts.years != null ? renewOffer(p, { years: opts.years }) : renewOffer(p);
+  const res = renewPlayer(club, p, offer);
   if (res.ok) {
     p._needsRenew = false;
     world.news.unshift({ day: world.day, text: `📝 ${res.msg}` });
   }
   return res;
+}
+
+export function terminateUserPlayer(world, playerId) {
+  if (world.sacked) return { ok: false, msg: "你已被解雇，无法操作" };
+  const club = getUserClub(world);
+  if (!club) return { ok: false, msg: "无球队" };
+  const p = club.players.find((x) => x.id === playerId);
+  if (!p) return { ok: false, msg: "球员不在阵中" };
+  const res = terminatePlayer(world, club, p);
+  if (res.ok) {
+    world.news.unshift({ day: world.day, text: `📝 ${res.msg}` });
+  }
+  return res;
+}
+
+export function previewTerminate(world, playerId) {
+  const club = getUserClub(world);
+  const p = club?.players?.find((x) => x.id === playerId);
+  if (!p) return null;
+  return { player: p, cost: terminateCost(p) };
+}
+
+export function previewRenew(world, playerId, years) {
+  const club = getUserClub(world);
+  const p = club?.players?.find((x) => x.id === playerId);
+  if (!p) return null;
+  return { player: p, offer: renewOffer(p, years != null ? { years } : {}) };
 }
 
 export function getNextPlayableMatch(world) {
@@ -706,6 +759,8 @@ export {
   renewOffer,
   ensureContract,
   signFreeAgent,
+  needsContractAttention,
+  terminateCost,
   createLeagueCup,
   ensureTraining,
   setTraining,
@@ -733,6 +788,19 @@ export {
   STADIUM_LEVELS,
   TRAINING_FACILITY_LEVELS,
   FACILITY_LABELS,
+  // 租借
+  ensureLoans,
+  loanOutPlayer,
+  loanInPlayer,
+  recallLoan,
+  returnLoan,
+  processLoansDay,
+  returnAllLoans,
+  listUserLoans,
+  userSquadWageBill,
+  previewLoanOut,
+  previewLoanIn,
+  isOnLoan,
 };
 
 /**
@@ -1204,6 +1272,7 @@ export function buyPlayer(world, playerId, fromClubId, options = {}) {
   const idx = from.players.findIndex((p) => p.id === playerId);
   if (idx < 0) return { ok: false, msg: "球员不存在" };
   const player = from.players[idx];
+  if (player.loan) return { ok: false, msg: "租借球员不可转会买入（可谈租借）" };
   ensureStaff(user);
   ensureContract(player);
   const price = Math.round(player.value * (1.05 + rng() * 0.15) * scoutBuyMod(user));
@@ -1298,6 +1367,7 @@ export function sellPlayer(world, playerId) {
   if (idx < 0) return { ok: false, msg: "球员不在阵中" };
   if (user.players.length <= 14) return { ok: false, msg: "阵容过少，无法再出售" };
   const player = user.players[idx];
+  if (player.loan) return { ok: false, msg: "租借球员不可出售" };
   // 随机买家
   const buyers = world.clubs.filter((c) => c.id !== user.id && c.players.length < 26);
   if (!buyers.length) return { ok: false, msg: "暂无买家" };

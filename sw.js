@@ -1,5 +1,5 @@
 /* VCFM · 简易离线缓存（GitHub Pages 友好） */
-const CACHE = "vcfm-v39";
+const CACHE = "vcfm-v40";
 const ASSETS = [
   "./",
   "./index.html",
@@ -16,6 +16,9 @@ const ASSETS = [
   "./js/career.js",
   "./js/poaching.js",
   "./js/scoutreport.js",
+  "./js/contracts.js",
+  "./js/loans.js",
+  "./js/transfers.js",
   "./manifest.webmanifest",
   "./icons/icon.svg",
 ];

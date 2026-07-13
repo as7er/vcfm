@@ -213,6 +213,7 @@
                     <th data-i18n="th.lastR" title="最近一场评分">最近</th>
                     <th data-i18n="th.fit">体能</th>
                     <th data-i18n="th.morale">士气</th>
+                    <th data-i18n="th.contract" title="合同年限">合同</th>
                     <th data-i18n="th.scout">球探估值</th>
                     <th data-i18n="th.wage">周薪</th>
                     <th></th>
@@ -551,6 +552,13 @@
         <!-- 转会 -->
         <div id="tab-transfer" class="tab-panel">
           <div class="grid-2">
+            <div class="card span-2">
+              <h2 data-i18n="contract.panelTitle">合同与租借</h2>
+              <p class="hint" style="margin:0 0 0.65rem" data-i18n="contract.panelHint">
+                续约/解约任意日可操作；外租与租入仅转会窗内。窗外召回需支付召回费。
+              </p>
+              <div id="contracts-loans-panel" class="contracts-loans-panel">—</div>
+            </div>
             <div class="card span-2">
               <h2 data-i18n="tr.poach">来自其他俱乐部的报价</h2>
               <div id="poach-bids" class="poach-bids">—</div>
