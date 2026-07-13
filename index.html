@@ -828,11 +828,29 @@
     <div id="season-summary" class="season-summary hidden" role="dialog" aria-modal="true"></div>
   </div>
 
-  <script type="module" src="js/main.js"></script>
+  <script type="module" src="js/main.js?v=46"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {
-        navigator.serviceWorker.register("./sw.js").catch(function () {});
+        navigator.serviceWorker.register("./sw.js?v=46").then(function (reg) {
+          // 每次打开检查更新，避免卡在旧缓存
+          try { reg.update(); } catch (e) {}
+          if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
+        }).catch(function () {});
+        // 新 SW 接管后自动刷新一次（仅一次）
+        var refreshing = false;
+        navigator.serviceWorker.addEventListener("controllerchange", function () {
+          if (refreshing) return;
+          refreshing = true;
+          try {
+            if (!sessionStorage.getItem("vcfm-sw-reloaded")) {
+              sessionStorage.setItem("vcfm-sw-reloaded", "1");
+              location.reload();
+            }
+          } catch (e) {
+            location.reload();
+          }
+        });
       });
     }
   </script>

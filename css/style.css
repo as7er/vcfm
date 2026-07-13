@@ -3070,32 +3070,58 @@ html[data-theme="light"] .board-box.done {
   background: var(--closed-bg);
 }
 
-/* 程序生成头像 */
+/* 程序生成头像（polish） */
 .avatar {
   display: inline-flex;
   flex-shrink: 0;
   border-radius: 50%;
   overflow: hidden;
   vertical-align: middle;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.14),
+    0 2px 6px rgba(0, 0, 0, 0.28);
   line-height: 0;
-  background: var(--surface-inset);
+  /* 中性冷灰底，与深色球衣拉开（勿用近黑海军蓝） */
+  background: #3a4256;
+  transition: box-shadow 0.15s ease, transform 0.12s ease;
 }
 html[data-theme="light"] .avatar {
-  box-shadow: 0 0 0 1px rgba(26, 36, 56, 0.12);
+  box-shadow:
+    0 0 0 1px rgba(26, 36, 56, 0.12),
+    0 2px 5px rgba(15, 23, 42, 0.1);
 }
 .avatar.mood-injured {
-  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.55);
+  box-shadow:
+    0 0 0 2px rgba(239, 68, 68, 0.6),
+    0 2px 8px rgba(239, 68, 68, 0.2);
 }
 .avatar.mood-happy {
-  box-shadow: 0 0 0 1px rgba(61, 214, 140, 0.4);
+  box-shadow:
+    0 0 0 1.5px rgba(61, 214, 140, 0.5),
+    0 2px 6px rgba(0, 0, 0, 0.22);
 }
 .avatar.mood-sad {
-  box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.45);
+  box-shadow:
+    0 0 0 1px rgba(148, 163, 184, 0.5),
+    0 2px 5px rgba(0, 0, 0, 0.2);
+  filter: saturate(0.92);
 }
 .avatar.mood-tired {
-  box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.35);
-  opacity: 0.95;
+  box-shadow:
+    0 0 0 1.5px rgba(125, 211, 252, 0.45),
+    0 2px 5px rgba(0, 0, 0, 0.2);
+  opacity: 0.96;
+}
+/* 详情弹窗大头像 */
+.player-modal-head .avatar {
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.16),
+    0 6px 16px rgba(0, 0, 0, 0.35);
+}
+html[data-theme="light"] .player-modal-head .avatar {
+  box-shadow:
+    0 0 0 2px rgba(26, 36, 56, 0.1),
+    0 6px 14px rgba(15, 23, 42, 0.12);
 }
 
 /* 设施 */

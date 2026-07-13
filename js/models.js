@@ -383,6 +383,16 @@ export function fillYouthSquad(club, count = null) {
 /** 球衣样式：solid / stripes / hoops / halves / sash */
 export const KIT_STYLES = ["solid", "stripes", "hoops", "halves", "sash"];
 
+/** 与 clubs.js 主题表同步；此处再列一份避免 models↔clubs 循环依赖 */
+const KIT_THEME_BY_ID = {
+  sunset: {
+    primary: "#f97316",
+    secondary: "#5b21b6",
+    style: "sash",
+    numberColor: "#ffffff",
+  },
+};
+
 function hashStr(s) {
   let h = 0;
   const str = String(s || "");
@@ -420,6 +430,18 @@ function shiftHex(hex, delta) {
 /** 为俱乐部生成/补齐球衣配置 */
 export function ensureKit(club) {
   if (!club) return null;
+  // 主题队：始终覆盖（修正旧存档里落日城被随机成灰蓝的问题）
+  const theme = club.id ? KIT_THEME_BY_ID[club.id] : null;
+  if (theme) {
+    club.color = theme.primary;
+    club.kit = {
+      style: theme.style || "solid",
+      primary: theme.primary,
+      secondary: theme.secondary || shiftHex(theme.primary, -50),
+      numberColor: theme.numberColor || contrastText(theme.primary),
+    };
+    return club.kit;
+  }
   if (club.kit && club.kit.primary && club.kit.style) {
     if (!club.kit.numberColor) club.kit.numberColor = contrastText(club.kit.primary);
     return club.kit;

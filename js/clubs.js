@@ -10,6 +10,20 @@ const COLORS = [
   "#84cc16", "#0ea5e9", "#a8a29e", "#65a30d", "#d97706", "#e11d48",
 ];
 
+/**
+ * 部分俱乐部固定队服主题（id → 配色）
+ * 避免落日城等队被随机成灰蓝，和中性头像背景糊在一起
+ */
+export const CLUB_KIT_THEMES = {
+  // 落日城：亮橙主色 + 暮紫副色，斜带像晚霞
+  sunset: {
+    primary: "#f97316",
+    secondary: "#5b21b6",
+    style: "sash",
+    numberColor: "#ffffff",
+  },
+};
+
 /** 超联 20 */
 const D1 = [
   ["vcc", "VC 联城", "联城", 82, 55_000_000],
@@ -85,13 +99,14 @@ const D3 = [
 function pack(list, division) {
   return list.map((row, i) => {
     const [id, name, short, power, money] = row;
+    const theme = CLUB_KIT_THEMES[id];
     return {
       id,
       name,
       short,
       power,
       money,
-      color: COLORS[i % COLORS.length],
+      color: theme?.primary || COLORS[i % COLORS.length],
       division,
     };
   });

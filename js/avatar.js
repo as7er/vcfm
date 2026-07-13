@@ -1,11 +1,41 @@
 /**
  * 程序生成 SVG 小人形象（球员 / 职员 / 经理）
  * 由 id 种子稳定生成；表情随状态变化（开心 / 受伤等）。
+ * v2 polish：中性灰背景 + 球衣强制对比/双描边、发型/肤色拉开、五官高光。
  */
 
-const SKINS = ["#f5d0b0", "#e8b896", "#c68642", "#8d5524", "#ffdbac", "#d4a574"];
-const HAIRS = ["#1a1a1a", "#3d2314", "#6b4423", "#c4a35a", "#8b0000", "#2f4f4f", "#f5f5f5", "#4a3728"];
-const BG_FALLBACK = ["#1e3a5f", "#3d1f4a", "#1a4d3e", "#4a3020", "#2c3e50", "#3b2f5c"];
+/** 肤色：偏浅 → 中 → 深，拉开区分度 */
+const SKINS = [
+  "#ffe0c2",
+  "#f5d0b0",
+  "#e8b896",
+  "#d4a574",
+  "#c68642",
+  "#a86f3a",
+  "#8d5524",
+  "#6b3f1f",
+  "#4a2c14",
+];
+/** 发色 */
+const HAIRS = [
+  "#0f0f10",
+  "#1a1a1a",
+  "#2c1810",
+  "#3d2314",
+  "#5c3317",
+  "#6b4423",
+  "#8b5a2b",
+  "#c4a35a",
+  "#d4af37",
+  "#8b0000",
+  "#4a1515",
+  "#2f4f4f",
+  "#1e3a5f",
+  "#f5f5f5",
+  "#c0c0c0",
+  "#4a3728",
+];
+const BG_FALLBACK = ["#1e3a5f", "#3d1f4a", "#1a4d3e", "#4a3020", "#2c3e50", "#3b2f5c", "#1a2744"];
 
 /** @typedef {'neutral'|'happy'|'injured'|'sad'|'tired'} AvatarMood */
 
@@ -48,6 +78,65 @@ function shiftHex(hex, delta) {
   );
 }
 
+/** 两色混合（t=0 全 a，t=1 全 b） */
+function mixHex(a, b, t) {
+  if (!a?.startsWith?.("#") || a.length < 7) return b || a || "#334155";
+  if (!b?.startsWith?.("#") || b.length < 7) return a;
+  const clamp = (n) => Math.max(0, Math.min(255, Math.round(n)));
+  const ch = (hex, i) => parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16);
+  const r = clamp(ch(a, 0) * (1 - t) + ch(b, 0) * t);
+  const g = clamp(ch(a, 1) * (1 - t) + ch(b, 1) * t);
+  const bl = clamp(ch(a, 2) * (1 - t) + ch(b, 2) * t);
+  return (
+    "#" +
+    [r, g, bl]
+      .map((x) => x.toString(16).padStart(2, "0"))
+      .join("")
+  );
+}
+
+/** 相对亮度 0–1（sRGB 近似） */
+function luminance(hex) {
+  if (!hex?.startsWith?.("#") || hex.length < 7) return 0.2;
+  const ch = (i) => parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255;
+  const lin = (c) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+  return 0.2126 * lin(ch(0)) + 0.7152 * lin(ch(1)) + 0.0722 * lin(ch(2));
+}
+
+/**
+ * 球衣显示色：相对背景强制拉开对比（深衣大幅提亮，极亮衣略压）
+ * 保留色相，主要动明度；比 v1 更激进，解决「深队服≈深背景」
+ */
+function kitDisplayColor(hex, bgLum = 0.12) {
+  let c = hex || "#3d8bfd";
+  let lum = luminance(c);
+  // 目标：相对背景至少 +0.28 亮度差，且绝对不低于 ~0.34
+  const minLum = Math.max(0.34, bgLum + 0.28);
+  let guard = 0;
+  while (lum < minLum && guard < 8) {
+    // 越暗混入越多白；同时略加饱和感用浅色推
+    const t = Math.min(0.55, 0.22 + (minLum - lum) * 0.9);
+    c = mixHex(c, "#ffffff", t);
+    lum = luminance(c);
+    guard++;
+  }
+  // 仍偏闷的极深色：再叠一层冷白，避免糊成「一块灰」
+  if (lum < 0.4) c = mixHex(c, "#e8eef8", 0.18);
+  // 极亮白衣：略压，靠深描边辨认
+  if (lum > 0.9) c = mixHex(c, "#cbd5e1", 0.2);
+  return c;
+}
+
+/** 球衣主描边：深衣用亮边，浅衣用深边（提高不透明度） */
+function kitOutlineColor(kitHex) {
+  return luminance(kitHex) < 0.48 ? "rgba(255,255,255,0.92)" : "rgba(15,23,42,0.78)";
+}
+
+/** 外圈暗描边：给球衣「剪影」感，与背景彻底脱开 */
+function kitOuterStroke(kitHex) {
+  return luminance(kitHex) < 0.48 ? "rgba(0,0,0,0.55)" : "rgba(15,23,42,0.45)";
+}
+
 /**
  * 根据球员状态推断表情（优先级：伤 > 低士气 > 高士气开心 > 低体能疲惫 > 默认）
  * @returns {AvatarMood}
@@ -64,86 +153,151 @@ export function moodFromPlayer(player) {
   return "neutral";
 }
 
-/** 五官：眼 + 眉 + 嘴 + 可选绷带/汗 */
-function faceFeatures(mood, hair, browY) {
+/** 五官：眼高光 + 眉 + 嘴 + 可选绷带/汗 */
+function faceFeatures(mood, hair, browY, skin) {
   const brow = shiftHex(hair, -10);
+  const lip = mixHex("#b4534a", skin, 0.25);
   let eyes = "";
   let brows = "";
   let mouth = "";
   let extra = "";
 
+  // 眼白 + 瞳孔 + 高光（通用积木）
+  const eyePair = (ly, ry, open = true) => {
+    if (!open) {
+      return `
+        <path d="M16.5 ${ly} H21.5" stroke="#1e293b" stroke-width="1.45" stroke-linecap="round"/>
+        <path d="M26.5 ${ry} H31.5" stroke="#1e293b" stroke-width="1.45" stroke-linecap="round"/>
+      `;
+    }
+    return `
+      <ellipse cx="19" cy="${ly}" rx="2.4" ry="2.7" fill="#f8fafc"/>
+      <ellipse cx="29" cy="${ry}" rx="2.4" ry="2.7" fill="#f8fafc"/>
+      <circle cx="19.2" cy="${ly + 0.15}" r="1.25" fill="#1e293b"/>
+      <circle cx="29.2" cy="${ry + 0.15}" r="1.25" fill="#1e293b"/>
+      <circle cx="19.7" cy="${ly - 0.45}" r="0.45" fill="#fff" opacity="0.9"/>
+      <circle cx="29.7" cy="${ry - 0.45}" r="0.45" fill="#fff" opacity="0.9"/>
+    `;
+  };
+
   if (mood === "injured") {
-    // 痛苦：眯眼 / 一边 X，绷带
     eyes = `
       <path d="M16.5 20.5 L21.5 22.5 M21.5 20.5 L16.5 22.5" stroke="#1e293b" stroke-width="1.35" stroke-linecap="round"/>
-      <circle cx="29" cy="21.5" r="1.2" fill="#1e293b"/>
-      <path d="M27 19.5 Q29 18 31 19.5" stroke="#1e293b" stroke-width="1" fill="none"/>
+      <ellipse cx="29" cy="21.5" rx="2.2" ry="2.4" fill="#f8fafc"/>
+      <circle cx="29.1" cy="21.6" r="1.15" fill="#1e293b"/>
+      <circle cx="29.55" cy="21.1" r="0.4" fill="#fff" opacity="0.85"/>
     `;
     brows = `
-      <path d="M15 17.5 L22 19" stroke="${brow}" stroke-width="1.3" stroke-linecap="round"/>
-      <path d="M27 18.5 L33 17" stroke="${brow}" stroke-width="1.3" stroke-linecap="round"/>
+      <path d="M15 17.5 L22 19" stroke="${brow}" stroke-width="1.35" stroke-linecap="round"/>
+      <path d="M27 18.5 L33 17" stroke="${brow}" stroke-width="1.35" stroke-linecap="round"/>
     `;
-    mouth = `<path d="M20 27.5 Q24 25 28 27.5" stroke="#b4534a" stroke-width="1.2" fill="none" stroke-linecap="round"/>`;
+    mouth = `<path d="M20 27.5 Q24 25 28 27.5" stroke="${lip}" stroke-width="1.25" fill="none" stroke-linecap="round"/>`;
     extra = `
       <path d="M10 14 L18 8 L22 12 L14 18 Z" fill="#f8fafc" stroke="#94a3b8" stroke-width="0.6"/>
       <path d="M12 15 L20 9" stroke="#ef4444" stroke-width="1.1"/>
       <path d="M14 17 L22 11" stroke="#ef4444" stroke-width="1.1"/>
     `;
   } else if (mood === "happy") {
-    // 开心：弯眼笑 + 上扬嘴
     eyes = `
-      <path d="M16 21.5 Q19 18.5 22 21.5" stroke="#1e293b" stroke-width="1.45" fill="none" stroke-linecap="round"/>
-      <path d="M26 21.5 Q29 18.5 32 21.5" stroke="#1e293b" stroke-width="1.45" fill="none" stroke-linecap="round"/>
+      <path d="M16 21.5 Q19 18.2 22 21.5" stroke="#1e293b" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+      <path d="M26 21.5 Q29 18.2 32 21.5" stroke="#1e293b" stroke-width="1.5" fill="none" stroke-linecap="round"/>
     `;
     brows = `
-      <path d="M16 ${browY - 0.5} H21" stroke="${brow}" stroke-width="1.2" stroke-linecap="round"/>
-      <path d="M27 ${browY - 0.5} H32" stroke="${brow}" stroke-width="1.2" stroke-linecap="round"/>
+      <path d="M16 ${browY - 0.6} H21" stroke="${brow}" stroke-width="1.25" stroke-linecap="round"/>
+      <path d="M27 ${browY - 0.6} H32" stroke="${brow}" stroke-width="1.25" stroke-linecap="round"/>
     `;
     mouth = `
-      <path d="M18 25.5 Q24 31 30 25.5" stroke="#b4534a" stroke-width="1.35" fill="none" stroke-linecap="round"/>
-      <path d="M20 26 Q24 29.5 28 26" fill="#fca5a5" opacity="0.55"/>
+      <path d="M18 25.5 Q24 31.5 30 25.5" stroke="${lip}" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+      <path d="M20.5 26.2 Q24 30 27.5 26.2" fill="#fca5a5" opacity="0.5"/>
     `;
   } else if (mood === "sad") {
-    eyes = `
-      <circle cx="19" cy="21.5" r="1.35" fill="#1e293b"/>
-      <circle cx="29" cy="21.5" r="1.35" fill="#1e293b"/>
-      <path d="M17 24 Q19 25.5 21 24" stroke="#7dd3fc" stroke-width="1" fill="none" opacity="0.8"/>
-    `;
+    eyes = eyePair(21.8, 21.8);
     brows = `
-      <path d="M15 19 L22 17.5" stroke="${brow}" stroke-width="1.25" stroke-linecap="round"/>
-      <path d="M26 17.5 L33 19" stroke="${brow}" stroke-width="1.25" stroke-linecap="round"/>
+      <path d="M15 19 L22 17.3" stroke="${brow}" stroke-width="1.3" stroke-linecap="round"/>
+      <path d="M26 17.3 L33 19" stroke="${brow}" stroke-width="1.3" stroke-linecap="round"/>
     `;
-    mouth = `<path d="M20 28 Q24 25.5 28 28" stroke="#b4534a" stroke-width="1.2" fill="none" stroke-linecap="round"/>`;
+    mouth = `<path d="M20 28 Q24 25.2 28 28" stroke="${lip}" stroke-width="1.25" fill="none" stroke-linecap="round"/>`;
+    extra = `<path d="M17 24.5 Q19 26 21 24.5" stroke="#7dd3fc" stroke-width="1" fill="none" opacity="0.85"/>`;
   } else if (mood === "tired") {
     eyes = `
-      <path d="M16.5 21 H21.5" stroke="#1e293b" stroke-width="1.4" stroke-linecap="round"/>
-      <path d="M26.5 21 H31.5" stroke="#1e293b" stroke-width="1.4" stroke-linecap="round"/>
-      <circle cx="19" cy="22.2" r="0.9" fill="#1e293b"/>
-      <circle cx="29" cy="22.2" r="0.9" fill="#1e293b"/>
+      ${eyePair(22.2, 22.2)}
+      <path d="M16.2 20.2 H21.8" stroke="#1e293b" stroke-width="1.1" stroke-linecap="round" opacity="0.55"/>
+      <path d="M26.2 20.2 H31.8" stroke="#1e293b" stroke-width="1.1" stroke-linecap="round" opacity="0.55"/>
     `;
     brows = `
-      <path d="M16 ${browY + 0.5} H21" stroke="${brow}" stroke-width="1.1" stroke-linecap="round"/>
-      <path d="M27 ${browY + 0.5} H32" stroke="${brow}" stroke-width="1.1" stroke-linecap="round"/>
+      <path d="M16 ${browY + 0.6} H21" stroke="${brow}" stroke-width="1.15" stroke-linecap="round"/>
+      <path d="M27 ${browY + 0.6} H32" stroke="${brow}" stroke-width="1.15" stroke-linecap="round"/>
     `;
-    mouth = `<path d="M20 26.5 H28" stroke="#b4534a" stroke-width="1.15" stroke-linecap="round"/>`;
+    mouth = `<path d="M20 26.8 H28" stroke="${lip}" stroke-width="1.2" stroke-linecap="round"/>`;
     extra = `
-      <circle cx="34" cy="16" r="1.1" fill="#7dd3fc" opacity="0.85"/>
-      <circle cx="36.5" cy="19" r="0.85" fill="#7dd3fc" opacity="0.7"/>
+      <circle cx="34.5" cy="15.5" r="1.15" fill="#7dd3fc" opacity="0.9"/>
+      <circle cx="37" cy="18.5" r="0.9" fill="#7dd3fc" opacity="0.7"/>
+      <circle cx="35.5" cy="20.5" r="0.55" fill="#7dd3fc" opacity="0.5"/>
     `;
   } else {
-    // neutral
-    eyes = `
-      <circle cx="19" cy="21" r="1.35" fill="#1e293b"/>
-      <circle cx="29" cy="21" r="1.35" fill="#1e293b"/>
-    `;
+    eyes = eyePair(21, 21);
     brows = `
-      <path d="M16 ${browY} H21" stroke="${brow}" stroke-width="1.2" stroke-linecap="round"/>
-      <path d="M27 ${browY} H32" stroke="${brow}" stroke-width="1.2" stroke-linecap="round"/>
+      <path d="M16 ${browY} H21" stroke="${brow}" stroke-width="1.25" stroke-linecap="round"/>
+      <path d="M27 ${browY} H32" stroke="${brow}" stroke-width="1.25" stroke-linecap="round"/>
     `;
-    mouth = `<path d="M20 26 Q24 28.5 28 26" stroke="#b4534a" stroke-width="1.1" fill="none" stroke-linecap="round"/>`;
+    mouth = `<path d="M20 26.2 Q24 28.8 28 26.2" stroke="${lip}" stroke-width="1.2" fill="none" stroke-linecap="round"/>`;
   }
 
   return { eyes, brows, mouth, extra };
+}
+
+/**
+ * 发型路径（7 种）
+ */
+function hairPaths(style, hair, h) {
+  const shade = shiftHex(hair, -18);
+  switch (style % 7) {
+    case 0: // 短平
+      return `
+        <ellipse cx="24" cy="13.5" rx="12.2" ry="9.2" fill="${hair}"/>
+        <ellipse cx="24" cy="11" rx="10" ry="5" fill="${shade}" opacity="0.35"/>
+      `;
+    case 1: // 前额刘海
+      return `
+        <path d="M11.5 17 Q13 5.5 24 6.5 Q35 5.5 36.5 17 Q30 11.5 24 12 Q18 11.5 11.5 17 Z" fill="${hair}"/>
+        <path d="M14 12 Q24 8 34 12" stroke="${shade}" stroke-width="1.2" fill="none" opacity="0.4"/>
+      `;
+    case 2: // 卷发/蓬松
+      return `
+        <circle cx="15" cy="12" r="5.2" fill="${hair}"/>
+        <circle cx="24" cy="9.5" r="6.2" fill="${hair}"/>
+        <circle cx="33" cy="12" r="5.2" fill="${hair}"/>
+        <circle cx="18" cy="15" r="4" fill="${hair}"/>
+        <circle cx="30" cy="15" r="4" fill="${hair}"/>
+        <ellipse cx="24" cy="14" rx="11.5" ry="6.5" fill="${hair}"/>
+      `;
+    case 3: // 中分偏短
+      return `
+        <ellipse cx="24" cy="13" rx="11.5" ry="7.5" fill="${hair}"/>
+        <path d="M24 6.5 V16" stroke="${shade}" stroke-width="1.1" opacity="0.45"/>
+      `;
+    case 4: // 两侧长/披肩感
+      return `
+        <ellipse cx="24" cy="13" rx="12.5" ry="9" fill="${hair}"/>
+        <path d="M11.5 16 Q9.5 25 12.5 30" stroke="${hair}" stroke-width="3.2" fill="none" stroke-linecap="round"/>
+        <path d="M36.5 16 Q38.5 25 35.5 30" stroke="${hair}" stroke-width="3.2" fill="none" stroke-linecap="round"/>
+      `;
+    case 5: // 寸头/光头边缘
+      if ((h & 3) === 0) {
+        // 接近光头：只留薄边
+        return `<ellipse cx="24" cy="12" rx="11" ry="5.5" fill="${hair}" opacity="0.55"/>`;
+      }
+      return `
+        <ellipse cx="24" cy="12.5" rx="11.8" ry="7" fill="${hair}"/>
+        <ellipse cx="24" cy="11" rx="9" ry="3.5" fill="${shade}" opacity="0.3"/>
+      `;
+    default: // 高马尾/顶髻暗示
+      return `
+        <ellipse cx="24" cy="14" rx="11.5" ry="8" fill="${hair}"/>
+        <ellipse cx="24" cy="7" rx="4.5" ry="4" fill="${hair}"/>
+        <circle cx="24" cy="5.5" r="2.8" fill="${shade}" opacity="0.4"/>
+      `;
+  }
 }
 
 /**
@@ -159,21 +313,64 @@ export function renderAvatarSvg(opts = {}) {
   const age = opts.age || 25;
   const mood = opts.mood || "neutral";
 
-  const skin = pick(SKINS, h, 1);
+  // 肤色：主色 + 轻微偏移，减少「同一张脸」
+  let skin = pick(SKINS, h, 1);
+  skin = shiftHex(skin, ((h >> 8) % 7) - 3);
+
   let hair = pick(HAIRS, h, 2);
-  if (age >= 34 && (h & 1) === 0) hair = "#6b7280";
-  if (age >= 40) hair = pick(["#6b7280", "#9ca3af", "#d1d5db", hair], h, 3);
+  if (age >= 34 && (h & 1) === 0) hair = mixHex(hair, "#6b7280", 0.55);
+  if (age >= 40) hair = pick(["#6b7280", "#9ca3af", "#d1d5db", mixHex(hair, "#9ca3af", 0.5)], h, 3);
 
-  const kitP = opts.kitPrimary || pick(BG_FALLBACK, h, 4);
-  const kitS = opts.kitSecondary || shiftHex(kitP, -40);
-  let bg = role === "player" ? shiftHex(kitP, -55) : pick(BG_FALLBACK, h, 5);
-  // 受伤时背景略偏红，开心略偏亮
-  if (mood === "injured") bg = shiftHex(bg, -10);
-  if (mood === "happy") bg = shiftHex(bg, 12);
+  const kitPRaw = opts.kitPrimary || pick(BG_FALLBACK, h, 4);
+  let kitSRaw = opts.kitSecondary || shiftHex(kitPRaw, -42);
+  // 副色与主色太近时，强制拉开（避免袖/衣糊成一片）
+  {
+    const pr = parseInt(String(kitPRaw).slice(1, 3), 16) || 0;
+    const pg = parseInt(String(kitPRaw).slice(3, 5), 16) || 0;
+    const pb = parseInt(String(kitPRaw).slice(5, 7), 16) || 0;
+    const sr = parseInt(String(kitSRaw).slice(1, 3), 16) || 0;
+    const sg = parseInt(String(kitSRaw).slice(3, 5), 16) || 0;
+    const sb = parseInt(String(kitSRaw).slice(5, 7), 16) || 0;
+    const dist = Math.hypot(pr - sr, pg - sg, pb - sb);
+    if (dist < 70) {
+      const lum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
+      kitSRaw = lum > 140 ? mixHex(kitPRaw, "#0f172a", 0.55) : mixHex(kitPRaw, "#f8fafc", 0.45);
+    }
+  }
 
-  const hairStyle = h % 5;
-  const faceW = 11 + (h % 3);
-  const browY = 18 + (h % 2);
+  /**
+   * 背景：中性冷灰（偏中亮），**零队色**
+   * 刻意不用近黑海军蓝，避免和深蓝/黑色球衣糊在一起
+   */
+  let bgTop = "#4a556c";
+  let bgBot = "#343c50";
+  if (role !== "player") {
+    bgTop = pick(BG_FALLBACK, h, 5);
+    bgBot = shiftHex(bgTop, 16);
+  } else if (mood === "injured") {
+    bgTop = "#5a4550";
+    bgBot = "#3e3038";
+  } else if (mood === "happy") {
+    bgTop = "#455a52";
+    bgBot = "#324038";
+  } else if (mood === "tired") {
+    bgTop = "#455060";
+    bgBot = "#333a48";
+  }
+
+  const bgLum = luminance(bgBot);
+  // 显示用球衣色：深色队服强制提亮
+  const kitP = role === "player" ? kitDisplayColor(kitPRaw, bgLum) : kitPRaw;
+  const kitS = role === "player" ? kitDisplayColor(kitSRaw, bgLum) : kitSRaw;
+  const kitOutline = kitOutlineColor(kitP);
+  const kitOuter = kitOuterStroke(kitP);
+
+  const hairStyle = h % 7;
+  const faceW = 10.5 + (h % 4) * 0.55;
+  const faceH = 11.5 + (h % 3) * 0.4;
+  const browY = 17.5 + (h % 3) * 0.4;
+  const skinShade = shiftHex(skin, -22);
+  const skinHi = shiftHex(skin, 18);
 
   let accessory = "";
   if (role === "coach") {
@@ -201,67 +398,86 @@ export function renderAvatarSvg(opts = {}) {
       <rect x="22" y="32" width="4" height="8" fill="#e6b450"/>
     `;
   } else {
+    // 球衣：浅色底板 + 外暗描边 + 内亮描边，与中性灰背景强分离
     const sleeve = kitS;
+    const collar = mixHex(kitP, "#ffffff", 0.32);
+    const kitHi = mixHex(kitP, "#ffffff", 0.38);
+    const kitShade = mixHex(kitP, "#0f172a", 0.22);
     accessory = `
-      <path d="M8 34 L16 28 L32 28 L40 34 L36 48 L12 48 Z" fill="${kitP}"/>
-      <path d="M8 34 L16 28 L16 36 L10 40 Z" fill="${sleeve}"/>
-      <path d="M40 34 L32 28 L32 36 L38 40 Z" fill="${sleeve}"/>
-      <circle cx="24" cy="38" r="2.2" fill="${kitS}" opacity="0.85"/>
+      <ellipse cx="24" cy="41" rx="18" ry="10" fill="#0f172a" opacity="0.22"/>
+      <path d="M5.5 36 L15 26.5 L33 26.5 L42.5 36 L38.5 48 L9.5 48 Z" fill="#f1f5f9" opacity="0.55"/>
+      <path d="M6.2 35.5 L15.2 27 L32.8 27 L41.8 35.5 L37.5 48 L10.5 48 Z" fill="${kitShade}" opacity="0.9"/>
+      <path d="M7.2 35 L15.6 27.6 L32.4 27.6 L40.8 35 L37 48 L11 48 Z" fill="${kitP}" stroke="${kitOuter}" stroke-width="1.85"/>
+      <path d="M7.2 35 L15.6 27.6 L32.4 27.6 L40.8 35 L37 48 L11 48 Z" fill="none" stroke="${kitOutline}" stroke-width="1.05"/>
+      <path d="M7.2 35 L15.6 27.6 L15.6 36 L9.8 41 Z" fill="${sleeve}" stroke="${kitOuter}" stroke-width="1.4"/>
+      <path d="M7.2 35 L15.6 27.6 L15.6 36 L9.8 41 Z" fill="none" stroke="${kitOutline}" stroke-width="0.75"/>
+      <path d="M40.8 35 L32.4 27.6 L32.4 36 L38.2 41 Z" fill="${sleeve}" stroke="${kitOuter}" stroke-width="1.4"/>
+      <path d="M40.8 35 L32.4 27.6 L32.4 36 L38.2 41 Z" fill="none" stroke="${kitOutline}" stroke-width="0.75"/>
+      <path d="M12 33.2 Q24 28.8 36 33.2" fill="none" stroke="${kitHi}" stroke-width="1.7" opacity="0.7" stroke-linecap="round"/>
+      <path d="M17 28 Q24 32.2 31 28 L30 30.2 Q24 33.8 18 30.2 Z" fill="${collar}" opacity="0.98"/>
+      <path d="M15 40 H33" stroke="${kitOuter}" stroke-width="2.4" opacity="0.35" stroke-linecap="round"/>
+      <path d="M15 40 H33" stroke="${kitS}" stroke-width="1.9" opacity="0.9" stroke-linecap="round"/>
+      <circle cx="24" cy="37.5" r="2.75" fill="${kitS}" stroke="${kitOuter}" stroke-width="1.1"/>
+      <circle cx="24" cy="37.5" r="2.75" fill="none" stroke="${kitOutline}" stroke-width="0.65"/>
+      <circle cx="24" cy="37.5" r="1.2" fill="${mixHex(kitS, "#ffffff", 0.4)}" opacity="0.75"/>
     `;
     if (pos === "GK") {
-      accessory += `<rect x="14" y="27" width="20" height="3" rx="1" fill="${shiftHex(kitP, 30)}" opacity="0.9"/>`;
+      accessory += `
+        <rect x="13" y="26.5" width="22" height="3.4" rx="1.2" fill="${mixHex(kitP, "#ffffff", 0.42)}" stroke="${kitOuter}" stroke-width="0.9"/>
+        <rect x="13" y="26.5" width="22" height="3.4" rx="1.2" fill="none" stroke="${kitOutline}" stroke-width="0.5"/>
+        <rect x="13" y="26.5" width="22" height="1.2" rx="0.6" fill="#fff" opacity="0.35"/>
+      `;
     }
   }
 
-  let hairPath = "";
-  if (hairStyle === 0) {
-    hairPath = `<ellipse cx="24" cy="14" rx="12" ry="9" fill="${hair}"/>`;
-  } else if (hairStyle === 1) {
-    hairPath = `<path d="M12 16 Q14 6 24 7 Q34 6 36 16 Q30 12 24 12 Q18 12 12 16 Z" fill="${hair}"/>`;
-  } else if (hairStyle === 2) {
-    hairPath = `
-      <circle cx="16" cy="12" r="5" fill="${hair}"/>
-      <circle cx="24" cy="10" r="6" fill="${hair}"/>
-      <circle cx="32" cy="12" r="5" fill="${hair}"/>
-      <ellipse cx="24" cy="14" rx="11" ry="6" fill="${hair}"/>
-    `;
-  } else if (hairStyle === 3) {
-    hairPath = `<ellipse cx="24" cy="13" rx="11" ry="7" fill="${hair}"/>`;
-  } else {
-    hairPath = `
-      <ellipse cx="24" cy="13" rx="12" ry="9" fill="${hair}"/>
-      <path d="M12 16 Q10 24 13 28" stroke="${hair}" stroke-width="3" fill="none"/>
-      <path d="M36 16 Q38 24 35 28" stroke="${hair}" stroke-width="3" fill="none"/>
-    `;
-  }
+  const hairPath = hairPaths(hairStyle, hair, h);
 
   let facial = "";
-  if (age >= 28 && (h % 5) === 0 && mood !== "injured") {
-    facial = `<path d="M18 28 Q24 32 30 28" stroke="${shiftHex(hair, 20)}" stroke-width="1.4" fill="none" stroke-linecap="round"/>`;
+  if (age >= 27 && (h % 4) === 0 && mood !== "injured") {
+    // 短须 / 山羊胡
+    if ((h >> 3) & 1) {
+      facial = `<path d="M18 27.5 Q24 33 30 27.5" stroke="${shiftHex(hair, 15)}" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.85"/>`;
+    } else {
+      facial = `<ellipse cx="24" cy="29.5" rx="3.2" ry="2.2" fill="${shiftHex(hair, 10)}" opacity="0.55"/>`;
+    }
   }
 
-  const { eyes, brows, mouth, extra } = faceFeatures(mood, hair, browY);
+  const { eyes, brows, mouth, extra } = faceFeatures(mood, hair, browY, skin);
   const ini = initials(opts.name);
-  const clipId = `av${h.toString(36)}${mood[0] || "n"}`;
+  const clipId = `av${h.toString(36)}${mood[0] || "n"}${(h >> 12) & 15}`;
+  const gradId = `bg${clipId}`;
+  const skinGradId = `sk${clipId}`;
 
-  // 受伤描边略红
   const ring =
     mood === "injured"
-      ? "rgba(239,68,68,0.45)"
+      ? "rgba(239,68,68,0.55)"
       : mood === "happy"
-        ? "rgba(61,214,140,0.35)"
-        : "rgba(255,255,255,0.18)";
+        ? "rgba(61,214,140,0.45)"
+        : mood === "tired"
+          ? "rgba(125,211,252,0.4)"
+          : "rgba(255,255,255,0.22)";
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="${size}" height="${size}" class="avatar-svg" data-mood="${mood}" aria-hidden="true">
   <defs>
     <clipPath id="${clipId}"><circle cx="24" cy="24" r="24"/></clipPath>
+    <linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="${bgTop}"/>
+      <stop offset="100%" stop-color="${bgBot}"/>
+    </linearGradient>
+    <linearGradient id="${skinGradId}" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0%" stop-color="${skinHi}"/>
+      <stop offset="55%" stop-color="${skin}"/>
+      <stop offset="100%" stop-color="${skinShade}"/>
+    </linearGradient>
   </defs>
   <g clip-path="url(#${clipId})">
-    <rect width="48" height="48" fill="${bg}"/>
-    <circle cx="24" cy="52" r="18" fill="${shiftHex(bg, 15)}" opacity="0.35"/>
+    <rect width="48" height="48" fill="url(#${gradId})"/>
+    <circle cx="24" cy="52" r="18" fill="#0f172a" opacity="0.12"/>
+    <ellipse cx="24" cy="8" rx="16" ry="8" fill="#fff" opacity="0.1"/>
     ${accessory}
-    <rect x="20" y="28" width="8" height="6" fill="${skin}"/>
-    <ellipse cx="24" cy="20" rx="${faceW}" ry="12" fill="${skin}"/>
+    <rect x="20" y="27.5" width="8" height="6.5" rx="1" fill="url(#${skinGradId})"/>
+    <ellipse cx="24" cy="19.5" rx="${faceW}" ry="${faceH}" fill="url(#${skinGradId})"/>
+    <ellipse cx="20" cy="18" rx="3.5" ry="2.2" fill="#fff" opacity="0.12"/>
     ${hairPath}
     ${brows}
     ${eyes}
@@ -269,7 +485,8 @@ export function renderAvatarSvg(opts = {}) {
     ${facial}
     ${extra}
   </g>
-  <circle cx="24" cy="24" r="23" fill="none" stroke="${ring}" stroke-width="2"/>
+  <circle cx="24" cy="24" r="23" fill="none" stroke="${ring}" stroke-width="1.75"/>
+  <circle cx="24" cy="24" r="23.6" fill="none" stroke="rgba(0,0,0,0.2)" stroke-width="0.6"/>
 </svg>`;
 
   return svg.replace("<svg ", `<svg data-ini="${ini}" `);
@@ -322,14 +539,23 @@ function escapeAttr(s) {
     .replace(/</g, "&lt;");
 }
 
+/** 主题队固定配色（与 models.ensureKit 同步；avatar 不 import models 以免环依赖） */
+const AVATAR_KIT_THEME = {
+  sunset: { primary: "#f97316", secondary: "#5b21b6" },
+};
+
 /** 球员 + 俱乐部球衣色 + 状态表情 */
 export function playerAvatarHtml(player, club, size = 36) {
-  const kit = club?.kit;
+  const theme = club?.id ? AVATAR_KIT_THEME[club.id] : null;
+  // 主题队优先；否则用 kit / color（调用方应 ensureKit，这里再兜一层）
+  const kitPrimary = theme?.primary || club?.kit?.primary || club?.color || "#3d8bfd";
+  const kitSecondary =
+    theme?.secondary || club?.kit?.secondary || club?.kit?.secondaryColor || null;
   return avatarHtml(player, {
     role: "player",
     size,
-    kitPrimary: kit?.primary || club?.color,
-    kitSecondary: kit?.secondary,
+    kitPrimary,
+    kitSecondary,
     mood: moodFromPlayer(player),
   });
 }
