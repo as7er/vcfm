@@ -1168,13 +1168,18 @@ export class MatchView {
     }
   }
 
-  /** 防守方朝球附近收缩（只改目标） */
+  /** 防守方：后卫压迫球 + 中前场整体回撤本半场 */
   _nudgeDefendShape(team, toward) {
     const tx = toward?.x ?? 50;
     const ty = toward?.y ?? 50;
-    const defs = this.players.filter(
+    const outfield = this.players.filter(
       (p) => p.team === team && p.pos !== "GK" && !p.el.classList.contains("sent-off")
     );
+    const defs = outfield.filter((p) => p.pos === "DEF");
+    const mids = outfield.filter((p) => p.pos === "MID");
+    const atts = outfield.filter((p) => p.pos === "ATT");
+
+    // 后卫：近球压迫
     defs.sort(
       (a, b) => Math.hypot(a.x - tx, a.y - ty) - Math.hypot(b.x - tx, b.y - ty)
     );
@@ -1189,6 +1194,27 @@ export class MatchView {
       } else {
         pl.tx = clamp(lerp(pl.x, pl.baseX, 0.4), 6, 94);
         pl.ty = clamp(lerp(pl.y, pl.baseY, 0.35), 5, 95);
+      }
+    }
+
+    // 中场回撤到本半场中圈一带
+    for (const pl of mids) {
+      if (team === "home") {
+        pl.tx = clamp(lerp(pl.tx, pl.baseX, 0.35), 10, 90);
+        pl.ty = clamp(Math.max(pl.baseY, 50 + (Math.random() - 0.5) * 4), 48, 72);
+      } else {
+        pl.tx = clamp(lerp(pl.tx, pl.baseX, 0.35), 10, 90);
+        pl.ty = clamp(Math.min(pl.baseY, 50 + (Math.random() - 0.5) * 4), 28, 52);
+      }
+    }
+    // 前锋必须退过中线，禁止蹲对方禁区
+    for (const pl of atts) {
+      if (team === "home") {
+        pl.tx = clamp(lerp(pl.tx, pl.baseX, 0.45), 12, 88);
+        pl.ty = clamp(Math.max(48, pl.baseY * 0.35 + 50 * 0.65), 46, 62);
+      } else {
+        pl.tx = clamp(lerp(pl.tx, pl.baseX, 0.45), 12, 88);
+        pl.ty = clamp(Math.min(52, pl.baseY * 0.35 + 50 * 0.65), 38, 54);
       }
     }
   }
@@ -1852,6 +1878,155 @@ export class MatchView {
   }
 
   /**
+   * 对方「倒数第二名」防守线 Y（含门将）
+   * 主队进攻朝 y→0：线 = 对方 y 从小到大第 2 人
+   * 客队进攻朝 y→100：线 = 对方 y 从大到小第 2 人
+   */
+  _offsideLineY(attackingTeam) {
+    const defTeam = attackingTeam === "home" ? "away" : "home";
+    const defs = this.players.filter(
+      (p) => p.team === defTeam && !p.el.classList.contains("sent-off")
+    );
+    if (defs.length < 2) {
+      return attackingTeam === "home" ? 50 : 50;
+    }
+    if (attackingTeam === "home") {
+      // 越位线：对方更靠近 0 的两人里的第二近
+      const ys = defs.map((p) => p.y).sort((a, b) => a - b);
+      return ys[1];
+    }
+    const ys = defs.map((p) => p.y).sort((a, b) => b - a);
+    return ys[1];
+  }
+
+  /** 球是否在进攻方半场（相对进攻方向） */
+  _ballInAttackHalf(attackingTeam) {
+    const by = this.ball?.y ?? 50;
+    return attackingTeam === "home" ? by < 50 : by > 50;
+  }
+
+  /**
+   * 把目标 Y 限制在越位线合法侧（不能比球和倒数第二人更靠近对方球门）
+   * 允许与球齐平略前 0.5
+   */
+  _clampTargetOffside(pl, tx, ty) {
+    if (!pl || pl.pos === "GK") return { x: tx, y: ty };
+    const att = pl.team;
+    const line = this._offsideLineY(att);
+    const ballY = this.ball?.y ?? 50;
+    // 越位参考：不能比球和防守线都更靠前
+    if (att === "home") {
+      // 更小的 y = 更靠前
+      const limit = Math.min(line, ballY) + 0.8;
+      // 只有当限制线在中线之前时才硬卡（后场随意）
+      if (ty < limit && (line < 52 || ballY < 52)) {
+        ty = Math.max(ty, limit);
+      }
+      // 无球时绝不允许前场球员沉在对方大禁区「蹲坑」
+      if (pl !== this.carrier && pl.team !== this.possession) {
+        // handled by defensive drop
+      } else if (pl !== this.carrier && this.possession === att) {
+        // 有球进攻：禁止明显越位站位（ty 小于 limit）
+        if (ty < limit - 0.5) ty = limit;
+      }
+    } else {
+      const limit = Math.max(line, ballY) - 0.8;
+      if (ty > limit && (line > 48 || ballY > 48)) {
+        ty = Math.min(ty, limit);
+      }
+      if (pl !== this.carrier && this.possession === att) {
+        if (ty > limit + 0.5) ty = limit;
+      }
+    }
+    return { x: tx, y: clamp(ty, 5, 95) };
+  }
+
+  /**
+   * 无球方回防：前场/中场必须退回本半场，禁止蹲在对方禁区
+   * 主队本半场 y≥48；客队本半场 y≤52
+   */
+  _applyDefensiveDrop(defTeam) {
+    const ballY = this.ball?.y ?? 50;
+    for (const pl of this.players) {
+      if (pl.team !== defTeam || pl.el.classList.contains("sent-off")) continue;
+      if (pl === this.carrier) continue;
+      if (pl.pos === "GK") continue;
+
+      // 目标回撤深度：球越靠近己方球门，前场越要退
+      let homeMinY; // 主队回撤后 y 不该小于此（主队守下半场）
+      let awayMaxY; // 客队回撤后 y 不该大于此
+      if (defTeam === "home") {
+        // 主队无球：前锋至少退到中线附近，球在己半场时再深一点
+        homeMinY =
+          pl.pos === "ATT"
+            ? ballY > 55
+              ? 52
+              : 46
+            : pl.pos === "MID"
+              ? ballY > 55
+                ? 58
+                : 50
+              : ballY > 60
+                ? 68
+                : 62; // DEF 更高
+        // 禁止留在对方半场禁区（y 很小）
+        if (pl.ty < homeMinY) pl.ty = homeMinY;
+        if (pl.y < homeMinY - 8) {
+          // 已经越位蹲坑：强制目标拉回
+          pl.tx = clamp(lerp(pl.x, pl.baseX, 0.4), 8, 92);
+          pl.ty = homeMinY + (pl.pos === "ATT" ? 2 : 4);
+        }
+        // 绝对禁止无球时进对方大禁区
+        if (pl.y < 34 || pl.ty < 34) {
+          pl.ty = Math.max(pl.ty, homeMinY);
+          pl.tx = clamp(lerp(pl.tx, pl.baseX, 0.5), 10, 90);
+        }
+      } else {
+        awayMaxY =
+          pl.pos === "ATT"
+            ? ballY < 45
+              ? 48
+              : 54
+            : pl.pos === "MID"
+              ? ballY < 45
+                ? 42
+                : 50
+              : ballY < 40
+                ? 32
+                : 38;
+        if (pl.ty > awayMaxY) pl.ty = awayMaxY;
+        if (pl.y > awayMaxY + 8) {
+          pl.tx = clamp(lerp(pl.x, pl.baseX, 0.4), 8, 92);
+          pl.ty = awayMaxY - (pl.pos === "ATT" ? 2 : 4);
+        }
+        if (pl.y > 66 || pl.ty > 66) {
+          pl.ty = Math.min(pl.ty, awayMaxY);
+          pl.tx = clamp(lerp(pl.tx, pl.baseX, 0.5), 10, 90);
+        }
+      }
+    }
+  }
+
+  /** 进攻方：把 tx/ty 钳在越位线后 */
+  _applyOffsideClamp(attTeam) {
+    for (const pl of this.players) {
+      if (pl.team !== attTeam || pl.el.classList.contains("sent-off")) continue;
+      if (pl.pos === "GK") continue;
+      // 持球人带球可以压线，但接应点不能越位
+      if (pl === this.carrier) {
+        const c = this._clampTargetOffside(pl, pl.tx, pl.ty);
+        // 持球允许略过线 1.5（带球不算接球越位）
+        if (attTeam === "home") pl.ty = Math.max(c.y - 1.5, Math.min(pl.ty, 95));
+        else pl.ty = Math.min(c.y + 1.5, Math.max(pl.ty, 5));
+        continue;
+      }
+      const c = this._clampTargetOffside(pl, pl.tx, pl.ty);
+      pl.tx = c.x;
+      pl.ty = c.y;
+    }
+  }
+
+  /**
    * 持球盘带：朝对方球门带球；dribbling/pace 影响步幅与横带
    * 攻势段落内进攻方前压更狠
    */
@@ -2252,11 +2427,15 @@ export class MatchView {
         p.fsm = "support";
         p.subRole = p.pos === "ATT" ? "poach" : "link";
         const side = sup % 2 === 0 ? -1 : 1;
-        p.tx = clamp(car.x + side * (10 + sup * 3) + (Math.random() - 0.5) * 2, 8, 92);
-        p.ty = clamp(car.y + dir * (8 + (p.pos === "ATT" ? 4 : 0)), 6, 94);
-        if (Math.hypot(p.tx - car.x, p.ty - car.y) < 5) {
-          p.tx = clamp(p.tx + side * 6, 8, 92);
+        let nx = clamp(car.x + side * (10 + sup * 3) + (Math.random() - 0.5) * 2, 8, 92);
+        let ny = clamp(car.y + dir * (8 + (p.pos === "ATT" ? 4 : 0)), 6, 94);
+        if (Math.hypot(nx - car.x, ny - car.y) < 5) {
+          nx = clamp(nx + side * 6, 8, 92);
         }
+        // 接应位不得越位
+        const c = this._clampTargetOffside(p, nx, ny);
+        p.tx = c.x;
+        p.ty = c.y;
         sup++;
       }
     }
@@ -2270,6 +2449,11 @@ export class MatchView {
       }
       pl.el.dataset.fsm = pl.fsm;
     }
+
+    // —— 无球方强制回防（前场不准蹲对方半场/禁区）——
+    this._applyDefensiveDrop(def);
+    // —— 有球方接应点不得越位 ——
+    this._applyOffsideClamp(att);
   }
 
   /**
@@ -2362,6 +2546,8 @@ export class MatchView {
         !p.el.classList.contains("sent-off")
     );
     if (!pool.length) return null;
+    const line = this._offsideLineY(fromPl.team);
+    const ballY = this.ball?.y ?? fromPl.y;
     const scored = pool.map((p) => {
       const dx = p.x - fromPl.x;
       const dy = (p.y - fromPl.y) * dir; // 向前为正
@@ -2376,10 +2562,22 @@ export class MatchView {
       if (Math.abs(dx) > 8) score += 2;
       if (p.pos === "ATT") score += 2.5;
       if (p.pos === "MID") score += 1.5;
+      // 明显越位接应：大幅降权（传了也像犯规站位）
+      const offside =
+        fromPl.team === "home"
+          ? p.y < Math.min(line, ballY) - 1.2
+          : p.y > Math.max(line, ballY) + 1.2;
+      if (offside) score -= 20;
       score += Math.random() * 3;
-      return { p, score, dist };
+      return { p, score, dist, offside };
     });
     scored.sort((a, b) => b.score - a.score);
+    // 过滤掉仍越位且分差不大的目标
+    const legal = scored.filter((s) => !s.offside);
+    if (legal.length) {
+      scored.length = 0;
+      scored.push(...legal);
+    }
     // 压迫大时更多回敲
     const backRate = 0.14 + (20 - vision) / 120;
     if (Math.random() < backRate) {
@@ -3301,8 +3499,15 @@ export class MatchView {
       if (this.shapeTimer <= 0) {
         this.shapeTimer = 4.5 + Math.random() * 1.5;
         this._nudgeAttackShape(this.possession, 0.12);
+        // 无球方整队回撤，而不是只推后卫
+        this._nudgeDefendShape(
+          this.possession === "home" ? "away" : "home",
+          this.carrier || this.ball
+        );
         this._pullTowardBase(0.18);
         this._assignFsmTargets();
+        this._applyDefensiveDrop(this.possession === "home" ? "away" : "home");
+        this._applyOffsideClamp(this.possession);
         this._updatePossessionChrome();
       }
 
@@ -3329,6 +3534,17 @@ export class MatchView {
         else if (pl.fsm === "cover") speed = 9 * mul;
         else if (pl.fsm === "home") speed = 6.5 * mul;
         else if (pl.pos === "GK") speed = 5;
+        // 每帧软约束：无球方前场不准越中线太深
+        if (pl.team !== this.possession && pl.pos !== "GK" && pl !== this.carrier) {
+          if (pl.team === "home" && pl.ty < 44) pl.ty = 44;
+          if (pl.team === "away" && pl.ty > 56) pl.ty = 56;
+        }
+        // 有球方非持球：目标不得明显越位
+        if (pl.team === this.possession && pl !== this.carrier && pl.pos !== "GK") {
+          const c = this._clampTargetOffside(pl, pl.tx, pl.ty);
+          pl.tx = c.x;
+          pl.ty = c.y;
+        }
         this._moveToward(pl, speed, d);
         this._applyPlayer(pl);
         pl.heatAcc = (pl.heatAcc || 0) + d;

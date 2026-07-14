@@ -201,7 +201,7 @@ import {
   playerAvatarHtml,
   staffAvatarHtml,
   avatarHtml,
-} from "./avatar.js?v=63";
+} from "./avatar.js?v=64";
 
 /** 解雇后回菜单：优先提示换空槽开新档，避免误覆盖 */
 function handleSacked(result) {
