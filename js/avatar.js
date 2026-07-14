@@ -3,6 +3,8 @@
  * 由 id 种子稳定生成；表情随状态变化（开心 / 受伤等）。
  * v2 polish：中性灰背景 + 球衣强制对比/双描边、发型/肤色拉开、五官高光。
  * v3：小尺寸（列表/战术板 ≤32px）用紧凑五官，避免缩成「黑脸大眼珠」。
+ * v3.1：compact 强制浅肤 + 短顶发，避免深发盖满圆圈像「黑球」。
+ * v4：战术板/列表 ≤36px 改走 token 令牌（大脸+短发帽+简化球衣），不再缩放完整小人。
  */
 
 /** 肤色：偏浅 → 中 → 深；刻意不含近黑，缩小时仍像人脸 */
@@ -274,10 +276,30 @@ function faceFeatures(mood, hair, browY, skin, compact = false) {
 }
 
 /**
- * 发型路径（7 种）
+ * 发型路径（7 种；compact 只画短顶发，避免 30px 时头发吞掉整张脸）
  */
-function hairPaths(style, hair, h) {
-  const shade = shiftHex(hair, -18);
+function hairPaths(style, hair, h, compact = false) {
+  const shade = shiftHex(hair, compact ? -8 : -18);
+  if (compact) {
+    // 小圆头像：统一短顶/薄刘海，禁止蓬松卷发与披肩长发
+    const kind = style % 4;
+    if (kind === 0) {
+      return `<ellipse cx="24" cy="12.2" rx="9.2" ry="5.6" fill="${hair}"/>`;
+    }
+    if (kind === 1) {
+      return `
+        <ellipse cx="24" cy="11.8" rx="9.6" ry="5.2" fill="${hair}"/>
+        <path d="M15.5 14.5 Q24 11.2 32.5 14.5" fill="${hair}"/>
+      `;
+    }
+    if (kind === 2) {
+      return `<ellipse cx="24" cy="12" rx="8.8" ry="4.6" fill="${hair}" opacity="0.92"/>`;
+    }
+    return `
+      <ellipse cx="24" cy="12.4" rx="9.4" ry="5.4" fill="${hair}"/>
+      <ellipse cx="24" cy="11" rx="7.2" ry="2.6" fill="${shade}" opacity="0.35"/>
+    `;
+  }
   switch (style % 7) {
     case 0: // 短平
       return `
@@ -328,6 +350,126 @@ function hairPaths(style, hair, h) {
 }
 
 /**
+ * 战术板 / 列表专用令牌头像（为大圆点可读性设计，非完整小人缩放）
+ * 结构：亮灰底 → 大面积肤色脸 → 短发帽 → 下半身球衣色块 → 两点眼睛
+ */
+function renderTokenAvatarSvg(opts = {}) {
+  const seed = opts.seed || opts.id || opts.name || "anon";
+  const h = hashStr(seed);
+  const size = opts.size || 36;
+  const mood = opts.mood || "neutral";
+  const pos = opts.pos || "";
+  const kitPRaw = opts.kitPrimary || "#3d8bfd";
+  let kitSRaw = opts.kitSecondary || shiftHex(kitPRaw, -42);
+  {
+    const pr = parseInt(String(kitPRaw).slice(1, 3), 16) || 0;
+    const pg = parseInt(String(kitPRaw).slice(3, 5), 16) || 0;
+    const pb = parseInt(String(kitPRaw).slice(5, 7), 16) || 0;
+    const sr = parseInt(String(kitSRaw).slice(1, 3), 16) || 0;
+    const sg = parseInt(String(kitSRaw).slice(3, 5), 16) || 0;
+    const sb = parseInt(String(kitSRaw).slice(5, 7), 16) || 0;
+    if (Math.hypot(pr - sr, pg - sg, pb - sb) < 70) {
+      const lum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
+      kitSRaw = lum > 140 ? mixHex(kitPRaw, "#0f172a", 0.55) : mixHex(kitPRaw, "#f8fafc", 0.45);
+    }
+  }
+  // 强制可读肤色：只在浅/中暖色里选
+  const tokenSkins = ["#ffd9b8", "#f5c9a0", "#efbf94", "#e8b896", "#d4a574"];
+  let skin = pick(tokenSkins, h, 1);
+  if (luminance(skin) < 0.48) skin = mixHex(skin, "#ffe0c2", 0.5);
+  // 发色：避免纯黑
+  const tokenHairs = ["#3d2914", "#4a3420", "#5c4033", "#6b4423", "#2c3e50", "#4a5568", "#7a5c3a"];
+  let hair = pick(tokenHairs, h, 2);
+  if (luminance(hair) < 0.1) hair = "#4a3420";
+
+  const bgTop = mood === "injured" ? "#6a5560" : mood === "happy" ? "#556a60" : "#6b7488";
+  const bgBot = mood === "injured" ? "#4e4048" : mood === "happy" ? "#424e46" : "#525a6e";
+  const bgLum = luminance(bgBot);
+  const kitP = kitDisplayColor(kitPRaw, bgLum);
+  const kitS = kitDisplayColor(kitSRaw, bgLum);
+  const kitOuter = kitOuterStroke(kitP);
+  const kitOutline = kitOutlineColor(kitP);
+
+  const clipId = `tok${h.toString(36)}${mood[0] || "n"}s${size}`;
+  const faceY = 17.5;
+  // 发帽：只盖头顶，绝不盖过眼睛
+  const hairCap =
+    (h % 3) === 0
+      ? `<ellipse cx="24" cy="11.5" rx="11" ry="6.2" fill="${hair}"/>`
+      : (h % 3) === 1
+        ? `<path d="M12.5 15 Q13 7 24 7.5 Q35 7 35.5 15 Q30 11.5 24 12 Q18 11.5 12.5 15 Z" fill="${hair}"/>`
+        : `<ellipse cx="24" cy="12" rx="10.5" ry="5.4" fill="${hair}"/><ellipse cx="24" cy="10.5" rx="8" ry="2.8" fill="${shiftHex(hair, 20)}" opacity="0.35"/>`;
+
+  let eyes;
+  if (mood === "happy") {
+    eyes = `
+      <path d="M16.5 18.5 Q19 16.2 21.5 18.5" stroke="#1e293b" stroke-width="1.35" fill="none" stroke-linecap="round"/>
+      <path d="M26.5 18.5 Q29 16.2 31.5 18.5" stroke="#1e293b" stroke-width="1.35" fill="none" stroke-linecap="round"/>
+    `;
+  } else if (mood === "injured") {
+    eyes = `
+      <path d="M16.5 17.5 L21.5 20 M21.5 17.5 L16.5 20" stroke="#1e293b" stroke-width="1.2" stroke-linecap="round"/>
+      <circle cx="29" cy="18.5" r="1.35" fill="#1e293b"/>
+      <circle cx="29.4" cy="18.1" r="0.4" fill="#fff" opacity="0.9"/>
+    `;
+  } else {
+    eyes = `
+      <circle cx="19" cy="18.5" r="1.45" fill="#1e293b"/>
+      <circle cx="29" cy="18.5" r="1.45" fill="#1e293b"/>
+      <circle cx="19.4" cy="18.1" r="0.4" fill="#fff" opacity="0.95"/>
+      <circle cx="29.4" cy="18.1" r="0.4" fill="#fff" opacity="0.95"/>
+    `;
+  }
+  const mouth =
+    mood === "happy"
+      ? `<path d="M19 23.2 Q24 27 29 23.2" stroke="#b4534a" stroke-width="1.25" fill="none" stroke-linecap="round"/>`
+      : mood === "sad"
+        ? `<path d="M19.5 25 Q24 22.5 28.5 25" stroke="#b4534a" stroke-width="1.15" fill="none" stroke-linecap="round"/>`
+        : `<path d="M19.5 24 Q24 25.8 28.5 24" stroke="#b4534a" stroke-width="1.15" fill="none" stroke-linecap="round"/>`;
+
+  const gkBar =
+    pos === "GK"
+      ? `<rect x="14" y="29.5" width="20" height="2.6" rx="1" fill="${mixHex(kitP, "#ffffff", 0.45)}" stroke="${kitOuter}" stroke-width="0.6"/>`
+      : "";
+
+  const ring =
+    mood === "injured"
+      ? "rgba(239,68,68,0.55)"
+      : mood === "happy"
+        ? "rgba(61,214,140,0.45)"
+        : mood === "tired"
+          ? "rgba(125,211,252,0.4)"
+          : "rgba(255,255,255,0.28)";
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="${size}" height="${size}" class="avatar-svg avatar-token" data-mood="${mood}" aria-hidden="true">
+  <defs>
+    <clipPath id="${clipId}"><circle cx="24" cy="24" r="24"/></clipPath>
+  </defs>
+  <g clip-path="url(#${clipId})">
+    <rect width="48" height="48" fill="${bgTop}"/>
+    <rect y="24" width="48" height="24" fill="${bgBot}"/>
+    <!-- 球衣：下半圆大色块，一眼能认队色 -->
+    <path d="M6 30 L14 26 L34 26 L42 30 L39 48 L9 48 Z" fill="${kitP}" stroke="${kitOuter}" stroke-width="1.2"/>
+    <path d="M6 30 L14 26 L16 34 L10 38 Z" fill="${kitS}"/>
+    <path d="M42 30 L34 26 L32 34 L38 38 Z" fill="${kitS}"/>
+    <path d="M14 38 H34" stroke="${kitS}" stroke-width="2.2" stroke-linecap="round" opacity="0.95"/>
+    <circle cx="24" cy="35.5" r="2.4" fill="${kitS}" stroke="${kitOutline}" stroke-width="0.7"/>
+    ${gkBar}
+    <!-- 脖子 -->
+    <rect x="20" y="25" width="8" height="5" rx="1.5" fill="${skin}"/>
+    <!-- 大脸：占上半区主体，必须是肉色 -->
+    <ellipse cx="24" cy="${faceY}" rx="12.5" ry="12.2" fill="${skin}"/>
+    <ellipse cx="20" cy="15" rx="4" ry="2.6" fill="#fff" opacity="0.2"/>
+    ${hairCap}
+    ${eyes}
+    ${mouth}
+  </g>
+  <circle cx="24" cy="24" r="23" fill="none" stroke="${ring}" stroke-width="1.6"/>
+</svg>`;
+  return svg.replace("<svg ", `<svg data-ini="${escapeAttr(initials(opts.name))}" `);
+}
+
+/**
  * @param {object} opts
  * @param {AvatarMood} [opts.mood]
  */
@@ -339,17 +481,24 @@ export function renderAvatarSvg(opts = {}) {
   const pos = opts.pos || "";
   const age = opts.age || 25;
   const mood = opts.mood || "neutral";
-  // 战术板 / 列表小圆头像：紧凑五官 + 更亮肤色，避免糊成黑脸大眼
+  // ≤44px 或显式 token：走令牌路径（战术板 40 / 列表 26–30），彻底解决黑球
+  if (opts.token === true || (opts.token !== false && size <= 44 && role === "player")) {
+    return renderTokenAvatarSvg(opts);
+  }
+  // 中等尺寸（少见）：仍可用 compact 五官
   // 阈值 32：覆盖 26/28/30 常用尺寸，详情卡 64 等仍走完整五官
   const compact = opts.compact === true || size <= 32;
 
-  // 肤色：主色 + 轻微偏移；小尺寸抬亮并钳制最低亮度
+  // 肤色：主色 + 轻微偏移；compact 强制暖米色系，禁止近黑
   let skin = pick(SKINS, h, 1);
   skin = shiftHex(skin, ((h >> 8) % 7) - 3);
   if (compact) {
-    // 向暖米色靠拢，缩小时仍有「肉感」
-    skin = mixHex(skin, "#f0c9a8", 0.28);
-    if (luminance(skin) < 0.28) skin = mixHex(skin, "#e8b896", 0.45);
+    // 小尺寸只保留前 5 档浅/中肤，再整体抬亮——截图里的「黑球」主因是深肤+深发
+    const compactSkins = SKINS.slice(0, 5);
+    skin = pick(compactSkins, h, 1);
+    skin = mixHex(skin, "#f3d0b0", 0.42);
+    if (luminance(skin) < 0.42) skin = mixHex(skin, "#f5d7b8", 0.55);
+    if (luminance(skin) < 0.5) skin = mixHex(skin, "#ffe8d0", 0.35);
   } else if (luminance(skin) < 0.12) {
     skin = mixHex(skin, "#c68642", 0.35);
   }
@@ -357,6 +506,11 @@ export function renderAvatarSvg(opts = {}) {
   let hair = pick(HAIRS, h, 2);
   if (age >= 34 && (h & 1) === 0) hair = mixHex(hair, "#6b7280", 0.55);
   if (age >= 40) hair = pick(["#6b7280", "#9ca3af", "#d1d5db", mixHex(hair, "#9ca3af", 0.5)], h, 3);
+  if (compact) {
+    // 纯黑发在 30px 会糊成半个黑圆；抬到深褐/深灰并略掺肤色边
+    if (luminance(hair) < 0.12) hair = mixHex(hair, "#5c4033", 0.55);
+    else if (luminance(hair) < 0.2) hair = mixHex(hair, "#6b5344", 0.35);
+  }
 
   const kitPRaw = opts.kitPrimary || pick(BG_FALLBACK, h, 4);
   let kitSRaw = opts.kitSecondary || shiftHex(kitPRaw, -42);
@@ -378,21 +532,22 @@ export function renderAvatarSvg(opts = {}) {
   /**
    * 背景：中性冷灰（偏中亮），**零队色**
    * 刻意不用近黑海军蓝，避免和深蓝/黑色球衣糊在一起
+   * compact 再抬亮一档，绿茵战术板上对比更清楚
    */
-  let bgTop = "#4a556c";
-  let bgBot = "#343c50";
+  let bgTop = compact ? "#5c6780" : "#4a556c";
+  let bgBot = compact ? "#424b60" : "#343c50";
   if (role !== "player") {
     bgTop = pick(BG_FALLBACK, h, 5);
     bgBot = shiftHex(bgTop, 16);
   } else if (mood === "injured") {
-    bgTop = "#5a4550";
-    bgBot = "#3e3038";
+    bgTop = compact ? "#6a5560" : "#5a4550";
+    bgBot = compact ? "#4e4048" : "#3e3038";
   } else if (mood === "happy") {
-    bgTop = "#455a52";
-    bgBot = "#324038";
+    bgTop = compact ? "#556a60" : "#455a52";
+    bgBot = compact ? "#424e46" : "#324038";
   } else if (mood === "tired") {
-    bgTop = "#455060";
-    bgBot = "#333a48";
+    bgTop = compact ? "#556070" : "#455060";
+    bgBot = compact ? "#434a58" : "#333a48";
   }
 
   const bgLum = luminance(bgBot);
@@ -403,12 +558,12 @@ export function renderAvatarSvg(opts = {}) {
   const kitOuter = kitOuterStroke(kitP);
 
   const hairStyle = h % 7;
-  // 小尺寸略收脸宽，减少「大头黑脸」占满圆圈的感觉
-  const faceW = (compact ? 9.6 : 10.5) + (h % 4) * (compact ? 0.35 : 0.55);
-  const faceH = (compact ? 10.4 : 11.5) + (h % 3) * (compact ? 0.3 : 0.4);
+  // compact：脸略大、阴影浅，保证肉色面积压过头发
+  const faceW = (compact ? 10.2 : 10.5) + (h % 4) * (compact ? 0.25 : 0.55);
+  const faceH = (compact ? 10.8 : 11.5) + (h % 3) * (compact ? 0.2 : 0.4);
   const browY = 17.5 + (h % 3) * 0.4;
-  const skinShade = shiftHex(skin, compact ? -12 : -22);
-  const skinHi = shiftHex(skin, compact ? 14 : 18);
+  const skinShade = shiftHex(skin, compact ? -6 : -22);
+  const skinHi = shiftHex(skin, compact ? 18 : 18);
 
   let accessory = "";
   if (role === "coach") {
@@ -468,10 +623,11 @@ export function renderAvatarSvg(opts = {}) {
     }
   }
 
-  const hairPath = hairPaths(hairStyle, hair, h);
+  const hairPath = hairPaths(hairStyle, hair, h, compact);
 
   let facial = "";
-  if (age >= 27 && (h % 4) === 0 && mood !== "injured") {
+  // compact 不画胡须：30px 下会糊成嘴下黑斑
+  if (!compact && age >= 27 && (h % 4) === 0 && mood !== "injured") {
     // 短须 / 山羊胡
     if ((h >> 3) & 1) {
       facial = `<path d="M18 27.5 Q24 33 30 27.5" stroke="${shiftHex(hair, 15)}" stroke-width="1.5" fill="none" stroke-linecap="round" opacity="0.85"/>`;
@@ -511,12 +667,12 @@ export function renderAvatarSvg(opts = {}) {
   </defs>
   <g clip-path="url(#${clipId})">
     <rect width="48" height="48" fill="url(#${gradId})"/>
-    <circle cx="24" cy="52" r="18" fill="#0f172a" opacity="0.12"/>
-    <ellipse cx="24" cy="8" rx="16" ry="8" fill="#fff" opacity="0.1"/>
+    <circle cx="24" cy="52" r="18" fill="#0f172a" opacity="${compact ? 0.08 : 0.12}"/>
+    <ellipse cx="24" cy="8" rx="16" ry="8" fill="#fff" opacity="${compact ? 0.14 : 0.1}"/>
     ${accessory}
     <rect x="20" y="27.5" width="8" height="6.5" rx="1" fill="url(#${skinGradId})"/>
-    <ellipse cx="24" cy="19.5" rx="${faceW}" ry="${faceH}" fill="url(#${skinGradId})"/>
-    <ellipse cx="20" cy="18" rx="3.5" ry="2.2" fill="#fff" opacity="0.12"/>
+    <ellipse cx="24" cy="${compact ? 20.2 : 19.5}" rx="${faceW}" ry="${faceH}" fill="url(#${skinGradId})"/>
+    <ellipse cx="20" cy="${compact ? 18.5 : 18}" rx="3.5" ry="2.2" fill="#fff" opacity="${compact ? 0.18 : 0.12}"/>
     ${hairPath}
     ${brows}
     ${eyes}
@@ -554,6 +710,8 @@ export function avatarHtml(person, opts = {}) {
     kitSecondary,
     size,
     mood,
+    // 列表/战术板小尺寸强制 token，避免走完整小人再缩放
+    token: role === "player" && size <= 44 ? true : opts.token,
   });
   const moodTip =
     mood === "injured"

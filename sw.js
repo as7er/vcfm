@@ -2,7 +2,7 @@
  * JS/CSS/HTML：网络优先，避免改代码后仍吃旧缓存
  * 其它资源：缓存优先
  */
-const CACHE = "vcfm-v49";
+const CACHE = "vcfm-v51";
 const ASSETS = [
   "./",
   "./index.html",

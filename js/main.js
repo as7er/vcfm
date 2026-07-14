@@ -160,7 +160,7 @@ import {
   playerAvatarHtml,
   staffAvatarHtml,
   avatarHtml,
-} from "./avatar.js";
+} from "./avatar.js?v=51";
 
 /** 解雇后回菜单：优先提示换空槽开新档，避免误覆盖 */
 function handleSacked(result) {
@@ -2530,7 +2530,7 @@ function renderTactics() {
       const style = p
         ? `background:${kitBg};color:${kitNc};border-color:${kit.primary || "#fff"}`
         : "background:rgba(148,163,184,0.25);border-color:rgba(255,255,255,0.35)";
-      const av = p ? playerAvatarHtml(p, club, 30) : "";
+      const av = p ? playerAvatarHtml(p, club, 40) : "";
       const full = p
         ? `${shirtNo != null ? `#${shirtNo} ` : ""}${p.name} · ${POS_LABEL[slot.pos] || slot.pos}`
         : `${POS_LABEL[slot.pos] || slot.pos}`;
@@ -2576,7 +2576,7 @@ function renderTactics() {
             const unavail =
               (p.injured || 0) > 0 || (p.suspendedMatches || 0) > 0;
             const num = p.number != null ? `#${p.number}` : "";
-            const av = playerAvatarHtml(p, club, 30);
+            const av = playerAvatarHtml(p, club, 40);
             const fit = Math.round(p.fitness ?? 100);
             const status =
               (p.injured || 0) > 0

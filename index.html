@@ -866,11 +866,11 @@
     <div id="season-summary" class="season-summary hidden" role="dialog" aria-modal="true"></div>
   </div>
 
-  <script type="module" src="js/main.js?v=49"></script>
+  <script type="module" src="js/main.js?v=51"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {
-        navigator.serviceWorker.register("./sw.js?v=49").then(function (reg) {
+        navigator.serviceWorker.register("./sw.js?v=51").then(function (reg) {
           // 每次打开检查更新，避免卡在旧缓存
           try { reg.update(); } catch (e) {}
           if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });

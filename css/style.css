@@ -819,7 +819,7 @@ tr:hover td { background: var(--row-hover); }
 }
 .player-dot .circle {
   position: relative;
-  width: 38px; height: 38px; margin: 0 auto 2px;
+  width: 46px; height: 46px; margin: 0 auto 2px;
   border-radius: 50%;
   background: var(--primary);
   border: 2px solid #fff;
@@ -3351,6 +3351,9 @@ html[data-theme="light"] .player-modal-head .avatar {
   width: 100% !important;
   height: 100% !important;
   box-shadow: none;
+  background: transparent;
+  /* 战术板圆点内头像：去掉外圈阴影，避免叠出一圈脏边 */
+  filter: none;
 }
 .player-modal-head .avatar {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
