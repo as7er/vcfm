@@ -1893,6 +1893,117 @@ html[data-theme="light"] .team-talk-desc {
   color: #64748b;
 }
 
+/* 中场角色复盘 / 编辑 */
+.ht-role-review {
+  margin: 0 0 0.65rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  background: rgba(76, 29, 149, 0.15);
+  border: 1px solid rgba(167, 139, 250, 0.3);
+}
+.ht-role-review.hidden { display: none; }
+.ht-role-review-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.25rem 0.5rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.84rem;
+}
+.ht-role-contrib {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-bottom: 0.3rem;
+}
+.ht-role-chip {
+  font-size: 0.72rem;
+  padding: 0.12rem 0.4rem;
+  border-radius: 99px;
+  background: rgba(52, 211, 153, 0.12);
+  border: 1px solid rgba(52, 211, 153, 0.3);
+  color: #a7f3d0;
+}
+.ht-role-chip em {
+  font-style: normal;
+  opacity: 0.8;
+  margin: 0 0.15rem;
+}
+.ht-role-tips, .ht-role-tip {
+  font-size: 0.76rem;
+  color: #cbd5e1;
+  line-height: 1.4;
+}
+.ht-roles {
+  margin: 0 0 0.7rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  max-height: 14rem;
+  overflow-y: auto;
+}
+.ht-role-edit-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.25rem 0.5rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.82rem;
+}
+.ht-role-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.35rem;
+}
+.ht-role-edit {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  gap: 0.1rem 0.35rem;
+  padding: 0.3rem 0.4rem;
+  border-radius: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(2, 6, 23, 0.35);
+  font-size: 0.72rem;
+}
+.ht-role-edit-pos {
+  font-weight: 800;
+  color: #93c5fd;
+  grid-row: 1;
+}
+.ht-role-edit-name {
+  grid-column: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #e2e8f0;
+}
+.ht-role-edit select {
+  grid-column: 1 / -1;
+  font-size: 0.72rem;
+  padding: 0.15rem 0.25rem;
+}
+.report-role-review {
+  margin-top: 0.85rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid rgba(167, 139, 250, 0.3);
+  background: rgba(76, 29, 149, 0.1);
+  font-size: 0.86rem;
+}
+html[data-theme="light"] .ht-role-review,
+html[data-theme="light"] .report-role-review {
+  background: rgba(237, 233, 254, 0.85);
+}
+html[data-theme="light"] .ht-role-chip {
+  color: #065f46;
+  background: rgba(209, 250, 229, 0.9);
+}
+html[data-theme="light"] .ht-role-tips, html[data-theme="light"] .ht-role-tip {
+  color: #475569;
+}
+
 /* 中场提示条 */
 .ht-tips {
   display: flex;

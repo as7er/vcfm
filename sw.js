@@ -1,8 +1,6 @@
-/* VCFM · 离线缓存（GitHub Pages 友好）
- * JS/CSS/HTML：网络优先 + no-store，避免改代码后仍吃旧缓存
- * 其它资源：缓存优先
- */
-const CACHE = "vcfm-v57";
+﻿/* VCFM 路 绂荤嚎缂撳瓨锛圙itHub Pages 鍙嬪ソ锛? * JS/CSS/HTML锛氱綉缁滀紭鍏?+ no-store锛岄伩鍏嶆敼浠ｇ爜鍚庝粛鍚冩棫缂撳瓨
+ * 鍏跺畠璧勬簮锛氱紦瀛樹紭鍏? */
+const CACHE = "vcfm-v58";
 const ASSETS = [
   "./",
   "./index.html",
@@ -75,7 +73,7 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  // 代码资源：强制走网络（绕过 HTTP 缓存），失败再退回 SW 缓存
+  // 浠ｇ爜璧勬簮锛氬己鍒惰蛋缃戠粶锛堢粫杩?HTTP 缂撳瓨锛夛紝澶辫触鍐嶉€€鍥?SW 缂撳瓨
   if (isCodeAsset(url)) {
     event.respondWith(
       fetch(req, { cache: "no-store" })
@@ -91,8 +89,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 其它：缓存优先
-  event.respondWith(
+  // 鍏跺畠锛氱紦瀛樹紭鍏?  event.respondWith(
     caches.match(req).then((cached) => {
       const network = fetch(req)
         .then((res) => {
@@ -107,3 +104,4 @@ self.addEventListener("fetch", (event) => {
     })
   );
 });
+

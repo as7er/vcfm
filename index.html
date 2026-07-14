@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
@@ -6,14 +6,14 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="theme-color" content="#0b1220" />
-  <meta name="description" content="VCFM — 轻量足球经理，通勤也能玩" />
+  <meta name="description" content="VCFM 鈥?杞婚噺瓒崇悆缁忕悊锛岄€氬嫟涔熻兘鐜? />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icons/icon.svg" />
   <title>VCFM</title>
   <link rel="stylesheet" href="css/style.css" />
   <script>
-    /* 尽早应用主题/语言，避免闪白 */
+    /* 灏芥棭搴旂敤涓婚/璇█锛岄伩鍏嶉棯鐧?*/
     (function () {
       try {
         var th = localStorage.getItem("vcfm-theme") || localStorage.getItem("vc-fm-theme");
@@ -28,7 +28,7 @@
 </head>
 <body>
   <div id="app">
-    <!-- 开始界面 -->
+    <!-- 寮€濮嬬晫闈?-->
     <section id="screen-start" class="screen active">
       <div class="start-bg" aria-hidden="true">
         <div class="start-bg-sky"></div>
@@ -57,47 +57,47 @@
       <div class="start-card">
         <div class="prefs-bar">
           <div class="prefs-group">
-            <span data-i18n="prefs.theme">主题</span>
+            <span data-i18n="prefs.theme">涓婚</span>
             <div class="prefs-seg" role="group">
-              <button type="button" data-theme-btn="dark" data-i18n="prefs.theme.dark">夜间</button>
-              <button type="button" data-theme-btn="light" data-i18n="prefs.theme.light">日间</button>
+              <button type="button" data-theme-btn="dark" data-i18n="prefs.theme.dark">澶滈棿</button>
+              <button type="button" data-theme-btn="light" data-i18n="prefs.theme.light">鏃ラ棿</button>
             </div>
           </div>
           <div class="prefs-group">
-            <span data-i18n="prefs.lang">语言</span>
+            <span data-i18n="prefs.lang">璇█</span>
             <div class="prefs-seg" role="group">
-              <button type="button" data-lang-btn="zh" data-i18n="prefs.lang.zh">中文</button>
+              <button type="button" data-lang-btn="zh" data-i18n="prefs.lang.zh">涓枃</button>
               <button type="button" data-lang-btn="en" data-i18n="prefs.lang.en">EN</button>
             </div>
           </div>
         </div>
-        <div class="start-logo" aria-hidden="true">⚽</div>
+        <div class="start-logo" aria-hidden="true">鈿?/div>
         <h1 data-i18n="app.title">VCFM</h1>
-        <p class="subtitle" data-i18n="app.subtitle">轻量足球经理 · 灵感来自 FM</p>
+        <p class="subtitle" data-i18n="app.subtitle">杞婚噺瓒崇悆缁忕悊 路 鐏垫劅鏉ヨ嚜 FM</p>
         <div class="start-form">
-          <label><span data-i18n="start.manager">经理姓名</span>
-            <input id="input-manager" type="text" value="教练" maxlength="16" data-i18n-placeholder="start.manager.placeholder" />
+          <label><span data-i18n="start.manager">缁忕悊濮撳悕</span>
+            <input id="input-manager" type="text" value="鏁欑粌" maxlength="16" data-i18n-placeholder="start.manager.placeholder" />
           </label>
-          <label><span data-i18n="start.club">选择球队（仅乙级联赛）</span>
+          <label><span data-i18n="start.club">閫夋嫨鐞冮槦锛堜粎涔欑骇鑱旇禌锛?/span>
             <select id="select-club"></select>
           </label>
-          <p class="hint" style="margin:0" data-i18n="start.leagueHint">三级联赛：乙级 → 甲级 → 超联。开局只能从乙级起步，争取升级！</p>
+          <p class="hint" style="margin:0" data-i18n="start.leagueHint">涓夌骇鑱旇禌锛氫箼绾?鈫?鐢茬骇 鈫?瓒呰仈銆傚紑灞€鍙兘浠庝箼绾ц捣姝ワ紝浜夊彇鍗囩骇锛?/p>
 
           <div class="slot-section">
             <div class="row-between" style="margin-bottom:0.4rem">
-              <strong style="font-size:0.9rem" data-i18n="start.slots">存档槽</strong>
+              <strong style="font-size:0.9rem" data-i18n="start.slots">瀛樻。妲?/strong>
               <span class="muted" id="active-slot-label" style="font-size:0.8rem"></span>
             </div>
             <div id="save-slots" class="save-slots"></div>
-            <p class="hint save-tip" data-i18n-html="start.saveTipHtml">换手机/浏览器请先<strong>导出存档</strong>；清缓存会丢进度。</p>
+            <p class="hint save-tip" data-i18n-html="start.saveTipHtml">鎹㈡墜鏈?娴忚鍣ㄨ鍏?strong>瀵煎嚭瀛樻。</strong>锛涙竻缂撳瓨浼氫涪杩涘害銆?/p>
             <p id="export-reminder" class="export-reminder hidden" role="status"></p>
           </div>
 
-          <button id="btn-new-game" class="btn primary" data-i18n="start.newGame">开始新赛季</button>
-          <button id="btn-load-game" class="btn" data-i18n="start.loadGame">读取当前槽</button>
+          <button id="btn-new-game" class="btn primary" data-i18n="start.newGame">寮€濮嬫柊璧涘</button>
+          <button id="btn-load-game" class="btn" data-i18n="start.loadGame">璇诲彇褰撳墠妲?/button>
           <div class="start-save-row">
-            <button id="btn-export-save" class="btn small" type="button" data-i18n="start.export">导出存档</button>
-            <button id="btn-import-save" class="btn small" type="button" data-i18n="start.import">导入到当前槽</button>
+            <button id="btn-export-save" class="btn small" type="button" data-i18n="start.export">瀵煎嚭瀛樻。</button>
+            <button id="btn-import-save" class="btn small" type="button" data-i18n="start.import">瀵煎叆鍒板綋鍓嶆Ы</button>
             <input id="input-import-save" type="file" accept="application/json,.json" hidden />
           </div>
         </div>
@@ -105,143 +105,143 @@
       </div>
     </section>
 
-    <!-- 主界面 -->
+    <!-- 涓荤晫闈?-->
     <section id="screen-main" class="screen">
       <header class="topbar">
         <div class="brand">
-          <strong id="club-name">—</strong>
+          <strong id="club-name">鈥?/strong>
           <span id="manager-name" class="muted"></span>
         </div>
         <div class="meta">
-          <span id="season-label">赛季 2026</span>
+          <span id="season-label">璧涘 2026</span>
           <span id="date-label"></span>
           <span id="money-label" class="money"></span>
         </div>
         <nav class="tabs">
-          <button data-tab="dashboard" class="tab active" data-i18n="tab.dashboard">概览</button>
-          <button data-tab="squad" class="tab" data-i18n="tab.squad">阵容</button>
-          <button data-tab="youth" class="tab" data-i18n="tab.youth">青训</button>
-          <button data-tab="facilities" class="tab" data-i18n="tab.facilities">设施</button>
-          <button data-tab="staff" class="tab" data-i18n="tab.staff">职员</button>
-          <button data-tab="training" class="tab" data-i18n="tab.training">训练</button>
-          <button data-tab="tactics" class="tab" data-i18n="tab.tactics">战术</button>
-          <button data-tab="table" class="tab" data-i18n="tab.table">积分榜</button>
-          <button data-tab="clubs" class="tab" data-i18n="tab.clubs">俱乐部</button>
-          <button data-tab="stats" class="tab" data-i18n="tab.stats">数据榜</button>
-          <button data-tab="inbox" class="tab" data-i18n="tab.inbox">信箱</button>
-          <button data-tab="media" class="tab" data-i18n="tab.media">媒体</button>
-          <button data-tab="transfer" class="tab" data-i18n="tab.transfer">转会</button>
-          <button data-tab="career" class="tab" data-i18n="tab.career">生涯</button>
-          <button data-tab="fixtures" class="tab" data-i18n="tab.fixtures">赛程</button>
+          <button data-tab="dashboard" class="tab active" data-i18n="tab.dashboard">姒傝</button>
+          <button data-tab="squad" class="tab" data-i18n="tab.squad">闃靛</button>
+          <button data-tab="youth" class="tab" data-i18n="tab.youth">闈掕</button>
+          <button data-tab="facilities" class="tab" data-i18n="tab.facilities">璁炬柦</button>
+          <button data-tab="staff" class="tab" data-i18n="tab.staff">鑱屽憳</button>
+          <button data-tab="training" class="tab" data-i18n="tab.training">璁粌</button>
+          <button data-tab="tactics" class="tab" data-i18n="tab.tactics">鎴樻湳</button>
+          <button data-tab="table" class="tab" data-i18n="tab.table">绉垎姒?/button>
+          <button data-tab="clubs" class="tab" data-i18n="tab.clubs">淇变箰閮?/button>
+          <button data-tab="stats" class="tab" data-i18n="tab.stats">鏁版嵁姒?/button>
+          <button data-tab="inbox" class="tab" data-i18n="tab.inbox">淇＄</button>
+          <button data-tab="media" class="tab" data-i18n="tab.media">濯掍綋</button>
+          <button data-tab="transfer" class="tab" data-i18n="tab.transfer">杞細</button>
+          <button data-tab="career" class="tab" data-i18n="tab.career">鐢熸动</button>
+          <button data-tab="fixtures" class="tab" data-i18n="tab.fixtures">璧涚▼</button>
         </nav>
         <div class="actions">
           <div class="topbar-prefs">
             <div class="prefs-seg" role="group" aria-label="theme">
-              <button type="button" data-theme-btn="dark" title="Night">🌙</button>
-              <button type="button" data-theme-btn="light" title="Day">☀️</button>
+              <button type="button" data-theme-btn="dark" title="Night">馃寵</button>
+              <button type="button" data-theme-btn="light" title="Day">鈽€锔?/button>
             </div>
             <div class="prefs-seg" role="group" aria-label="language">
-              <button type="button" data-lang-btn="zh">中</button>
+              <button type="button" data-lang-btn="zh">涓?/button>
               <button type="button" data-lang-btn="en">EN</button>
             </div>
           </div>
-          <button id="btn-save" class="btn small" data-i18n="btn.save">存档</button>
-          <button id="btn-export-save-main" class="btn small ghost" type="button" data-i18n="btn.export">导出</button>
-          <button id="btn-menu" class="btn small ghost" data-i18n="btn.menu">菜单</button>
+          <button id="btn-save" class="btn small" data-i18n="btn.save">瀛樻。</button>
+          <button id="btn-export-save-main" class="btn small ghost" type="button" data-i18n="btn.export">瀵煎嚭</button>
+          <button id="btn-menu" class="btn small ghost" data-i18n="btn.menu">鑿滃崟</button>
         </div>
       </header>
 
       <main class="content">
-        <!-- 概览 -->
+        <!-- 姒傝 -->
         <div id="tab-dashboard" class="tab-panel active">
           <div class="grid-2">
             <div class="card">
-              <h2 data-i18n="dash.nextMatch">下一场比赛</h2>
-              <div id="next-match" class="next-match" data-i18n="dash.noFixture">暂无赛程</div>
+              <h2 data-i18n="dash.nextMatch">涓嬩竴鍦烘瘮璧?/h2>
+              <div id="next-match" class="next-match" data-i18n="dash.noFixture">鏆傛棤璧涚▼</div>
               <div class="dash-actions">
-                <button id="btn-play-match" class="btn primary" disabled data-i18n="dash.play">进入比赛</button>
-                <button id="btn-advance" class="btn" data-i18n="dash.advance">推进一天</button>
-                <button id="btn-advance-matchday" class="btn" data-i18n="dash.advanceMatchday">推进到比赛日</button>
-                <button id="btn-advance-season-end" class="btn" type="button" data-i18n="dash.advanceSeasonEnd" data-i18n-title="dash.advanceSeasonEndTitle">推进到赛季末</button>
-                <button id="btn-next-season" class="btn primary" style="display:none" data-i18n="dash.nextSeason">进入下一赛季</button>
+                <button id="btn-play-match" class="btn primary" disabled data-i18n="dash.play">杩涘叆姣旇禌</button>
+                <button id="btn-advance" class="btn" data-i18n="dash.advance">鎺ㄨ繘涓€澶?/button>
+                <button id="btn-advance-matchday" class="btn" data-i18n="dash.advanceMatchday">鎺ㄨ繘鍒版瘮璧涙棩</button>
+                <button id="btn-advance-season-end" class="btn" type="button" data-i18n="dash.advanceSeasonEnd" data-i18n-title="dash.advanceSeasonEndTitle">鎺ㄨ繘鍒拌禌瀛ｆ湯</button>
+                <button id="btn-next-season" class="btn primary" style="display:none" data-i18n="dash.nextSeason">杩涘叆涓嬩竴璧涘</button>
               </div>
             </div>
             <div class="card">
-              <h2 data-i18n="dash.rank">联赛排名</h2>
-              <div id="my-rank" class="rank-box">—</div>
-              <h3 data-i18n="dash.board">董事会目标</h3>
-              <div id="board-box" class="board-box">—</div>
-              <h3 data-i18n="dash.window">转会窗</h3>
-              <div id="transfer-window-dash" class="transfer-window-box">—</div>
-              <h3 data-i18n="dash.training">训练日程</h3>
-              <div id="training-dash" class="muted" style="margin-bottom:0.5rem">—</div>
-              <h3 data-i18n="dash.form">近期战绩</h3>
+              <h2 data-i18n="dash.rank">鑱旇禌鎺掑悕</h2>
+              <div id="my-rank" class="rank-box">鈥?/div>
+              <h3 data-i18n="dash.board">钁ｄ簨浼氱洰鏍?/h3>
+              <div id="board-box" class="board-box">鈥?/div>
+              <h3 data-i18n="dash.window">杞細绐?/h3>
+              <div id="transfer-window-dash" class="transfer-window-box">鈥?/div>
+              <h3 data-i18n="dash.training">璁粌鏃ョ▼</h3>
+              <div id="training-dash" class="muted" style="margin-bottom:0.5rem">鈥?/div>
+              <h3 data-i18n="dash.form">杩戞湡鎴樼哗</h3>
               <div id="form-strip" class="form-strip"></div>
-              <h3 data-i18n="dash.career">经理生涯</h3>
-              <div id="manager-career-dash" class="career-dash">—</div>
+              <h3 data-i18n="dash.career">缁忕悊鐢熸动</h3>
+              <div id="manager-career-dash" class="career-dash">鈥?/div>
             </div>
             <div class="card">
               <div class="row-between">
-                <h2 data-i18n="dash.inbox">信箱</h2>
-                <button type="button" class="btn small" id="btn-dash-inbox" data-i18n="inbox.open">打开信箱</button>
+                <h2 data-i18n="dash.inbox">淇＄</h2>
+                <button type="button" class="btn small" id="btn-dash-inbox" data-i18n="inbox.open">鎵撳紑淇＄</button>
               </div>
-              <div id="dash-inbox" class="dash-inbox muted">—</div>
+              <div id="dash-inbox" class="dash-inbox muted">鈥?/div>
             </div>
             <div class="card span-2">
-              <h2 data-i18n="dash.news">新闻</h2>
+              <h2 data-i18n="dash.news">鏂伴椈</h2>
               <ul id="news-list" class="news-list"></ul>
             </div>
           </div>
         </div>
 
-        <!-- 信箱 -->
+        <!-- 淇＄ -->
         <div id="tab-inbox" class="tab-panel">
           <div class="card">
             <div class="row-between">
-              <h2 data-i18n="inbox.title">经理信箱</h2>
+              <h2 data-i18n="inbox.title">缁忕悊淇＄</h2>
               <span class="muted" id="inbox-count"></span>
             </div>
             <p class="hint" data-i18n="inbox.hint">
-              董事会、转会报价、球探报告与球员诉求会集中在这里。待办优先处理，推进日程前建议先清空紧急邮件。
+              钁ｄ簨浼氥€佽浆浼氭姤浠枫€佺悆鎺㈡姤鍛婁笌鐞冨憳璇夋眰浼氶泦涓湪杩欓噷銆傚緟鍔炰紭鍏堝鐞嗭紝鎺ㄨ繘鏃ョ▼鍓嶅缓璁厛娓呯┖绱ф€ラ偖浠躲€?
             </p>
             <div class="inbox-filters" role="group" aria-label="inbox filter">
-              <button type="button" class="btn small active" data-inbox-filter="pending" data-i18n="inbox.filterPending">待办</button>
-              <button type="button" class="btn small" data-inbox-filter="all" data-i18n="inbox.filterAll">全部</button>
+              <button type="button" class="btn small active" data-inbox-filter="pending" data-i18n="inbox.filterPending">寰呭姙</button>
+              <button type="button" class="btn small" data-inbox-filter="all" data-i18n="inbox.filterAll">鍏ㄩ儴</button>
             </div>
             <div id="inbox-list" class="inbox-list"></div>
           </div>
         </div>
 
-        <!-- 阵容 -->
+        <!-- 闃靛 -->
         <div id="tab-squad" class="tab-panel">
           <div class="card">
             <div class="row-between">
-              <h2 data-i18n="squad.title">球队阵容</h2>
+              <h2 data-i18n="squad.title">鐞冮槦闃靛</h2>
               <span class="muted" id="squad-count"></span>
             </div>
             <p class="hint" style="margin:0.35rem 0 0.65rem" data-i18n="squad.seasonHint">
-              本赛季联赛数据：出场 / 进球（门将为零封）/ 助攻（门将为失球）/ 场均评分 / 最近评分（不含杯赛）
+              鏈禌瀛ｈ仈璧涙暟鎹細鍑哄満 / 杩涚悆锛堥棬灏嗕负闆跺皝锛? 鍔╂敾锛堥棬灏嗕负澶辩悆锛? 鍦哄潎璇勫垎 / 鏈€杩戣瘎鍒嗭紙涓嶅惈鏉禌锛?
             </p>
             <div class="table-wrap">
               <table id="squad-table">
                 <thead>
                   <tr>
                     <th data-i18n="th.num">#</th>
-                    <th data-i18n="th.name">姓名</th>
-                    <th data-i18n="th.nation">国籍</th>
-                    <th data-i18n="th.pos">位置</th>
-                    <th data-i18n="th.age">年龄</th>
-                    <th data-i18n="th.ovr">能力</th>
-                    <th data-i18n="th.apps" title="本赛季出场">出场</th>
-                    <th data-i18n="th.goals" title="本赛季进球 / 门将零封">进球</th>
-                    <th data-i18n="th.assists" title="本赛季助攻 / 门将失球">助攻</th>
-                    <th data-i18n="th.avgR" title="本赛季场均评分">场均</th>
-                    <th data-i18n="th.lastR" title="最近一场评分">最近</th>
-                    <th data-i18n="th.fit">体能</th>
-                    <th data-i18n="th.morale">士气</th>
-                    <th data-i18n="th.contract" title="合同年限">合同</th>
-                    <th data-i18n="th.scout">球探估值</th>
-                    <th data-i18n="th.wage">周薪</th>
+                    <th data-i18n="th.name">濮撳悕</th>
+                    <th data-i18n="th.nation">鍥界睄</th>
+                    <th data-i18n="th.pos">浣嶇疆</th>
+                    <th data-i18n="th.age">骞撮緞</th>
+                    <th data-i18n="th.ovr">鑳藉姏</th>
+                    <th data-i18n="th.apps" title="鏈禌瀛ｅ嚭鍦?>鍑哄満</th>
+                    <th data-i18n="th.goals" title="鏈禌瀛ｈ繘鐞?/ 闂ㄥ皢闆跺皝">杩涚悆</th>
+                    <th data-i18n="th.assists" title="鏈禌瀛ｅ姪鏀?/ 闂ㄥ皢澶辩悆">鍔╂敾</th>
+                    <th data-i18n="th.avgR" title="鏈禌瀛ｅ満鍧囪瘎鍒?>鍦哄潎</th>
+                    <th data-i18n="th.lastR" title="鏈€杩戜竴鍦鸿瘎鍒?>鏈€杩?/th>
+                    <th data-i18n="th.fit">浣撹兘</th>
+                    <th data-i18n="th.morale">澹皵</th>
+                    <th data-i18n="th.contract" title="鍚堝悓骞撮檺">鍚堝悓</th>
+                    <th data-i18n="th.scout">鐞冩帰浼板€?/th>
+                    <th data-i18n="th.wage">鍛ㄨ柂</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -251,29 +251,29 @@
           </div>
         </div>
 
-        <!-- 青训 -->
+        <!-- 闈掕 -->
         <div id="tab-youth" class="tab-panel">
           <div class="grid-2">
             <div class="card">
-              <h2 data-i18n="youth.title">青训学院</h2>
+              <h2 data-i18n="youth.title">闈掕瀛﹂櫌</h2>
               <div id="youth-info" class="rank-box" style="font-size:1rem;line-height:1.6"></div>
               <div style="margin-top:0.85rem;display:flex;gap:0.5rem;flex-wrap:wrap">
-                <button id="btn-youth-upgrade" class="btn primary" data-i18n="youth.upgrade">升级设施</button>
+                <button id="btn-youth-upgrade" class="btn primary" data-i18n="youth.upgrade">鍗囩骇璁炬柦</button>
               </div>
               <p class="hint" id="youth-hint" style="margin-top:0.75rem"></p>
             </div>
             <div class="card">
-              <h2 data-i18n="youth.helpTitle">说明</h2>
+              <h2 data-i18n="youth.helpTitle">璇存槑</h2>
               <ul class="news-list">
-                <li data-i18n="youth.help1">青训球员会随时间成长（每周概率涨属性）</li>
-                <li data-i18n="youth.help2">约每 30 天自动招生</li>
-                <li data-i18n="youth.help3">提拔可升入一线队；不合适可释放</li>
-                <li data-i18n="youth.help4">升级学院可提高容量、招生数与成长速度</li>
+                <li data-i18n="youth.help1">闈掕鐞冨憳浼氶殢鏃堕棿鎴愰暱锛堟瘡鍛ㄦ鐜囨定灞炴€э級</li>
+                <li data-i18n="youth.help2">绾︽瘡 30 澶╄嚜鍔ㄦ嫑鐢?/li>
+                <li data-i18n="youth.help3">鎻愭嫈鍙崌鍏ヤ竴绾块槦锛涗笉鍚堥€傚彲閲婃斁</li>
+                <li data-i18n="youth.help4">鍗囩骇瀛﹂櫌鍙彁楂樺閲忋€佹嫑鐢熸暟涓庢垚闀块€熷害</li>
               </ul>
             </div>
             <div class="card span-2">
               <div class="row-between">
-                <h2 data-i18n="youth.list">青训名单</h2>
+                <h2 data-i18n="youth.list">闈掕鍚嶅崟</h2>
                 <span class="muted" id="youth-count"></span>
               </div>
               <div class="table-wrap">
@@ -281,13 +281,13 @@
                   <thead>
                     <tr>
                       <th data-i18n="th.num">#</th>
-                      <th data-i18n="th.name">姓名</th>
-                      <th data-i18n="th.nation">国籍</th>
-                      <th data-i18n="th.pos">位置</th>
-                      <th data-i18n="th.age">年龄</th>
-                      <th data-i18n="th.ovr">能力</th>
-                      <th data-i18n="th.pot">潜力</th>
-                      <th data-i18n="th.wage">周薪</th>
+                      <th data-i18n="th.name">濮撳悕</th>
+                      <th data-i18n="th.nation">鍥界睄</th>
+                      <th data-i18n="th.pos">浣嶇疆</th>
+                      <th data-i18n="th.age">骞撮緞</th>
+                      <th data-i18n="th.ovr">鑳藉姏</th>
+                      <th data-i18n="th.pot">娼滃姏</th>
+                      <th data-i18n="th.wage">鍛ㄨ柂</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -298,42 +298,42 @@
           </div>
         </div>
 
-        <!-- 设施 -->
+        <!-- 璁炬柦 -->
         <div id="tab-facilities" class="tab-panel">
           <div class="grid-2">
             <div class="card span-2">
-              <h2 data-i18n="fac.title">俱乐部设施</h2>
+              <h2 data-i18n="fac.title">淇变箰閮ㄨ鏂?/h2>
               <p class="hint" id="facilities-hint" data-i18n="fac.hint">
-                扩建球场提高主场收入；升级训练设施加快成长与恢复；青训设施提高招生与培养。升级需建设工期，期间不可重复开工。
+                鎵╁缓鐞冨満鎻愰珮涓诲満鏀跺叆锛涘崌绾ц缁冭鏂藉姞蹇垚闀夸笌鎭㈠锛涢潚璁鏂芥彁楂樻嫑鐢熶笌鍩瑰吇銆傚崌绾ч渶寤鸿宸ユ湡锛屾湡闂翠笉鍙噸澶嶅紑宸ャ€?
               </p>
               <div id="facilities-grid" class="facilities-grid"></div>
             </div>
           </div>
         </div>
 
-        <!-- 职员 -->
+        <!-- 鑱屽憳 -->
         <div id="tab-staff" class="tab-panel">
           <div class="grid-2">
             <div class="card span-2">
-              <h2 data-i18n="staff.title">教练团队</h2>
-              <p class="hint" data-i18n="staff.hint">教练强化比赛与成长 · 球探优化转会与青训 · 队医降低伤病、加速恢复。周薪计入工资单。</p>
+              <h2 data-i18n="staff.title">鏁欑粌鍥㈤槦</h2>
+              <p class="hint" data-i18n="staff.hint">鏁欑粌寮哄寲姣旇禌涓庢垚闀?路 鐞冩帰浼樺寲杞細涓庨潚璁?路 闃熷尰闄嶄綆浼ょ梾銆佸姞閫熸仮澶嶃€傚懆钖鍏ュ伐璧勫崟銆?/p>
               <div id="staff-current" class="staff-grid"></div>
             </div>
             <div class="card span-2">
               <div class="row-between">
-                <h2 data-i18n="staff.market">职员市场</h2>
-                <button id="btn-refresh-staff" class="btn small" data-i18n="staff.refresh">刷新候选人</button>
+                <h2 data-i18n="staff.market">鑱屽憳甯傚満</h2>
+                <button id="btn-refresh-staff" class="btn small" data-i18n="staff.refresh">鍒锋柊鍊欓€変汉</button>
               </div>
               <div class="table-wrap">
                 <table id="staff-market-table">
                   <thead>
                     <tr>
-                      <th data-i18n="th.name">姓名</th>
-                      <th data-i18n="th.role">职位</th>
-                      <th data-i18n="th.ovr">能力</th>
-                      <th data-i18n="th.age">年龄</th>
-                      <th data-i18n="th.wage">周薪</th>
-                      <th data-i18n="th.fee">签约费</th>
+                      <th data-i18n="th.name">濮撳悕</th>
+                      <th data-i18n="th.role">鑱屼綅</th>
+                      <th data-i18n="th.ovr">鑳藉姏</th>
+                      <th data-i18n="th.age">骞撮緞</th>
+                      <th data-i18n="th.wage">鍛ㄨ柂</th>
+                      <th data-i18n="th.fee">绛剧害璐?/th>
                       <th></th>
                     </tr>
                   </thead>
@@ -344,87 +344,87 @@
           </div>
         </div>
 
-        <!-- 训练 -->
+        <!-- 璁粌 -->
         <div id="tab-training" class="tab-panel">
           <div class="grid-2">
             <div class="card">
-              <h2 data-i18n="train.focus">训练重点</h2>
-              <p class="hint" data-i18n="train.focusHint">每日推进时生效；高强度更易成长也更易受伤。教练能力影响成长与恢复。</p>
+              <h2 data-i18n="train.focus">璁粌閲嶇偣</h2>
+              <p class="hint" data-i18n="train.focusHint">姣忔棩鎺ㄨ繘鏃剁敓鏁堬紱楂樺己搴︽洿鏄撴垚闀夸篃鏇存槗鍙椾激銆傛暀缁冭兘鍔涘奖鍝嶆垚闀夸笌鎭㈠銆?/p>
               <div id="training-focus-list" class="training-options"></div>
             </div>
             <div class="card">
-              <h2 data-i18n="train.intensity">训练强度</h2>
+              <h2 data-i18n="train.intensity">璁粌寮哄害</h2>
               <div id="training-intensity-list" class="training-options intensity"></div>
               <div id="training-summary" class="training-summary"></div>
-              <h3 data-i18n="train.fitness">阵容体能一览</h3>
+              <h3 data-i18n="train.fitness">闃靛浣撹兘涓€瑙?/h3>
               <div id="training-fitness-bar" class="training-fitness"></div>
               <p class="hint" id="training-hint" style="margin-top:0.75rem"></p>
             </div>
           </div>
         </div>
 
-        <!-- 战术 -->
+        <!-- 鎴樻湳 -->
         <div id="tab-tactics" class="tab-panel">
           <div class="grid-2">
             <div class="card">
-              <h2 data-i18n="tac.formation">阵型</h2>
+              <h2 data-i18n="tac.formation">闃靛瀷</h2>
               <select id="formation-select"></select>
               <p class="hint" id="formation-desc" style="margin:0.35rem 0 0.6rem"></p>
               <div id="pitch" class="pitch" aria-label="tactics pitch"></div>
               <div class="tac-bench-wrap">
                 <div class="row-between" style="align-items:center;gap:0.5rem;margin:0.65rem 0 0.35rem">
-                  <h3 class="tac-bench-title" data-i18n="tac.bench">替补席</h3>
-                  <span class="hint" id="tac-pick-hint" data-i18n="tac.dragHint">拖到场上换人；或点选再点槽位</span>
+                  <h3 class="tac-bench-title" data-i18n="tac.bench">鏇胯ˉ甯?/h3>
+                  <span class="hint" id="tac-pick-hint" data-i18n="tac.dragHint">鎷栧埌鍦轰笂鎹汉锛涙垨鐐归€夊啀鐐规Ы浣?/span>
                 </div>
                 <div id="tac-bench" class="tac-bench" role="list"></div>
               </div>
-              <p class="hint" data-i18n="tac.pitchHint" style="margin-top:0.6rem">拖拽换人；每人下方可选角色指令。点名牌可查看资料。首发会尽量保留到开球。</p>
+              <p class="hint" data-i18n="tac.pitchHint" style="margin-top:0.6rem">鎷栨嫿鎹汉锛涙瘡浜轰笅鏂瑰彲閫夎鑹叉寚浠ゃ€傜偣鍚嶇墝鍙煡鐪嬭祫鏂欍€傞鍙戜細灏介噺淇濈暀鍒板紑鐞冦€?/p>
             </div>
             <div class="card">
-              <h2 data-i18n="tac.style">战术倾向</h2>
+              <h2 data-i18n="tac.style">鎴樻湳鍊惧悜</h2>
               <div class="tac-presets" id="tac-presets" role="group" aria-label="presets"></div>
-              <label><span data-i18n="tac.styleLabel">风格</span>
+              <label><span data-i18n="tac.styleLabel">椋庢牸</span>
                 <select id="style-select">
-                  <option value="balanced" data-i18n="style.balanced">均衡</option>
-                  <option value="attack" data-i18n="style.attack">进攻</option>
-                  <option value="defend" data-i18n="style.defend">防守</option>
-                  <option value="possession" data-i18n="style.possession">控球</option>
-                  <option value="counter" data-i18n="style.counter">反击</option>
+                  <option value="balanced" data-i18n="style.balanced">鍧囪　</option>
+                  <option value="attack" data-i18n="style.attack">杩涙敾</option>
+                  <option value="defend" data-i18n="style.defend">闃插畧</option>
+                  <option value="possession" data-i18n="style.possession">鎺х悆</option>
+                  <option value="counter" data-i18n="style.counter">鍙嶅嚮</option>
                 </select>
               </label>
-              <label><span data-i18n="tac.pressing">压迫强度</span>
+              <label><span data-i18n="tac.pressing">鍘嬭揩寮哄害</span>
                 <input id="pressing" type="range" min="1" max="5" value="3" />
-                <span id="pressing-val" class="tac-slider-val">3 · 标准</span>
+                <span id="pressing-val" class="tac-slider-val">3 路 鏍囧噯</span>
               </label>
-              <label><span data-i18n="tac.tempo">传球节奏</span>
+              <label><span data-i18n="tac.tempo">浼犵悆鑺傚</span>
                 <input id="tempo" type="range" min="1" max="5" value="3" />
-                <span id="tempo-val" class="tac-slider-val">3 · 标准</span>
+                <span id="tempo-val" class="tac-slider-val">3 路 鏍囧噯</span>
               </label>
-              <label><span data-i18n="tac.width">进攻宽度</span>
+              <label><span data-i18n="tac.width">杩涙敾瀹藉害</span>
                 <input id="width" type="range" min="1" max="5" value="3" />
-                <span id="width-val" class="tac-slider-val">3 · 标准</span>
+                <span id="width-val" class="tac-slider-val">3 路 鏍囧噯</span>
               </label>
-              <label><span data-i18n="tac.defLine">防线高度</span>
+              <label><span data-i18n="tac.defLine">闃茬嚎楂樺害</span>
                 <input id="defensive-line" type="range" min="1" max="5" value="3" />
-                <span id="defensive-line-val" class="tac-slider-val">3 · 标准</span>
+                <span id="defensive-line-val" class="tac-slider-val">3 路 鏍囧噯</span>
               </label>
               <div id="tac-summary" class="tac-summary" aria-live="polite"></div>
-              <p class="hint" data-i18n="tac.hint">阵型、风格、滑条与角色指令都会影响攻防、控球、犯规与体能；风格之间存在克制。</p>
-              <button id="btn-auto-xi" class="btn" data-i18n="tac.autoXi">自动排出最佳十一人</button>
+              <p class="hint" data-i18n="tac.hint">闃靛瀷銆侀鏍笺€佹粦鏉′笌瑙掕壊鎸囦护閮戒細褰卞搷鏀婚槻銆佹帶鐞冦€佺姱瑙勪笌浣撹兘锛涢鏍间箣闂村瓨鍦ㄥ厠鍒躲€?/p>
+              <button id="btn-auto-xi" class="btn" data-i18n="tac.autoXi">鑷姩鎺掑嚭鏈€浣冲崄涓€浜?/button>
             </div>
           </div>
         </div>
 
-        <!-- 积分榜 -->
+        <!-- 绉垎姒?-->
         <div id="tab-table" class="tab-panel">
           <div class="card">
             <div class="row-between" style="flex-wrap:wrap;gap:0.5rem">
-              <h2 id="table-title" style="margin:0" data-i18n="table.title">联赛积分榜</h2>
+              <h2 id="table-title" style="margin:0" data-i18n="table.title">鑱旇禌绉垎姒?/h2>
               <div class="filters" style="margin:0">
                 <select id="table-division">
-                  <option value="3" data-i18n="div.3">乙级联赛</option>
-                  <option value="2" data-i18n="div.2">甲级联赛</option>
-                  <option value="1" data-i18n="div.1">超级联赛</option>
+                  <option value="3" data-i18n="div.3">涔欑骇鑱旇禌</option>
+                  <option value="2" data-i18n="div.2">鐢茬骇鑱旇禌</option>
+                  <option value="1" data-i18n="div.1">瓒呯骇鑱旇禌</option>
                 </select>
               </div>
             </div>
@@ -434,15 +434,15 @@
                 <thead>
                   <tr>
                     <th data-i18n="th.num">#</th>
-                    <th data-i18n="th.club">球队</th>
-                    <th data-i18n="th.p">赛</th>
-                    <th data-i18n="th.w">胜</th>
-                    <th data-i18n="th.d">平</th>
-                    <th data-i18n="th.l">负</th>
-                    <th data-i18n="th.gf">进</th>
-                    <th data-i18n="th.gaShort">失</th>
-                    <th data-i18n="th.gd">净</th>
-                    <th data-i18n="th.pts">分</th>
+                    <th data-i18n="th.club">鐞冮槦</th>
+                    <th data-i18n="th.p">璧?/th>
+                    <th data-i18n="th.w">鑳?/th>
+                    <th data-i18n="th.d">骞?/th>
+                    <th data-i18n="th.l">璐?/th>
+                    <th data-i18n="th.gf">杩?/th>
+                    <th data-i18n="th.gaShort">澶?/th>
+                    <th data-i18n="th.gd">鍑€</th>
+                    <th data-i18n="th.pts">鍒?/th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -451,35 +451,35 @@
           </div>
         </div>
 
-        <!-- 俱乐部浏览器 -->
+        <!-- 淇变箰閮ㄦ祻瑙堝櫒 -->
         <div id="tab-clubs" class="tab-panel">
           <div class="card">
             <div class="row-between" style="flex-wrap:wrap;gap:0.5rem">
-              <h2 style="margin:0" data-i18n="clubs.title">俱乐部一览</h2>
+              <h2 style="margin:0" data-i18n="clubs.title">淇变箰閮ㄤ竴瑙?/h2>
               <div class="filters" style="margin:0;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
                 <select id="clubs-division">
-                  <option value="all" data-i18n="clubs.allDiv">全部级别</option>
-                  <option value="3" data-i18n="div.3">乙级联赛</option>
-                  <option value="2" data-i18n="div.2">甲级联赛</option>
-                  <option value="1" data-i18n="div.1">超级联赛</option>
+                  <option value="all" data-i18n="clubs.allDiv">鍏ㄩ儴绾у埆</option>
+                  <option value="3" data-i18n="div.3">涔欑骇鑱旇禌</option>
+                  <option value="2" data-i18n="div.2">鐢茬骇鑱旇禌</option>
+                  <option value="1" data-i18n="div.1">瓒呯骇鑱旇禌</option>
                 </select>
-                <input id="clubs-search" type="search" data-i18n-placeholder="clubs.searchPh" placeholder="搜索队名…" style="min-width:10rem" />
+                <input id="clubs-search" type="search" data-i18n-placeholder="clubs.searchPh" placeholder="鎼滅储闃熷悕鈥? style="min-width:10rem" />
               </div>
             </div>
             <p class="hint" style="margin:0.5rem 0 0.75rem" data-i18n="clubs.hint">
-              浏览三级联赛全部球队：积分、阵容实力、近期赛程。也可从积分榜或赛程点击队名打开。
+              娴忚涓夌骇鑱旇禌鍏ㄩ儴鐞冮槦锛氱Н鍒嗐€侀樀瀹瑰疄鍔涖€佽繎鏈熻禌绋嬨€備篃鍙粠绉垎姒滄垨璧涚▼鐐瑰嚮闃熷悕鎵撳紑銆?
             </p>
             <div class="table-wrap">
               <table id="clubs-table">
                 <thead>
                   <tr>
-                    <th data-i18n="th.club">球队</th>
-                    <th data-i18n="th.div">联赛</th>
-                    <th data-i18n="th.rank">排名</th>
-                    <th data-i18n="th.pts">分</th>
-                    <th data-i18n="th.form">近况</th>
-                    <th data-i18n="th.squadAvg">阵容</th>
-                    <th data-i18n="th.money">资金</th>
+                    <th data-i18n="th.club">鐞冮槦</th>
+                    <th data-i18n="th.div">鑱旇禌</th>
+                    <th data-i18n="th.rank">鎺掑悕</th>
+                    <th data-i18n="th.pts">鍒?/th>
+                    <th data-i18n="th.form">杩戝喌</th>
+                    <th data-i18n="th.squadAvg">闃靛</th>
+                    <th data-i18n="th.money">璧勯噾</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -489,37 +489,37 @@
           </div>
         </div>
 
-        <!-- 媒体 -->
+        <!-- 濯掍綋 -->
         <div id="tab-media" class="tab-panel">
           <div class="grid-2">
             <div class="card span-2">
               <div class="row-between">
-                <h2 data-i18n="media.title">媒体中心</h2>
+                <h2 data-i18n="media.title">濯掍綋涓績</h2>
                 <span class="muted" id="media-count"></span>
               </div>
-              <p class="hint" data-i18n="media.hint">赛后通稿、转会官宣、青训特写、传闻与专栏都会出现在这里。</p>
+              <p class="hint" data-i18n="media.hint">璧涘悗閫氱銆佽浆浼氬畼瀹ｃ€侀潚璁壒鍐欍€佷紶闂讳笌涓撴爮閮戒細鍑虹幇鍦ㄨ繖閲屻€?/p>
               <div id="media-feed" class="media-feed"></div>
             </div>
           </div>
         </div>
 
-        <!-- 数据榜 -->
+        <!-- 鏁版嵁姒?-->
         <div id="tab-stats" class="tab-panel">
           <div class="grid-2">
             <div class="card">
-              <h2 data-i18n="stats.goals">射手榜</h2>
-              <p class="hint" style="margin:0.25rem 0 0.5rem" data-i18n="stats.leagueOnly">仅统计本级联赛（不含杯赛）</p>
+              <h2 data-i18n="stats.goals">灏勬墜姒?/h2>
+              <p class="hint" style="margin:0.25rem 0 0.5rem" data-i18n="stats.leagueOnly">浠呯粺璁℃湰绾ц仈璧涳紙涓嶅惈鏉禌锛?/p>
               <div class="table-wrap">
                 <table id="stats-goals">
                   <thead>
                     <tr>
                       <th data-i18n="th.num">#</th>
-                      <th data-i18n="th.player">球员</th>
-                      <th data-i18n="th.club">球队</th>
-                      <th data-i18n="th.goals">进球</th>
-                      <th data-i18n="th.assists">助攻</th>
-                      <th data-i18n="th.apps">出场</th>
-                      <th data-i18n="th.avgR">场均</th>
+                      <th data-i18n="th.player">鐞冨憳</th>
+                      <th data-i18n="th.club">鐞冮槦</th>
+                      <th data-i18n="th.goals">杩涚悆</th>
+                      <th data-i18n="th.assists">鍔╂敾</th>
+                      <th data-i18n="th.apps">鍑哄満</th>
+                      <th data-i18n="th.avgR">鍦哄潎</th>
                     </tr>
                   </thead>
                   <tbody></tbody>
@@ -527,19 +527,19 @@
               </div>
             </div>
             <div class="card">
-              <h2 data-i18n="stats.assists">助攻榜</h2>
-              <p class="hint" style="margin:0.25rem 0 0.5rem" data-i18n="stats.leagueOnly">仅统计本级联赛（不含杯赛）</p>
+              <h2 data-i18n="stats.assists">鍔╂敾姒?/h2>
+              <p class="hint" style="margin:0.25rem 0 0.5rem" data-i18n="stats.leagueOnly">浠呯粺璁℃湰绾ц仈璧涳紙涓嶅惈鏉禌锛?/p>
               <div class="table-wrap">
                 <table id="stats-assists">
                   <thead>
                     <tr>
                       <th data-i18n="th.num">#</th>
-                      <th data-i18n="th.player">球员</th>
-                      <th data-i18n="th.club">球队</th>
-                      <th data-i18n="th.assists">助攻</th>
-                      <th data-i18n="th.goals">进球</th>
-                      <th data-i18n="th.apps">出场</th>
-                      <th data-i18n="th.avgR">场均</th>
+                      <th data-i18n="th.player">鐞冨憳</th>
+                      <th data-i18n="th.club">鐞冮槦</th>
+                      <th data-i18n="th.assists">鍔╂敾</th>
+                      <th data-i18n="th.goals">杩涚悆</th>
+                      <th data-i18n="th.apps">鍑哄満</th>
+                      <th data-i18n="th.avgR">鍦哄潎</th>
                     </tr>
                   </thead>
                   <tbody></tbody>
@@ -547,18 +547,18 @@
               </div>
             </div>
             <div class="card">
-              <h2 data-i18n="stats.ratings">评分榜</h2>
-              <p class="hint" style="margin:0.25rem 0 0.5rem" data-i18n="stats.ratingsHint">本级联赛 · 至少 3 场出场 · 场均评分</p>
+              <h2 data-i18n="stats.ratings">璇勫垎姒?/h2>
+              <p class="hint" style="margin:0.25rem 0 0.5rem" data-i18n="stats.ratingsHint">鏈骇鑱旇禌 路 鑷冲皯 3 鍦哄嚭鍦?路 鍦哄潎璇勫垎</p>
               <div class="table-wrap">
                 <table id="stats-ratings">
                   <thead>
                     <tr>
                       <th data-i18n="th.num">#</th>
-                      <th data-i18n="th.player">球员</th>
-                      <th data-i18n="th.club">球队</th>
-                      <th data-i18n="th.avgR">场均</th>
-                      <th data-i18n="th.lastR">最近</th>
-                      <th data-i18n="th.apps">出场</th>
+                      <th data-i18n="th.player">鐞冨憳</th>
+                      <th data-i18n="th.club">鐞冮槦</th>
+                      <th data-i18n="th.avgR">鍦哄潎</th>
+                      <th data-i18n="th.lastR">鏈€杩?/th>
+                      <th data-i18n="th.apps">鍑哄満</th>
                     </tr>
                   </thead>
                   <tbody></tbody>
@@ -566,20 +566,20 @@
               </div>
             </div>
             <div class="card">
-              <h2 data-i18n="stats.keepers">门将榜（零封 / 失球）</h2>
-              <p class="hint" style="margin:0.25rem 0 0.5rem" data-i18n="stats.leagueOnly">仅统计本级联赛（不含杯赛）</p>
+              <h2 data-i18n="stats.keepers">闂ㄥ皢姒滐紙闆跺皝 / 澶辩悆锛?/h2>
+              <p class="hint" style="margin:0.25rem 0 0.5rem" data-i18n="stats.leagueOnly">浠呯粺璁℃湰绾ц仈璧涳紙涓嶅惈鏉禌锛?/p>
               <div class="table-wrap">
                 <table id="stats-keepers">
                   <thead>
                     <tr>
                       <th data-i18n="th.num">#</th>
-                      <th data-i18n="th.gk">门将</th>
-                      <th data-i18n="th.club">球队</th>
-                      <th data-i18n="th.apps">出场</th>
-                      <th data-i18n="th.cs">零封</th>
-                      <th data-i18n="th.ga">失球</th>
-                      <th data-i18n="th.gavg">场均失球</th>
-                      <th data-i18n="th.avgR">场均</th>
+                      <th data-i18n="th.gk">闂ㄥ皢</th>
+                      <th data-i18n="th.club">鐞冮槦</th>
+                      <th data-i18n="th.apps">鍑哄満</th>
+                      <th data-i18n="th.cs">闆跺皝</th>
+                      <th data-i18n="th.ga">澶辩悆</th>
+                      <th data-i18n="th.gavg">鍦哄潎澶辩悆</th>
+                      <th data-i18n="th.avgR">鍦哄潎</th>
                     </tr>
                   </thead>
                   <tbody></tbody>
@@ -589,52 +589,52 @@
           </div>
         </div>
 
-        <!-- 生涯 / 荣誉 -->
+        <!-- 鐢熸动 / 鑽ｈ獕 -->
         <div id="tab-career" class="tab-panel">
           <div id="career-panel"></div>
         </div>
 
-        <!-- 转会 -->
+        <!-- 杞細 -->
         <div id="tab-transfer" class="tab-panel">
           <div class="grid-2">
             <div class="card span-2">
-              <h2 data-i18n="contract.panelTitle">合同与租借</h2>
+              <h2 data-i18n="contract.panelTitle">鍚堝悓涓庣鍊?/h2>
               <p class="hint" style="margin:0 0 0.65rem" data-i18n="contract.panelHint">
-                续约/解约任意日可操作；外租与租入仅转会窗内。窗外召回需支付召回费。
+                缁害/瑙ｇ害浠绘剰鏃ュ彲鎿嶄綔锛涘绉熶笌绉熷叆浠呰浆浼氱獥鍐呫€傜獥澶栧彫鍥為渶鏀粯鍙洖璐广€?
               </p>
-              <div id="contracts-loans-panel" class="contracts-loans-panel">—</div>
+              <div id="contracts-loans-panel" class="contracts-loans-panel">鈥?/div>
             </div>
             <div class="card span-2">
-              <h2 data-i18n="tr.poach">来自其他俱乐部的报价</h2>
-              <div id="poach-bids" class="poach-bids">—</div>
-              <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem" data-i18n="transfer.scoutWatch">球探关注</h3>
-              <div id="scout-watch-list" class="scout-watch-list">—</div>
+              <h2 data-i18n="tr.poach">鏉ヨ嚜鍏朵粬淇变箰閮ㄧ殑鎶ヤ环</h2>
+              <div id="poach-bids" class="poach-bids">鈥?/div>
+              <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem" data-i18n="transfer.scoutWatch">鐞冩帰鍏虫敞</h3>
+              <div id="scout-watch-list" class="scout-watch-list">鈥?/div>
             </div>
             <div class="card">
-              <h2 data-i18n="tr.market">转会市场</h2>
-              <div id="transfer-window-status" class="transfer-window-box" style="margin-bottom:0.75rem">—</div>
-              <p class="hint" style="margin-top:0" data-i18n="tr.hint">夏窗 D1–D35 · 冬窗 D120–D145；窗外无法买卖（AI 同样受限）。买入可谈合同年限与周薪。</p>
+              <h2 data-i18n="tr.market">杞細甯傚満</h2>
+              <div id="transfer-window-status" class="transfer-window-box" style="margin-bottom:0.75rem">鈥?/div>
+              <p class="hint" style="margin-top:0" data-i18n="tr.hint">澶忕獥 D1鈥揇35 路 鍐獥 D120鈥揇145锛涚獥澶栨棤娉曚拱鍗栵紙AI 鍚屾牱鍙楅檺锛夈€備拱鍏ュ彲璋堝悎鍚屽勾闄愪笌鍛ㄨ柂銆?/p>
               <div class="filters">
                 <select id="filter-pos">
-                  <option value="" data-i18n="tr.allPos">全部位置</option>
-                  <option value="GK" data-i18n="pos.GK">门将</option>
-                  <option value="DEF" data-i18n="pos.DEF">后卫</option>
-                  <option value="MID" data-i18n="pos.MID">中场</option>
-                  <option value="ATT" data-i18n="pos.ATT">前锋</option>
+                  <option value="" data-i18n="tr.allPos">鍏ㄩ儴浣嶇疆</option>
+                  <option value="GK" data-i18n="pos.GK">闂ㄥ皢</option>
+                  <option value="DEF" data-i18n="pos.DEF">鍚庡崼</option>
+                  <option value="MID" data-i18n="pos.MID">涓満</option>
+                  <option value="ATT" data-i18n="pos.ATT">鍓嶉攱</option>
                 </select>
-                <button id="btn-refresh-market" class="btn small" data-i18n="tr.refresh">刷新列表</button>
+                <button id="btn-refresh-market" class="btn small" data-i18n="tr.refresh">鍒锋柊鍒楄〃</button>
               </div>
               <div class="table-wrap">
                 <table id="market-table">
                   <thead>
                     <tr>
-                      <th data-i18n="th.name">姓名</th>
-                      <th data-i18n="th.nation">国籍</th>
-                      <th data-i18n="th.pos">位置</th>
-                      <th data-i18n="th.ovr">能力</th>
-                      <th data-i18n="th.age">年龄</th>
-                      <th data-i18n="th.club">球队</th>
-                      <th data-i18n="th.value">身价</th>
+                      <th data-i18n="th.name">濮撳悕</th>
+                      <th data-i18n="th.nation">鍥界睄</th>
+                      <th data-i18n="th.pos">浣嶇疆</th>
+                      <th data-i18n="th.ovr">鑳藉姏</th>
+                      <th data-i18n="th.age">骞撮緞</th>
+                      <th data-i18n="th.club">鐞冮槦</th>
+                      <th data-i18n="th.value">韬环</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -643,16 +643,16 @@
               </div>
             </div>
             <div class="card">
-              <h2 data-i18n="tr.sell">可出售球员</h2>
+              <h2 data-i18n="tr.sell">鍙嚭鍞悆鍛?/h2>
               <div class="table-wrap">
                 <table id="sell-table">
                   <thead>
                     <tr>
-                      <th data-i18n="th.name">姓名</th>
-                      <th data-i18n="th.nation">国籍</th>
-                      <th data-i18n="th.pos">位置</th>
-                      <th data-i18n="th.ovr">能力</th>
-                      <th data-i18n="th.value">身价</th>
+                      <th data-i18n="th.name">濮撳悕</th>
+                      <th data-i18n="th.nation">鍥界睄</th>
+                      <th data-i18n="th.pos">浣嶇疆</th>
+                      <th data-i18n="th.ovr">鑳藉姏</th>
+                      <th data-i18n="th.value">韬环</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -663,20 +663,20 @@
           </div>
         </div>
 
-        <!-- 赛程 -->
+        <!-- 璧涚▼ -->
         <div id="tab-fixtures" class="tab-panel">
           <div class="card">
-            <h2 data-i18n="fix.title">本队赛程</h2>
+            <h2 data-i18n="fix.title">鏈槦璧涚▼</h2>
             <div class="table-wrap">
               <table id="fixtures-table">
                 <thead>
                   <tr>
-                    <th data-i18n="th.round">轮次</th>
-                    <th data-i18n="th.date">日期</th>
-                    <th data-i18n="th.home">主队</th>
-                    <th data-i18n="th.score">比分</th>
-                    <th data-i18n="th.away">客队</th>
-                    <th data-i18n="th.status">状态</th>
+                    <th data-i18n="th.round">杞</th>
+                    <th data-i18n="th.date">鏃ユ湡</th>
+                    <th data-i18n="th.home">涓婚槦</th>
+                    <th data-i18n="th.score">姣斿垎</th>
+                    <th data-i18n="th.away">瀹㈤槦</th>
+                    <th data-i18n="th.status">鐘舵€?/th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -687,22 +687,22 @@
       </main>
     </section>
 
-    <!-- 比赛界面 · FMM 竖屏 Matchday -->
+    <!-- 姣旇禌鐣岄潰 路 FMM 绔栧睆 Matchday -->
     <section id="screen-match" class="screen">
       <div class="match-layout fm-match fmm-match">
-        <!-- 紧凑计分条 -->
+        <!-- 绱у噾璁″垎鏉?-->
         <header class="fm-scoreboard fmm-scoreboard" id="match-header">
           <div class="fmm-sb-top">
             <div class="fm-sb-side home">
               <span class="fm-sb-kit" id="match-home-kit"></span>
               <div class="fm-sb-team">
-                <div id="match-home" class="fm-sb-name">—</div>
+                <div id="match-home" class="fm-sb-name">鈥?/div>
                 <div id="match-home-short" class="fm-sb-short muted"></div>
               </div>
               <div id="match-home-score" class="fm-sb-score">0</div>
             </div>
             <div class="fm-sb-center">
-              <div id="match-context" class="fm-sb-comp">—</div>
+              <div id="match-context" class="fm-sb-comp">鈥?/div>
               <div id="match-minute" class="fm-sb-clock">0'</div>
               <div id="match-score" class="fm-sb-scoreline hidden" aria-hidden="true">0 - 0</div>
               <div class="fm-sb-live"><span class="fm-live-dot"></span> LIVE</div>
@@ -710,17 +710,17 @@
             <div class="fm-sb-side away">
               <div id="match-away-score" class="fm-sb-score">0</div>
               <div class="fm-sb-team">
-                <div id="match-away" class="fm-sb-name">—</div>
+                <div id="match-away" class="fm-sb-name">鈥?/div>
                 <div id="match-away-short" class="fm-sb-short muted"></div>
               </div>
               <span class="fm-sb-kit" id="match-away-kit"></span>
             </div>
           </div>
           <button type="button" class="fmm-stats-toggle" id="btn-match-stats-toggle" aria-expanded="false" aria-controls="match-live-stats">
-            <span data-i18n="match.stats">数据</span>
-            <span class="fmm-stats-chevron" aria-hidden="true">▾</span>
+            <span data-i18n="match.stats">鏁版嵁</span>
+            <span class="fmm-stats-chevron" aria-hidden="true">鈻?/span>
           </button>
-          <!-- xG / 控球 / 射门 · 默认收起 -->
+          <!-- xG / 鎺х悆 / 灏勯棬 路 榛樿鏀惰捣 -->
           <div class="fm-live-stats fmm-live-stats collapsed" id="match-live-stats" aria-label="live stats" hidden>
             <div class="fm-stat-row">
               <span class="fm-stat-val" id="stat-xg-h">0.00</span>
@@ -733,7 +733,7 @@
             <div class="fm-stat-row">
               <span class="fm-stat-val" id="stat-poss-h">50%</span>
               <div class="fm-stat-mid">
-                <span class="fm-stat-label" data-i18n="match.poss">控球</span>
+                <span class="fm-stat-label" data-i18n="match.poss">鎺х悆</span>
                 <div class="fm-stat-bar"><i class="poss" id="stat-poss-bar" style="width:50%"></i></div>
               </div>
               <span class="fm-stat-val" id="stat-poss-a">50%</span>
@@ -741,7 +741,7 @@
             <div class="fm-stat-row">
               <span class="fm-stat-val" id="stat-shots-h">0 (0)</span>
               <div class="fm-stat-mid">
-                <span class="fm-stat-label" data-i18n="match.shots">射门</span>
+                <span class="fm-stat-label" data-i18n="match.shots">灏勯棬</span>
                 <div class="fm-stat-bar dual"><i class="h" id="stat-sh-bar-h" style="width:50%"></i><i class="a" id="stat-sh-bar-a" style="width:50%"></i></div>
               </div>
               <span class="fm-stat-val" id="stat-shots-a">0 (0)</span>
@@ -749,153 +749,156 @@
           </div>
         </header>
 
-        <!-- 赛前简报（开赛后收起） -->
+        <!-- 璧涘墠绠€鎶ワ紙寮€璧涘悗鏀惰捣锛?-->
         <div id="match-pre-brief" class="match-pre-brief hidden" aria-label="pre-match briefing"></div>
 
-        <!-- 全宽球场 -->
+        <!-- 鍏ㄥ鐞冨満 -->
         <div class="fm-match-body fmm-match-body">
           <div class="fm-pitch-col">
             <div id="match-pitch-root" class="match-pitch-root" aria-label="2D match view"></div>
           </div>
         </div>
 
-        <!-- 底部事件流 -->
+        <!-- 搴曢儴浜嬩欢娴?-->
         <aside class="fm-commentary fmm-commentary" aria-label="match commentary">
           <div class="fm-com-head">
-            <span data-i18n="match.commentary">比赛事件</span>
+            <span data-i18n="match.commentary">姣旇禌浜嬩欢</span>
             <span class="fm-com-badge" id="match-com-badge">PRE</span>
           </div>
           <div id="match-log" class="match-log fm-com-log"></div>
         </aside>
 
-        <!-- 中场调整 · 底部抽屉 -->
+        <!-- 涓満璋冩暣 路 搴曢儴鎶藉眽 -->
         <div id="match-ht-panel" class="match-ht-panel fmm-ht-sheet hidden">
           <div class="fmm-ht-handle" aria-hidden="true"></div>
-          <h3 data-i18n="match.htTitle">中场休息 · 调整</h3>
-          <p class="hint" id="match-ht-score">—</p>
+          <h3 data-i18n="match.htTitle">涓満浼戞伅 路 璋冩暣</h3>
+          <p class="hint" id="match-ht-score">鈥?/p>
           <div id="match-ht-tips" class="ht-tips hidden" aria-live="polite"></div>
           <div id="match-ht-talk" class="team-talk-panel" aria-label="half-time team talk"></div>
           <div id="match-ht-fitness" class="ht-fitness hidden" aria-label="fitness bars"></div>
+          <div id="match-ht-role-review" class="ht-role-review hidden" aria-live="polite"></div>
           <div class="ht-tactics">
-            <label><span data-i18n="match.style">风格</span>
+            <label><span data-i18n="match.style">椋庢牸</span>
               <select id="ht-style">
-                <option value="balanced" data-i18n="style.balanced">均衡</option>
-                <option value="attack" data-i18n="style.attack">进攻</option>
-                <option value="defend" data-i18n="style.defend">防守</option>
-                <option value="possession" data-i18n="style.possession">控球</option>
-                <option value="counter" data-i18n="style.counter">反击</option>
+                <option value="balanced" data-i18n="style.balanced">鍧囪　</option>
+                <option value="attack" data-i18n="style.attack">杩涙敾</option>
+                <option value="defend" data-i18n="style.defend">闃插畧</option>
+                <option value="possession" data-i18n="style.possession">鎺х悆</option>
+                <option value="counter" data-i18n="style.counter">鍙嶅嚮</option>
               </select>
             </label>
-            <label><span data-i18n="tac.formation">阵型</span>
+            <label><span data-i18n="tac.formation">闃靛瀷</span>
               <select id="ht-formation"></select>
             </label>
-            <label><span data-i18n="match.pressing">压迫</span> <span id="ht-pressing-val">3</span>
+            <label><span data-i18n="match.pressing">鍘嬭揩</span> <span id="ht-pressing-val">3</span>
               <input type="range" id="ht-pressing" min="1" max="5" value="3" />
             </label>
-            <label><span data-i18n="match.tempo">节奏</span> <span id="ht-tempo-val">3</span>
+            <label><span data-i18n="match.tempo">鑺傚</span> <span id="ht-tempo-val">3</span>
               <input type="range" id="ht-tempo" min="1" max="5" value="3" />
             </label>
-            <label><span data-i18n="tac.width">宽度</span> <span id="ht-width-val">3</span>
+            <label><span data-i18n="tac.width">瀹藉害</span> <span id="ht-width-val">3</span>
               <input type="range" id="ht-width" min="1" max="5" value="3" />
             </label>
-            <label><span data-i18n="tac.defLine">防线</span> <span id="ht-def-line-val">3</span>
+            <label><span data-i18n="tac.defLine">闃茬嚎</span> <span id="ht-def-line-val">3</span>
               <input type="range" id="ht-def-line" min="1" max="5" value="3" />
             </label>
           </div>
+          <div id="match-ht-roles" class="ht-roles" aria-label="half-time roles"></div>
           <div class="ht-subs">
             <div class="ht-sub-col">
-              <div class="ht-sub-title" data-i18n="match.subOut">下场（在场）</div>
+              <div class="ht-sub-title" data-i18n="match.subOut">涓嬪満锛堝湪鍦猴級</div>
               <select id="ht-sub-out" size="6"></select>
             </div>
             <div class="ht-sub-col">
-              <div class="ht-sub-title" data-i18n="match.subIn">上场（替补）</div>
+              <div class="ht-sub-title" data-i18n="match.subIn">涓婂満锛堟浛琛ワ級</div>
               <select id="ht-sub-in" size="6"></select>
             </div>
             <div class="ht-sub-actions">
-              <button type="button" id="btn-ht-add-sub" class="btn small" data-i18n="match.addSub">确认换人</button>
-              <p class="hint" id="ht-subs-left">剩余换人 5 次</p>
+              <button type="button" id="btn-ht-add-sub" class="btn small" data-i18n="match.addSub">纭鎹汉</button>
+              <p class="hint" id="ht-subs-left">鍓╀綑鎹汉 5 娆?/p>
               <ul id="ht-subs-list" class="ht-subs-list"></ul>
             </div>
           </div>
           <div class="match-actions">
-            <button id="btn-ht-continue" class="btn primary" data-i18n="match.htContinue">下半场开始</button>
-            <button id="btn-ht-skip" class="btn" data-i18n="match.htSkip">不调整，直接踢</button>
+            <button id="btn-ht-continue" class="btn primary" data-i18n="match.htContinue">涓嬪崐鍦哄紑濮?/button>
+            <button id="btn-ht-skip" class="btn" data-i18n="match.htSkip">涓嶈皟鏁达紝鐩存帴韪?/button>
           </div>
         </div>
 
         <div id="match-report" class="match-report hidden"></div>
 
-        <!-- 下半场赛中战术快捷条 -->
+        <!-- 涓嬪崐鍦鸿禌涓垬鏈揩鎹锋潯 -->
         <div id="match-live-tac" class="match-live-tac hidden" aria-label="live tactics">
-          <span class="match-live-tac-label" data-i18n="match.liveTac">场边</span>
-          <select id="live-style" class="match-live-tac-sel" title="风格">
-            <option value="balanced" data-i18n="style.balanced">均衡</option>
-            <option value="attack" data-i18n="style.attack">进攻</option>
-            <option value="defend" data-i18n="style.defend">防守</option>
-            <option value="possession" data-i18n="style.possession">控球</option>
-            <option value="counter" data-i18n="style.counter">反击</option>
+          <span class="match-live-tac-label" data-i18n="match.liveTac">鍦鸿竟</span>
+          <select id="live-formation" class="match-live-tac-sel" title="闃靛瀷"></select>
+          <select id="live-style" class="match-live-tac-sel" title="椋庢牸">
+            <option value="balanced" data-i18n="style.balanced">鍧囪　</option>
+            <option value="attack" data-i18n="style.attack">杩涙敾</option>
+            <option value="defend" data-i18n="style.defend">闃插畧</option>
+            <option value="possession" data-i18n="style.possession">鎺х悆</option>
+            <option value="counter" data-i18n="style.counter">鍙嶅嚮</option>
           </select>
           <label class="match-live-tac-range">
-            <span data-i18n="match.pressing">压迫</span>
+            <span data-i18n="match.pressing">鍘嬭揩</span>
             <input type="range" id="live-pressing" min="1" max="5" value="3" />
             <em id="live-pressing-val">3</em>
           </label>
           <label class="match-live-tac-range">
-            <span data-i18n="match.tempo">节奏</span>
+            <span data-i18n="match.tempo">鑺傚</span>
             <input type="range" id="live-tempo" min="1" max="5" value="3" />
             <em id="live-tempo-val">3</em>
           </label>
           <label class="match-live-tac-range">
-            <span data-i18n="tac.width">宽度</span>
+            <span data-i18n="tac.width">瀹藉害</span>
             <input type="range" id="live-width" min="1" max="5" value="3" />
             <em id="live-width-val">3</em>
           </label>
           <label class="match-live-tac-range">
-            <span data-i18n="tac.defLine">防线</span>
+            <span data-i18n="tac.defLine">闃茬嚎</span>
             <input type="range" id="live-def-line" min="1" max="5" value="3" />
             <em id="live-def-line-val">3</em>
           </label>
-          <button type="button" id="btn-live-tac-apply" class="btn small primary" data-i18n="match.applyTac">应用</button>
+          <button type="button" id="btn-live-tac-apply" class="btn small primary" data-i18n="match.applyTac">搴旂敤</button>
         </div>
 
         <footer class="fm-match-bar fmm-match-bar">
           <div class="match-speed-bar" role="group" aria-label="match speed">
-            <span class="muted" data-i18n="match.speed">倍速</span>
-            <button type="button" class="btn small" data-match-speed="0.5" title="慢放">×0.5</button>
-            <button type="button" class="btn small" data-match-speed="1" title="正常观赛">×1</button>
-            <button type="button" class="btn small" data-match-speed="1.5" title="稍快">×1.5</button>
-            <button type="button" class="btn small" data-match-speed="2">×2</button>
-            <button type="button" class="btn small" data-match-speed="4">×4</button>
+            <span class="muted" data-i18n="match.speed">鍊嶉€?/span>
+            <button type="button" class="btn small" data-match-speed="0.5" title="鎱㈡斁">脳0.5</button>
+            <button type="button" class="btn small" data-match-speed="1" title="姝ｅ父瑙傝禌">脳1</button>
+            <button type="button" class="btn small" data-match-speed="1.5" title="绋嶅揩">脳1.5</button>
+            <button type="button" class="btn small" data-match-speed="2">脳2</button>
+            <button type="button" class="btn small" data-match-speed="4">脳4</button>
           </div>
           <div class="match-playback-bar" role="group" aria-label="match playback">
-            <button type="button" id="btn-match-pause" class="btn small" disabled data-i18n="match.pause">暂停</button>
-            <button type="button" id="btn-match-step" class="btn small" disabled data-i18n="match.step">下一步</button>
-            <button type="button" id="btn-match-step-mode" class="btn small" data-i18n="match.stepMode" data-i18n-title="match.stepModeHint">逐事件</button>
-            <button type="button" id="btn-match-sfx" class="btn small" data-i18n="match.sfx" data-i18n-title="match.sfxHint" aria-pressed="false">音效</button>
+            <button type="button" id="btn-match-pause" class="btn small" disabled data-i18n="match.pause">鏆傚仠</button>
+            <button type="button" id="btn-match-step" class="btn small" disabled data-i18n="match.step">涓嬩竴姝?/button>
+            <button type="button" id="btn-match-step-mode" class="btn small" data-i18n="match.stepMode" data-i18n-title="match.stepModeHint">閫愪簨浠?/button>
+            <button type="button" id="btn-match-sfx" class="btn small" data-i18n="match.sfx" data-i18n-title="match.sfxHint" aria-pressed="false">闊虫晥</button>
           </div>
           <div class="match-actions" id="match-main-actions">
-            <button id="btn-sim-fast" class="btn primary" data-i18n="match.fast">快速模拟（中场可调）</button>
-            <button id="btn-sim-live" class="btn" data-i18n="match.live">直播（中场可调）</button>
-            <button id="btn-sim-instant" class="btn" data-i18n="match.instant">一键完赛</button>
-            <button id="btn-match-continue" class="btn" disabled data-i18n="match.continue">赛后继续</button>
+            <button id="btn-sim-fast" class="btn primary" data-i18n="match.fast">蹇€熸ā鎷燂紙涓満鍙皟锛?/button>
+            <button id="btn-sim-live" class="btn" data-i18n="match.live">鐩存挱锛堜腑鍦哄彲璋冿級</button>
+            <button id="btn-sim-instant" class="btn" data-i18n="match.instant">涓€閿畬璧?/button>
+            <button id="btn-match-continue" class="btn" disabled data-i18n="match.continue">璧涘悗缁х画</button>
           </div>
         </footer>
       </div>
     </section>
 
-    <!-- 球员详情弹窗 -->
+    <!-- 鐞冨憳璇︽儏寮圭獥 -->
     <div id="modal" class="modal hidden">
       <div class="modal-card" id="modal-card">
-        <button id="modal-close" class="modal-close">×</button>
+        <button id="modal-close" class="modal-close">脳</button>
         <div id="modal-body"></div>
       </div>
     </div>
 
-    <!-- 赛季结算 -->
+    <!-- 璧涘缁撶畻 -->
     <div id="season-summary" class="season-summary hidden" role="dialog" aria-modal="true"></div>
   </div>
 
-  <script type="module" src="js/main.js?v=57"></script>
+  <script type="module" src="js/main.js?v=58"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {
@@ -903,12 +906,12 @@
           caches.keys().then(function (keys) {
             return Promise.all(
               keys
-                .filter(function (k) { return k.indexOf("vcfm-") === 0 && k !== "vcfm-v57"; })
+                .filter(function (k) { return k.indexOf("vcfm-") === 0 && k !== "vcfm-v58"; })
                 .map(function (k) { return caches.delete(k); })
             );
           }).catch(function () {});
         }
-        navigator.serviceWorker.register("./sw.js?v=57").then(function (reg) {
+        navigator.serviceWorker.register("./sw.js?v=58").then(function (reg) {
           try { reg.update(); } catch (e) {}
           if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
         }).catch(function () {});
@@ -917,8 +920,8 @@
           if (refreshing) return;
           refreshing = true;
           try {
-            if (!sessionStorage.getItem("vcfm-sw-reloaded-v57")) {
-              sessionStorage.setItem("vcfm-sw-reloaded-v57", "1");
+            if (!sessionStorage.getItem("vcfm-sw-reloaded-v58")) {
+              sessionStorage.setItem("vcfm-sw-reloaded-v58", "1");
               location.reload();
             }
           } catch (e) {
@@ -930,3 +933,4 @@
   </script>
 </body>
 </html>
+

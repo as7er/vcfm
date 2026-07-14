@@ -22,6 +22,7 @@ import {
   PLAYER_ROLES,
   TEAM_TALKS,
   teamTalkLabel,
+  roleLabel,
 } from "./data.js";
 import {
   coachMatchMod,
@@ -1069,22 +1070,42 @@ export function aiHalfTime(state) {
 
 /**
  * 用户中场指令
- * orders: { style?, pressing?, tempo?, width?, defensiveLine?, formation?, subs?: [{outId, inId}] }
+ * orders: { style?, pressing?, tempo?, width?, defensiveLine?, formation?, roles?: string[], subs?, teamTalk? }
  */
 export function applyUserHalfTime(state, orders = {}) {
   const club = state.userClub;
   if (!club) return { ok: false, msg: "无用户球队" };
   ensureTactics(club);
   const t = club.tactics;
+  const prevForm = t.formation;
   if (orders.style) t.style = orders.style;
   if (orders.pressing != null) t.pressing = clamp(+orders.pressing, 1, 5);
   if (orders.tempo != null) t.tempo = clamp(+orders.tempo, 1, 5);
   if (orders.width != null) t.width = clamp(+orders.width, 1, 5);
   if (orders.defensiveLine != null) t.defensiveLine = clamp(+orders.defensiveLine, 1, 5);
-  if (orders.formation && FORMATIONS[orders.formation]) {
+  let formChanged = false;
+  if (orders.formation && FORMATIONS[orders.formation] && orders.formation !== prevForm) {
     t.formation = orders.formation;
-    // 换阵型时尽量保留原人，按新槽位重排不足位
+    // 换阵型：重排首发 + 重置默认角色
     ensureMatchLineup(club);
+    ensureLineupRoles(club, { reset: true });
+    formChanged = true;
+  } else if (orders.formation && FORMATIONS[orders.formation]) {
+    t.formation = orders.formation;
+    ensureMatchLineup(club);
+    ensureLineupRoles(club);
+  }
+
+  // 应用中场角色指令（在换阵型之后）
+  if (Array.isArray(orders.roles) && orders.roles.length) {
+    ensureLineupRoles(club);
+    const slots = (FORMATIONS[t.formation] || FORMATIONS["4-3-3"]).slots || [];
+    for (let i = 0; i < Math.min(orders.roles.length, slots.length); i++) {
+      const rid = orders.roles[i];
+      if (rid && PLAYER_ROLES[rid] && PLAYER_ROLES[rid].pos === slots[i].pos) {
+        t.roles[i] = rid;
+      }
+    }
   }
 
   const msgs = [];
@@ -1094,13 +1115,17 @@ export function applyUserHalfTime(state, orders = {}) {
     orders.tempo != null ||
     orders.width != null ||
     orders.defensiveLine != null ||
-    orders.formation;
+    orders.formation ||
+    (orders.roles && orders.roles.length);
   if (tacTouched) {
+    const roleBits = summarizeRolesShort(club);
     pushEv(
       state,
       45,
       "tactics",
-      `📋 中场调整：${styleLabel(t.style)} · 压迫 ${t.pressing} · 节奏 ${t.tempo} · 宽度 ${t.width} · 防线 ${t.defensiveLine}`,
+      `📋 中场调整：${t.formation} · ${styleLabel(t.style)} · 压迫 ${t.pressing} · 节奏 ${t.tempo} · 宽度 ${t.width} · 防线 ${t.defensiveLine}${
+        roleBits ? ` · 角色 ${roleBits}` : ""
+      }${formChanged ? "（已换阵）" : ""}`,
       {
         teamId: club.id,
         style: t.style,
@@ -1109,9 +1134,11 @@ export function applyUserHalfTime(state, orders = {}) {
         width: t.width,
         defensiveLine: t.defensiveLine,
         formation: t.formation,
+        roles: [...(t.roles || [])],
+        formationChanged: formChanged,
       }
     );
-    msgs.push("战术已更新");
+    msgs.push(formChanged ? "阵型与战术已更新" : "战术已更新");
   }
   for (const s of orders.subs || []) {
     const res = applySubstitution(state, club, s.outId, s.inId, 46);
@@ -1125,6 +1152,101 @@ export function applyUserHalfTime(state, orders = {}) {
   return { ok: true, msg: msgs.join("；") || "继续比赛" };
 }
 
+function summarizeRolesShort(club) {
+  ensureLineupRoles(club);
+  const counts = {};
+  for (const rid of club.tactics.roles || []) {
+    const r = PLAYER_ROLES[rid];
+    if (!r || r.pos === "GK") continue;
+    const lab = r.short || r.label;
+    counts[lab] = (counts[lab] || 0) + 1;
+  }
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([k, n]) => (n > 1 ? `${k}×${n}` : k))
+    .join("·");
+}
+
+/**
+ * 上半场/全场角色复盘（进球/助攻挂到槽位角色）
+ * @param {{ untilMinute?: number }} [opts]
+ */
+export function buildRoleReview(state, opts = {}) {
+  const club = state?.userClub;
+  if (!club) return null;
+  ensureTactics(club);
+  ensureLineupRoles(club);
+  const until = opts.untilMinute != null ? opts.untilMinute : 90;
+  const lineup = club.tactics.lineup || [];
+  const roles = club.tactics.roles || [];
+  const formation = FORMATIONS[club.tactics.formation] || FORMATIONS["4-3-3"];
+  const byId = new Map();
+  for (let i = 0; i < lineup.length; i++) {
+    const id = lineup[i];
+    if (!id) continue;
+    const p = club.players.find((x) => x.id === id);
+    byId.set(id, {
+      playerId: id,
+      name: p?.name || id,
+      pos: formation.slots[i]?.pos || p?.pos || "?",
+      slot: i,
+      roleId: roles[i] || null,
+      roleLabel: roleLabel(roles[i] || "", "zh"),
+      roleLabelEn: roleLabel(roles[i] || "", "en"),
+      goals: 0,
+      assists: 0,
+    });
+  }
+  for (const ev of state.events || []) {
+    if ((ev.minute || 0) > until) continue;
+    if (ev.type !== "goal" && ev.type !== "pen") continue;
+    // 仅统计本队事件
+    if (ev.teamId && ev.teamId !== club.id) continue;
+    if (ev.playerId && byId.has(ev.playerId)) byId.get(ev.playerId).goals++;
+    if (ev.assistId && byId.has(ev.assistId)) byId.get(ev.assistId).assists++;
+  }
+  const rows = [...byId.values()].filter((r) => r.pos !== "GK" || r.goals || r.assists);
+  const contributors = rows
+    .filter((r) => r.goals || r.assists)
+    .sort((a, b) => b.goals + b.assists - (a.goals + a.assists));
+  const quietAttack = rows.filter(
+    (r) => (r.pos === "ATT" || (PLAYER_ROLES[r.roleId]?.score || 0) >= 2) && !r.goals && !r.assists
+  );
+  const tips = [];
+  if (contributors.length) {
+    tips.push(
+      `贡献突出：${contributors
+        .slice(0, 3)
+        .map((r) => `${r.name}（${r.roleLabel}${r.goals ? ` ${r.goals}球` : ""}${r.assists ? ` ${r.assists}助` : ""}）`)
+        .join("、")}`
+    );
+  } else {
+    tips.push("上半场进攻点未打开，可考虑改抢点/前腰或加强节奏");
+  }
+  if (quietAttack.length) {
+    tips.push(
+      `静默前场：${quietAttack
+        .slice(0, 2)
+        .map((r) => `${r.name}·${r.roleLabel}`)
+        .join("、")} — 可换角色或换人`
+    );
+  }
+  const myG = club === state.home ? state.hg : state.ag;
+  const opG = club === state.home ? state.ag : state.hg;
+  if (myG < opG) tips.push("落后：可加压前腰/套边，或换阵型增加进攻点");
+  else if (myG > opG) tips.push("领先：可改盯人中卫/防守边卫稳住结构");
+
+  return {
+    untilMinute: until,
+    formation: club.tactics.formation,
+    rows: rows.sort((a, b) => a.slot - b.slot),
+    contributors,
+    tips,
+    summary: tips[0] || "",
+  };
+}
+
 /**
  * 赛中即时战术（下半场直播中改压迫/风格/节奏）
  * 写入 events 供画面反馈；立即 recomputeSides
@@ -1135,6 +1257,7 @@ export function applyLiveTactics(state, orders = {}) {
   ensureTactics(club);
   const t = club.tactics;
   let changed = false;
+  let formChanged = false;
   if (orders.style && orders.style !== t.style) {
     t.style = orders.style;
     changed = true;
@@ -1155,13 +1278,22 @@ export function applyLiveTactics(state, orders = {}) {
     t.defensiveLine = clamp(+orders.defensiveLine, 1, 5);
     changed = true;
   }
+  if (orders.formation && FORMATIONS[orders.formation] && orders.formation !== t.formation) {
+    t.formation = orders.formation;
+    ensureMatchLineup(club);
+    ensureLineupRoles(club, { reset: true });
+    formChanged = true;
+    changed = true;
+  }
   if (!changed) return { ok: true, msg: "无变化", tactics: { ...t } };
   const minute = state.minute || 46;
   pushEv(
     state,
     minute,
     "tactics",
-    `📋 ${minute}' 场边调整：${styleLabel(t.style)} · 压迫 ${t.pressing} · 节奏 ${t.tempo} · 宽度 ${t.width} · 防线 ${t.defensiveLine}`,
+    `📋 ${minute}' 场边调整：${t.formation} · ${styleLabel(t.style)} · 压迫 ${t.pressing} · 节奏 ${t.tempo} · 宽度 ${t.width} · 防线 ${t.defensiveLine}${
+      formChanged ? "（换阵）" : ""
+    }`,
     {
       teamId: club.id,
       style: t.style,
@@ -1169,18 +1301,21 @@ export function applyLiveTactics(state, orders = {}) {
       tempo: t.tempo,
       width: t.width,
       defensiveLine: t.defensiveLine,
+      formation: t.formation,
+      formationChanged: formChanged,
     }
   );
   recomputeSides(state);
   return {
     ok: true,
-    msg: "战术已更新",
+    msg: formChanged ? "阵型与战术已更新" : "战术已更新",
     tactics: {
       style: t.style,
       pressing: t.pressing,
       tempo: t.tempo,
       width: t.width,
       defensiveLine: t.defensiveLine,
+      formation: t.formation,
     },
     event: state.events[state.events.length - 1],
   };
@@ -1910,6 +2045,7 @@ export async function continueSecondHalf(state, orders = {}, opts = {}) {
       orders.defensiveLine != null ||
       orders.formation ||
       orders.teamTalk ||
+      (orders.roles && orders.roles.length) ||
       (orders.subs && orders.subs.length));
   if (state.userSide && hasOrders) {
     applyUserHalfTime(state, orders);
