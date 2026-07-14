@@ -2,6 +2,7 @@
 
 import { DIVISIONS } from "./data.js";
 import { formatMoney } from "./models.js";
+import { pushBoardInbox, pushBoardObjectiveMail } from "./inbox.js";
 
 const STATUS_LABEL = {
   active: "进行中",
@@ -113,6 +114,11 @@ export function ensureBoardObjective(world) {
       day: world.day || 1,
       text: `董事会目标：${world.board.label}。达成奖金 ${formatMoney(world.board.bonus)}，未完成罚款 ${formatMoney(world.board.fine)}。`,
     });
+    try {
+      pushBoardObjectiveMail(world, world.board);
+    } catch (_) {
+      /* ignore */
+    }
   }
   return world.board;
 }
@@ -254,14 +260,22 @@ export function checkBoardMidSeason(world, sortedTableFn) {
       );
     }
     if (w === 2) {
-      world.news.unshift({
-        day: world.day,
-        text: `⚠️ 最后警告：当前第 ${prog.pos}，目标「${board.label}」。再无起色将被解雇！（警告 ${w}/3）`,
+      const text = `⚠️ 最后警告：当前第 ${prog.pos}，目标「${board.label}」。再无起色将被解雇！（警告 ${w}/3）`;
+      world.news.unshift({ day: world.day, text });
+      pushBoardInbox(world, {
+        title: "董事会最后警告",
+        body: text,
+        warning: true,
+        priority: 3,
       });
     } else {
-      world.news.unshift({
-        day: world.day,
-        text: `董事会施压：当前第 ${prog.pos}，目标「${board.label}」。警告 ${w}/3 · 未完成将罚 ${formatMoney(board.fine)}。`,
+      const text = `董事会施压：当前第 ${prog.pos}，目标「${board.label}」。警告 ${w}/3 · 未完成将罚 ${formatMoney(board.fine)}。`;
+      world.news.unshift({ day: world.day, text });
+      pushBoardInbox(world, {
+        title: "董事会施压",
+        body: text,
+        warning: true,
+        priority: 3,
       });
     }
     for (const p of user.players || []) {
@@ -270,26 +284,36 @@ export function checkBoardMidSeason(world, sortedTableFn) {
   } else if (prog.status === "met") {
     if ((board.sackWarnings || 0) > 0) {
       board.sackWarnings = Math.max(0, board.sackWarnings - 1);
-      world.news.unshift({
-        day: world.day,
-        text: `董事会认可：排名回升至第 ${prog.pos}，目标重回正轨。警告降至 ${board.sackWarnings}/3。`,
+      const text = `董事会认可：排名回升至第 ${prog.pos}，目标重回正轨。警告降至 ${board.sackWarnings}/3。`;
+      world.news.unshift({ day: world.day, text });
+      pushBoardInbox(world, {
+        title: "董事会认可近况",
+        body: text,
+        priority: 1,
       });
       for (const p of user.players || []) {
         p.morale = Math.min(100, (p.morale || 70) + 2);
       }
     } else if (prev === "danger") {
-      world.news.unshift({
-        day: world.day,
-        text: `董事会认可：排名回升至第 ${prog.pos}，目标「${board.label}」重回正轨。`,
+      const text = `董事会认可：排名回升至第 ${prog.pos}，目标「${board.label}」重回正轨。`;
+      world.news.unshift({ day: world.day, text });
+      pushBoardInbox(world, {
+        title: "董事会认可近况",
+        body: text,
+        priority: 1,
       });
       for (const p of user.players || []) {
         p.morale = Math.min(100, (p.morale || 70) + 1);
       }
     }
   } else if (prog.status === "danger" && world.day % 28 < 3) {
-    world.news.unshift({
-      day: world.day,
-      text: `目标告急：仍在第 ${prog.pos}（目标前 ${board.targetPos}）· 警告 ${board.sackWarnings || 0}/3`,
+    const text = `目标告急：仍在第 ${prog.pos}（目标前 ${board.targetPos}）· 警告 ${board.sackWarnings || 0}/3`;
+    world.news.unshift({ day: world.day, text });
+    pushBoardInbox(world, {
+      title: "目标告急",
+      body: text,
+      warning: true,
+      priority: 2,
     });
   }
   return null;

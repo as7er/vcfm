@@ -349,24 +349,25 @@ export function processTrainingDay(world) {
       if (p.injured > 0) {
         // 伤员：只做恢复向处理，不强制高强度疲劳
         const restHeal = heal * 1.1 + Math.floor(rng() * 3);
-        p.fitness = clamp((p.fitness || 50) + restHeal * 0.6, 25, 100);
+        // 体能始终存整数，避免 85.84239999999998% 这种浮点展示
+        p.fitness = Math.round(clamp((p.fitness || 50) + restHeal * 0.6, 25, 100));
         const extra = coach >= 14 && chance(0.2) ? 1 : 0;
         p.injured = Math.max(0, p.injured - 1 - extra);
         continue;
       }
 
       const delta = heal + Math.floor(rng() * 4) - fatigue;
-      p.fitness = clamp((p.fitness || 80) + delta, 30, 100);
+      p.fitness = Math.round(clamp((p.fitness || 80) + delta, 30, 100));
 
       if (moraleDelta !== 0 && chance(0.35)) {
-        p.morale = clamp((p.morale || 70) + moraleDelta, 20, 100);
+        p.morale = Math.round(clamp((p.morale || 70) + moraleDelta, 20, 100));
       }
 
       // 高强度 + 低体能 → 训练伤
       const risk = injuryP * (p.fitness < 55 ? 1.6 : 1);
       if (chance(risk)) {
         p.injured = 1 + Math.floor(rng() * 3);
-        p.fitness = Math.min(p.fitness, 55);
+        p.fitness = Math.round(Math.min(p.fitness, 55));
         if (isUser) injuredNames.push(p.name);
       }
     }

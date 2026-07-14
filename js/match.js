@@ -20,6 +20,8 @@ import {
   styleMatchupMod,
   FORMATIONS,
   PLAYER_ROLES,
+  TEAM_TALKS,
+  teamTalkLabel,
 } from "./data.js";
 import {
   coachMatchMod,
@@ -360,13 +362,34 @@ function recomputeSides(state) {
     awayDef *= Math.pow(0.86, aRed);
   }
 
+  // 队内讲话（本半场）
+  const talkH = state.teamTalkMods?.home;
+  const talkA = state.teamTalkMods?.away;
+  if (talkH) {
+    homeAtk *= talkH.atk ?? 1;
+    homeDef *= talkH.def ?? 1;
+    if (state._possW) state._possW.home *= talkH.poss ?? 1;
+    if (state._foulW) state._foulW.home *= talkH.foul ?? 1;
+    if (state._chanceW) state._chanceW.home *= talkH.chance ?? 1;
+  }
+  if (talkA) {
+    awayAtk *= talkA.atk ?? 1;
+    awayDef *= talkA.def ?? 1;
+    if (state._possW) state._possW.away *= talkA.poss ?? 1;
+    if (state._foulW) state._foulW.away *= talkA.foul ?? 1;
+    if (state._chanceW) state._chanceW.away *= talkA.chance ?? 1;
+  }
+  let paceTalk = pace;
+  if (talkH?.pace) paceTalk *= talkH.pace;
+  if (talkA?.pace) paceTalk *= talkA.pace;
+
   state.homeAtk = homeAtk;
   state.homeDef = homeDef;
   state.awayAtk = awayAtk;
   state.awayDef = awayDef;
-  state.pace = pace;
-  state.homeXG = Math.max(0.15, (homeAtk / Math.max(awayDef, 1)) * 1.15 * pace);
-  state.awayXG = Math.max(0.12, (awayAtk / Math.max(homeDef, 1)) * 1.0 * pace);
+  state.pace = paceTalk;
+  state.homeXG = Math.max(0.15, (homeAtk / Math.max(awayDef, 1)) * 1.15 * paceTalk);
+  state.awayXG = Math.max(0.12, (awayAtk / Math.max(homeDef, 1)) * 1.0 * paceTalk);
 }
 
 /**
@@ -422,10 +445,97 @@ export function createMatchSession(world, fixture) {
     userClub,
     finished: false,
     report: null,
+    /** 队内讲话侧修正 { home|away: mods } */
+    teamTalkMods: { home: null, away: null },
+    /** 已选讲话记录 { pre?, ht? } */
+    teamTalks: {},
   };
 
   recomputeSides(state);
   return state;
+}
+
+/**
+ * 应用用户队内讲话：士气 + 本半场攻防修正 + 事件 + 媒体
+ * @param {"pre"|"ht"} phase
+ */
+export function applyTeamTalk(state, talkId, phase = "pre") {
+  const club = state?.userClub;
+  const talk = TEAM_TALKS[talkId];
+  if (!club || !talk || !state.userSide) {
+    return { ok: false, msg: "无法讲话" };
+  }
+  if (!talk.phases.includes(phase)) {
+    return { ok: false, msg: "该讲话不适用当前阶段" };
+  }
+
+  const sk = state.userSide;
+  const minute = phase === "ht" ? 45 : 0;
+  const mods = { ...(talk.mods || {}) };
+  if (!state.teamTalkMods) state.teamTalkMods = { home: null, away: null };
+  // 中场讲话覆盖赛前效果（本半场重新定调）
+  state.teamTalkMods[sk] = mods;
+  if (!state.teamTalks) state.teamTalks = {};
+  state.teamTalks[phase] = talkId;
+
+  // 首发士气
+  const xi = getLineupPlayers(club);
+  const dMorale = talk.morale || 0;
+  for (const p of xi) {
+    if (!p) continue;
+    p.morale = clamp((p.morale ?? 70) + dMorale, 20, 100);
+  }
+
+  recomputeSides(state);
+
+  const label = teamTalkLabel(talkId, "zh");
+  const phaseLabel = phase === "ht" ? "中场讲话" : "赛前讲话";
+  const quote = talk.quote || "";
+  pushEv(
+    state,
+    minute,
+    "coach",
+    `💬 ${phaseLabel} · ${label}${quote ? `：${quote}` : ""}`,
+    {
+      teamId: club.id,
+      teamTalk: talkId,
+      phase,
+      morale: dMorale,
+    }
+  );
+
+  // 媒体引用（赛前/中场各一篇，不过度刷屏）
+  if (state.world) {
+    const tone = talk.mediaTone || "neutral";
+    pushMedia(state.world, {
+      outlet: "更衣室八卦",
+      headline: talk.headline || `${club.name} 主帅发表${phaseLabel}`,
+      body: `${club.short || club.name} 更衣室。${quote} 记者写道：这番讲话${
+        dMorale > 0 ? "明显提振了士气" : dMorale < 0 ? "让部分球员表情凝重" : "偏战术布置，情绪波动不大"
+      }。`,
+      tone,
+      category: "feature",
+    });
+  }
+
+  return {
+    ok: true,
+    talkId,
+    label,
+    msg: `${phaseLabel}：${label}`,
+    morale: dMorale,
+  };
+}
+
+/** 推荐中场讲话（按比分，仅 UI 提示） */
+export function suggestHalfTimeTalk(state) {
+  const club = state?.userClub;
+  if (!club) return "encourage";
+  const myG = club === state.home ? state.hg : state.ag;
+  const opG = club === state.home ? state.ag : state.hg;
+  if (myG < opG) return "demand"; // 落后加压
+  if (myG > opG) return "solid"; // 领先守住
+  return "encourage";
 }
 
 function pushEv(state, minute, type, text, extra = {}) {
@@ -727,7 +837,7 @@ function tryInjury(state, minute) {
 
   const days = 1 + Math.floor(rng() * 4);
   p.injured = days;
-  p.fitness = Math.min(p.fitness, 45);
+  p.fitness = Math.round(Math.min(p.fitness, 45));
   state.injuredOut.add(p.id);
   pushEv(state, minute, "injury", `🏥 ${minute}' ${club.short} ${p.name} 受伤下场（约 ${days} 天）`, {
     teamId: club.id,
@@ -851,7 +961,7 @@ export async function simulateMinutes(state, fromMin, toMin, { onEvent } = {}) {
         for (const p of activeXi(state, club)) {
           const drain =
             Math.max(1, Math.round(fitW + (state.weather.pace < 0.92 ? 0.5 : 0)));
-          p.fitness = Math.max(30, (p.fitness || 100) - drain);
+          p.fitness = Math.round(Math.max(30, (p.fitness || 100) - drain));
         }
       }
       recomputeSides(state);
@@ -1006,6 +1116,10 @@ export function applyUserHalfTime(state, orders = {}) {
   for (const s of orders.subs || []) {
     const res = applySubstitution(state, club, s.outId, s.inId, 46);
     msgs.push(res.msg);
+  }
+  if (orders.teamTalk) {
+    const talkRes = applyTeamTalk(state, orders.teamTalk, "ht");
+    if (talkRes.ok) msgs.push(talkRes.msg);
   }
   recomputeSides(state);
   return { ok: true, msg: msgs.join("；") || "继续比赛" };
@@ -1383,16 +1497,16 @@ function drainFitness(club, isHome, state) {
   for (const p of getLineupPlayers(club)) {
     if (sent.has(p.id)) continue;
     const drain = 4 + Math.floor(rng() * 6) + Math.round((fitW - 1) * 4);
-    p.fitness = Math.max(35, p.fitness - drain);
+    p.fitness = Math.round(Math.max(35, p.fitness - drain));
     if (chance(0.015 * injuryMod) && !state.injuredOut.has(p.id)) {
       p.injured = 1 + Math.floor(rng() * 3);
-      p.fitness = Math.min(p.fitness, 50);
+      p.fitness = Math.round(Math.min(p.fitness, 50));
     }
   }
   const xi = new Set(club.tactics.lineup);
   for (const p of club.players) {
     if (!xi.has(p.id)) {
-      p.fitness = Math.min(100, p.fitness + 3);
+      p.fitness = Math.round(Math.min(100, p.fitness + 3));
     }
   }
 }
@@ -1745,7 +1859,7 @@ function runMinutesSync(state, fromMin, toMin) {
         const fitW = state._fitW?.[sk] || fitnessMultOf(club.tactics);
         for (const p of activeXi(state, club)) {
           const drain = Math.max(1, Math.round(fitW));
-          p.fitness = Math.max(30, (p.fitness || 100) - drain);
+          p.fitness = Math.round(Math.max(30, (p.fitness || 100) - drain));
         }
       }
       recomputeSides(state);
@@ -1754,9 +1868,12 @@ function runMinutesSync(state, fromMin, toMin) {
 }
 
 /** 同步完整模拟（AI 场次 / 快速无暂停） */
-export function simulateMatchSync(world, fixture) {
+export function simulateMatchSync(world, fixture, opts = {}) {
   const state = createMatchSession(world, fixture);
   const { home, away, weather, derby, bigMatch, isCup } = state;
+  if (opts.teamTalkId && state.userClub) {
+    applyTeamTalk(state, opts.teamTalkId, "pre");
+  }
   pushEv(state, 0, "kickoff", "比赛开始！");
   const bits = [`${weather.icon} ${weather.name}`];
   if (derby) bits.push("🔥 德比大战");
@@ -1765,14 +1882,17 @@ export function simulateMatchSync(world, fixture) {
   runMinutesSync(state, 1, 45);
   pushEv(state, 45, "ht", `中场休息 ${home.name} ${state.hg} - ${state.ag} ${away.name}`);
   aiHalfTime(state);
+  if (opts.htTalkId && state.userClub) {
+    applyTeamTalk(state, opts.htTalkId, "ht");
+  }
   runMinutesSync(state, 46, 90);
   pushEv(state, 90, "ft", `全场结束 ${home.name} ${state.hg} - ${state.ag} ${away.name}`);
   return finalizeMatch(state);
 }
 
 /** 兼容旧 API：同步完整模拟 */
-export function simulateMatch(world, fixture, _opts = {}) {
-  return simulateMatchSync(world, fixture);
+export function simulateMatch(world, fixture, opts = {}) {
+  return simulateMatchSync(world, fixture, opts);
 }
 
 /** 下半场继续（用户中场指令后） */
@@ -1781,7 +1901,17 @@ export async function continueSecondHalf(state, orders = {}, opts = {}) {
     // allow if already at ht
   }
   const evBefore = state.events.length;
-  if (state.userSide && orders && (orders.style || orders.pressing != null || orders.tempo != null || (orders.subs && orders.subs.length))) {
+  const hasOrders =
+    orders &&
+    (orders.style ||
+      orders.pressing != null ||
+      orders.tempo != null ||
+      orders.width != null ||
+      orders.defensiveLine != null ||
+      orders.formation ||
+      orders.teamTalk ||
+      (orders.subs && orders.subs.length));
+  if (state.userSide && hasOrders) {
     applyUserHalfTime(state, orders);
   }
   // 中场调整事件立刻走 onEvent（直播横幅/评论/换人动画），不要等完场再刷日志

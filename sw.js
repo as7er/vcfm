@@ -1,8 +1,8 @@
 /* VCFM · 离线缓存（GitHub Pages 友好）
- * JS/CSS/HTML：网络优先，避免改代码后仍吃旧缓存
+ * JS/CSS/HTML：网络优先 + no-store，避免改代码后仍吃旧缓存
  * 其它资源：缓存优先
  */
-const CACHE = "vcfm-v52";
+const CACHE = "vcfm-v57";
 const ASSETS = [
   "./",
   "./index.html",
@@ -24,6 +24,7 @@ const ASSETS = [
   "./js/contracts.js",
   "./js/loans.js",
   "./js/transfers.js",
+  "./js/inbox.js",
   "./manifest.webmanifest",
   "./icons/icon.svg",
 ];
@@ -50,6 +51,11 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
+  if (event.data && event.data.type === "CLEAR_ALL_CACHES") {
+    event.waitUntil(
+      caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
+    );
+  }
 });
 
 self.addEventListener("activate", (event) => {
@@ -69,10 +75,10 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  // 代码资源：先网络，失败再缓存（改队服/头像能立刻生效）
+  // 代码资源：强制走网络（绕过 HTTP 缓存），失败再退回 SW 缓存
   if (isCodeAsset(url)) {
     event.respondWith(
-      fetch(req)
+      fetch(req, { cache: "no-store" })
         .then((res) => {
           if (res && res.ok) {
             const copy = res.clone();
@@ -80,7 +86,7 @@ self.addEventListener("fetch", (event) => {
           }
           return res;
         })
-        .catch(() => caches.match(req))
+        .catch(() => caches.match(req).then((c) => c || caches.match(url.pathname)))
     );
     return;
   }

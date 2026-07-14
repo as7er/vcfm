@@ -128,6 +128,7 @@
           <button data-tab="table" class="tab" data-i18n="tab.table">积分榜</button>
           <button data-tab="clubs" class="tab" data-i18n="tab.clubs">俱乐部</button>
           <button data-tab="stats" class="tab" data-i18n="tab.stats">数据榜</button>
+          <button data-tab="inbox" class="tab" data-i18n="tab.inbox">信箱</button>
           <button data-tab="media" class="tab" data-i18n="tab.media">媒体</button>
           <button data-tab="transfer" class="tab" data-i18n="tab.transfer">转会</button>
           <button data-tab="career" class="tab" data-i18n="tab.career">生涯</button>
@@ -179,10 +180,35 @@
               <h3 data-i18n="dash.career">经理生涯</h3>
               <div id="manager-career-dash" class="career-dash">—</div>
             </div>
+            <div class="card">
+              <div class="row-between">
+                <h2 data-i18n="dash.inbox">信箱</h2>
+                <button type="button" class="btn small" id="btn-dash-inbox" data-i18n="inbox.open">打开信箱</button>
+              </div>
+              <div id="dash-inbox" class="dash-inbox muted">—</div>
+            </div>
             <div class="card span-2">
               <h2 data-i18n="dash.news">新闻</h2>
               <ul id="news-list" class="news-list"></ul>
             </div>
+          </div>
+        </div>
+
+        <!-- 信箱 -->
+        <div id="tab-inbox" class="tab-panel">
+          <div class="card">
+            <div class="row-between">
+              <h2 data-i18n="inbox.title">经理信箱</h2>
+              <span class="muted" id="inbox-count"></span>
+            </div>
+            <p class="hint" data-i18n="inbox.hint">
+              董事会、转会报价、球探报告与球员诉求会集中在这里。待办优先处理，推进日程前建议先清空紧急邮件。
+            </p>
+            <div class="inbox-filters" role="group" aria-label="inbox filter">
+              <button type="button" class="btn small active" data-inbox-filter="pending" data-i18n="inbox.filterPending">待办</button>
+              <button type="button" class="btn small" data-inbox-filter="all" data-i18n="inbox.filterAll">全部</button>
+            </div>
+            <div id="inbox-list" class="inbox-list"></div>
           </div>
         </div>
 
@@ -581,6 +607,8 @@
             <div class="card span-2">
               <h2 data-i18n="tr.poach">来自其他俱乐部的报价</h2>
               <div id="poach-bids" class="poach-bids">—</div>
+              <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem" data-i18n="transfer.scoutWatch">球探关注</h3>
+              <div id="scout-watch-list" class="scout-watch-list">—</div>
             </div>
             <div class="card">
               <h2 data-i18n="tr.market">转会市场</h2>
@@ -746,6 +774,7 @@
           <h3 data-i18n="match.htTitle">中场休息 · 调整</h3>
           <p class="hint" id="match-ht-score">—</p>
           <div id="match-ht-tips" class="ht-tips hidden" aria-live="polite"></div>
+          <div id="match-ht-talk" class="team-talk-panel" aria-label="half-time team talk"></div>
           <div id="match-ht-fitness" class="ht-fitness hidden" aria-label="fitness bars"></div>
           <div class="ht-tactics">
             <label><span data-i18n="match.style">风格</span>
@@ -866,23 +895,30 @@
     <div id="season-summary" class="season-summary hidden" role="dialog" aria-modal="true"></div>
   </div>
 
-  <script type="module" src="js/main.js?v=52"></script>
+  <script type="module" src="js/main.js?v=57"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {
-        navigator.serviceWorker.register("./sw.js?v=52").then(function (reg) {
-          // 每次打开检查更新，避免卡在旧缓存
+        if (window.caches && caches.keys) {
+          caches.keys().then(function (keys) {
+            return Promise.all(
+              keys
+                .filter(function (k) { return k.indexOf("vcfm-") === 0 && k !== "vcfm-v57"; })
+                .map(function (k) { return caches.delete(k); })
+            );
+          }).catch(function () {});
+        }
+        navigator.serviceWorker.register("./sw.js?v=57").then(function (reg) {
           try { reg.update(); } catch (e) {}
           if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
         }).catch(function () {});
-        // 新 SW 接管后自动刷新一次（仅一次）
         var refreshing = false;
         navigator.serviceWorker.addEventListener("controllerchange", function () {
           if (refreshing) return;
           refreshing = true;
           try {
-            if (!sessionStorage.getItem("vcfm-sw-reloaded")) {
-              sessionStorage.setItem("vcfm-sw-reloaded", "1");
+            if (!sessionStorage.getItem("vcfm-sw-reloaded-v57")) {
+              sessionStorage.setItem("vcfm-sw-reloaded-v57", "1");
               location.reload();
             }
           } catch (e) {

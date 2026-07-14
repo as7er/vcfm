@@ -909,6 +909,104 @@ export function roleShort(roleId, lang = "zh") {
 }
 
 /**
+ * 队内讲话（赛前 / 中场）
+ * - morale：首发士气 delta
+ * - mods：本半场球队侧修正（乘在 recomputeSides 上）
+ * - mediaTone / headline / quote：媒体通稿素材
+ */
+export const TEAM_TALKS = {
+  encourage: {
+    id: "encourage",
+    phases: ["pre", "ht"],
+    label: "鼓励全队",
+    labelEn: "Inspire the squad",
+    desc: "士气↑ · 进攻威胁略升",
+    descEn: "Morale↑ · slight attack boost",
+    morale: 4,
+    mods: { atk: 1.05, def: 1.0, chance: 1.05, foul: 1.0, poss: 1.0, pace: 1.02 },
+    mediaTone: "positive",
+    quote: "「相信自己，放开手脚——今天把比赛踢到对手半场去。」",
+    quoteEn: '"Trust yourselves and play freely — take the game to them."',
+    headline: "更衣室响起掌声：主帅赛前动员振奋士气",
+    headlineEn: "Dressing-room applause after the manager's rallying cry",
+  },
+  calm: {
+    id: "calm",
+    phases: ["pre", "ht"],
+    label: "冷静控场",
+    labelEn: "Keep it calm",
+    desc: "犯规↓ · 防守略稳 · 节奏略降",
+    descEn: "Fewer fouls · steadier defence · lower tempo",
+    morale: 1,
+    mods: { atk: 0.98, def: 1.05, chance: 0.97, foul: 0.88, poss: 1.03, pace: 0.96 },
+    mediaTone: "neutral",
+    quote: "「别急，按我们的节奏。少犯规，少失误。」",
+    quoteEn: '"No rush. Play our tempo — fewer fouls, fewer mistakes."',
+    headline: "主帅要求冷静：少冲动，多控球",
+    headlineEn: "Manager demands composure and control",
+  },
+  demand: {
+    id: "demand",
+    phases: ["pre", "ht"],
+    label: "点名加压",
+    labelEn: "Demand more",
+    desc: "士气微降 · 压迫与威胁↑（有风险）",
+    descEn: "Morale dip · higher press & threat (risky)",
+    morale: -3,
+    mods: { atk: 1.06, def: 0.96, chance: 1.07, foul: 1.12, poss: 0.97, pace: 1.05 },
+    mediaTone: "negative",
+    quote: "「有人今天不够投入——这半场用表现证明自己。」",
+    quoteEn: '"Some of you are off it — prove yourselves this half."',
+    headline: "据称更衣室火药味：主帅点名批评个别球员",
+    headlineEn: "Reports of tension as manager singles players out",
+  },
+  solid: {
+    id: "solid",
+    phases: ["pre", "ht"],
+    label: "强调防守",
+    labelEn: "Stay solid",
+    desc: "防守↑ · 进攻略收 · 体能略省",
+    descEn: "Defence↑ · less risk in attack",
+    morale: 1,
+    mods: { atk: 0.93, def: 1.08, chance: 0.92, foul: 1.04, poss: 0.96, pace: 0.97 },
+    mediaTone: "neutral",
+    quote: "「先把后门关死。零封比花活更重要。」",
+    quoteEn: '"Shut the back door first. Clean sheets beat fireworks."',
+    headline: "战术板传出「先防再攻」：主帅要求守住结构",
+    headlineEn: "Manager prioritises defensive structure",
+  },
+  control: {
+    id: "control",
+    phases: ["pre", "ht"],
+    label: "要求控球",
+    labelEn: "Dominate possession",
+    desc: "控球↑ · 节奏降 · 威胁略稳",
+    descEn: "Possession↑ · slower tempo · patient threat",
+    morale: 2,
+    mods: { atk: 1.01, def: 1.02, chance: 1.0, foul: 0.95, poss: 1.08, pace: 0.94 },
+    mediaTone: "positive",
+    quote: "「球权在我们脚下，逼他们来抢。」",
+    quoteEn: '"Keep the ball — make them chase."',
+    headline: "主帅布置控球方案：用传控消耗对手",
+    headlineEn: "Manager sets possession plan to wear opponents down",
+  },
+};
+
+export const TEAM_TALK_IDS = Object.keys(TEAM_TALKS);
+
+export function teamTalkLabel(id, lang = "zh") {
+  const t = TEAM_TALKS[id];
+  if (!t) return id || "—";
+  return lang === "en" ? t.labelEn : t.label;
+}
+
+export function teamTalkDesc(id, lang = "zh") {
+  const t = TEAM_TALKS[id];
+  if (!t) return "";
+  return lang === "en" ? t.descEn : t.desc;
+}
+
+/**
  * 风格修正
  * possession → 控球权重；foulRisk → 犯规倾向；fitness → 体能消耗；chance → 威胁频率
  */

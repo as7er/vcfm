@@ -145,6 +145,8 @@ import {
   playSecondHalf,
   continueSecondHalf,
   applyUserHalfTime,
+  applyTeamTalk,
+  suggestHalfTimeTalk,
   applySubstitution,
   applyLiveTactics,
   getHalfTimeTips,
@@ -173,8 +175,29 @@ import {
   pendingPoachBids,
   ensurePoachBids,
 } from "./poaching.js";
-import { buildScoutReport, formatScoutReportHtml } from "./scoutreport.js";
+import {
+  buildScoutReport,
+  formatScoutReportHtml,
+  buildOpponentReport,
+  formatOpponentReportHtml,
+  opponentReportLogLines,
+  scoutFogLevel,
+  scoutAttrRows,
+  formatScoutOvrFog,
+  formatScoutPotFog,
+} from "./scoutreport.js";
 import { resetSeasonDiscipline, ensureDiscipline, isAvailable } from "./discipline.js";
+import {
+  processInboxDay,
+  ensureInbox,
+  listInbox,
+  pendingInboxCount,
+  resolveInboxAction,
+  markInboxRead,
+  syncPoachBidsToInbox,
+  pushInbox,
+  inboxCatLabel,
+} from "./inbox.js";
 
 export {
   simulateMatch,
@@ -184,6 +207,8 @@ export {
   playSecondHalf,
   continueSecondHalf,
   applyUserHalfTime,
+  applyTeamTalk,
+  suggestHalfTimeTalk,
   applySubstitution,
   applyLiveTactics,
   getHalfTimeTips,
@@ -207,9 +232,25 @@ export {
   ensurePoachBids,
   buildScoutReport,
   formatScoutReportHtml,
+  buildOpponentReport,
+  formatOpponentReportHtml,
+  opponentReportLogLines,
+  scoutFogLevel,
+  scoutAttrRows,
+  formatScoutOvrFog,
+  formatScoutPotFog,
   ensureDiscipline,
   isAvailable,
   resetSeasonDiscipline,
+  processInboxDay,
+  ensureInbox,
+  listInbox,
+  pendingInboxCount,
+  resolveInboxAction,
+  markInboxRead,
+  syncPoachBidsToInbox,
+  pushInbox,
+  inboxCatLabel,
 };
 
 function rng() {
@@ -397,6 +438,8 @@ export function advanceDay(world) {
   processTransferWindowDay(world);
   expirePoachBids(world);
   processPoachingDay(world);
+  // 信箱：同步挖角、过期、偶发球员/球探邮件
+  processInboxDay(world);
 
   // 设施建设完工
   processFacilityDay(world);
