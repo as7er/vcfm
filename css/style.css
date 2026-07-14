@@ -2836,6 +2836,20 @@ html[data-theme="light"] .ht-role-tips, html[data-theme="light"] .ht-role-tip {
   transform: scale(1.12);
   z-index: 4;
 }
+/* FSM 微提示：压迫 / 接应 */
+.mp-player[data-fsm="press"] .mp-dot {
+  box-shadow:
+    0 0 0 1.5px rgba(248, 113, 113, 0.75),
+    0 2px 4px rgba(0, 0, 0, 0.4);
+}
+.mp-player[data-fsm="support"] .mp-dot {
+  box-shadow:
+    0 0 0 1.5px rgba(96, 165, 250, 0.65),
+    0 2px 4px rgba(0, 0, 0, 0.4);
+}
+.mp-player[data-fsm="home"] .mp-dot {
+  /* 默认队服色环，保持干净 */
+}
 .mp-player.has-ball .mp-name {
   color: #fde68a;
 }

@@ -916,7 +916,7 @@
     <div id="season-summary" class="season-summary hidden" role="dialog" aria-modal="true"></div>
   </div>
 
-  <script type="module" src="js/main.js?v=61"></script>
+  <script type="module" src="js/main.js?v=62"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {
@@ -924,12 +924,12 @@
           caches.keys().then(function (keys) {
             return Promise.all(
               keys
-                .filter(function (k) { return k.indexOf("vcfm-") === 0 && k !== "vcfm-v61"; })
+                .filter(function (k) { return k.indexOf("vcfm-") === 0 && k !== "vcfm-v62"; })
                 .map(function (k) { return caches.delete(k); })
             );
           }).catch(function () {});
         }
-        navigator.serviceWorker.register("./sw.js?v=61").then(function (reg) {
+        navigator.serviceWorker.register("./sw.js?v=62").then(function (reg) {
           try { reg.update(); } catch (e) {}
           if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
         }).catch(function () {});
@@ -938,8 +938,8 @@
           if (refreshing) return;
           refreshing = true;
           try {
-            if (!sessionStorage.getItem("vcfm-sw-reloaded-v61")) {
-              sessionStorage.setItem("vcfm-sw-reloaded-v61", "1");
+            if (!sessionStorage.getItem("vcfm-sw-reloaded-v62")) {
+              sessionStorage.setItem("vcfm-sw-reloaded-v62", "1");
               location.reload();
             }
           } catch (e) {

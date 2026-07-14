@@ -1,13 +1,15 @@
 /**
- * FMM 风格 2D 俯视球场（非 3D）
- * 观感优先：连续 tick 表演 + 事件镜头 + 阵型块 + 焦点压暗
+ * FMM / FM 风格 2D 俯视球场（DOM 表现层，非 3D）
  *
- * 架构（Gemini 路线对齐，不做 Matter.js）：
- * - match.js = 比分/事件导演（truth）
- * - MatchView = 连续 tick 表现层：持球 / 传球飞行 / 射门 / 接应 / 压迫
- * - 球员 attrs（pace/passing/dribbling/tackling…）只影响表演节奏，不改结果
+ * 技术栈拆分（对齐「模拟引擎 + 画布渲染」）：
+ * 1) match.js      — 后台数据模拟 / 比分与事件真相源（truth）
+ * 2) MatchView     — 前端渲染：rAF 主循环 + 状态机 + 坐标平滑插值
+ * 3) 不改比分结果；attrs 只影响表演节奏
  *
- * ballState: free | held | flight | shot
+ * 球员 FSM: home | support | press | cover | carry
+ * 球 FSM:   free | held | flight | shot
+ *
+ * 区域规则（MVP 第 3 步）：球进入防守/接应区才离开阵型位去追，否则回 base。
  */
 
 import { FORMATIONS, playerDisplaySurname } from "./data.js";
@@ -1379,6 +1381,10 @@ export class MatchView {
       const jitter = () => (Math.random() - 0.5) * 0.7;
       const baseX = clamp(pos.x + jitter(), 4, 96);
       const baseY = clamp(pos.y + jitter(), 4, 96);
+      const rolePos = p?.pos || slot.pos;
+      // 个人防区半径：球进入才离开阵型位（参考 FM 区域职责）
+      const zoneR =
+        rolePos === "GK" ? 16 : rolePos === "DEF" ? 20 : rolePos === "MID" ? 26 : 22;
       this.players.push({
         id: p?.id,
         player: p,
@@ -1393,7 +1399,9 @@ export class MatchView {
         baseY,
         num,
         name,
-        pos: p?.pos || slot.pos,
+        pos: rolePos,
+        zoneR,
+        fsm: "home", // home | support | press | cover | carry
         touchUntil: 0,
         heatAcc: 0,
       });
@@ -1736,19 +1744,141 @@ export class MatchView {
     }
   }
 
-  /** 朝目标匀速移动（% 球场 / 秒），跑位肉眼可见 */
+  /**
+   * 坐标平滑插值（表现层）：指数逼近目标，避免离散跳帧
+   * speed ≈ 每秒可走完的球场百分比
+   */
   _moveToward(pl, speed, dt) {
     const dx = pl.tx - pl.x;
     const dy = pl.ty - pl.y;
     const dist = Math.hypot(dx, dy);
-    if (dist < 0.08) {
+    if (dist < 0.06) {
       pl.x = pl.tx;
       pl.y = pl.ty;
       return;
     }
-    const step = Math.min(dist, speed * dt);
+    // 指数平滑：近距离更粘、远距离更快追上（比纯匀速更「丝滑」）
+    const k = 1 - Math.exp(-Math.max(0.5, speed) * 0.085 * Math.max(0.001, dt));
+    const maxStep = speed * dt * 1.15;
+    const step = Math.min(dist, Math.max(maxStep * k * 3.2, maxStep * 0.35));
     pl.x += (dx / dist) * step;
     pl.y += (dy / dist) * step;
+  }
+
+  _ballDistTo(pl) {
+    return Math.hypot((this.ball?.x ?? 50) - pl.x, (this.ball?.y ?? 50) - pl.y);
+  }
+
+  _ballInZone(pl, mul = 1) {
+    const r = (pl.zoneR || 22) * mul;
+    return Math.hypot((this.ball?.x ?? 50) - pl.baseX, (this.ball?.y ?? 50) - pl.baseY) <= r;
+  }
+
+  /**
+   * 球员有限状态机目标分配（表现层 AI，不改比分）
+   * - carry: 持球人
+   * - press: 无球方近球压迫（球在扩大防区内或全局最近 2 人）
+   * - support: 有球方接应
+   * - cover: 协防
+   * - home: 回阵型位
+   */
+  _assignFsmTargets() {
+    if (this.phase !== "play" || this.frozen || this.scriptLock) return;
+    const car = this.carrier;
+    const bx = this.ball?.x ?? 50;
+    const by = this.ball?.y ?? 50;
+    const att = this.possession === "away" ? "away" : "home";
+    const def = att === "home" ? "away" : "home";
+
+    // 重置
+    for (const pl of this.players) {
+      if (pl.el.classList.contains("sent-off")) continue;
+      pl.fsm = pl === car ? "carry" : "home";
+    }
+    if (car) {
+      car.fsm = "carry";
+      // 持球目标由 _dribbleCarrier 管；这里保证不锁死
+    }
+
+    // —— 防守压迫：球进防区或全局最近 2 人 ——
+    const defenders = this.players
+      .filter(
+        (p) =>
+          p.team === def &&
+          p.pos !== "GK" &&
+          !p.el.classList.contains("sent-off")
+      )
+      .map((p) => ({
+        p,
+        d: this._ballDistTo(p),
+        inZ: this._ballInZone(p, 1.35),
+      }))
+      .sort((a, b) => a.d - b.d);
+
+    let pressN = 0;
+    for (const { p, d, inZ } of defenders) {
+      if (pressN >= 2) break;
+      if (inZ || d < 18) {
+        p.fsm = "press";
+        const tight = 0.55 + this._attr(p, "tackling", 10) / 45;
+        p.tx = clamp(bx + (Math.random() - 0.5) * (2.8 / tight), 6, 94);
+        p.ty = clamp(by + (Math.random() - 0.5) * (2.4 / tight), 6, 94);
+        pressN++;
+      }
+    }
+    // 协防 2 人：球近则收，否则 home
+    let coverN = 0;
+    for (const { p, d, inZ } of defenders) {
+      if (p.fsm === "press") continue;
+      if (coverN >= 2) break;
+      if (inZ || d < 28) {
+        p.fsm = "cover";
+        const dir = this._attackDir(att);
+        p.tx = clamp(p.baseX * 0.5 + bx * 0.35 + 50 * 0.15, 8, 92);
+        p.ty = clamp(p.baseY * 0.55 + by * 0.3 + dir * 1.2, 6, 94);
+        coverN++;
+      }
+    }
+
+    // —— 进攻接应：球在区域或距球较近的中前场 ——
+    if (car) {
+      const mates = this.players
+        .filter(
+          (p) =>
+            p.team === att &&
+            p !== car &&
+            p.pos !== "GK" &&
+            !p.el.classList.contains("sent-off")
+        )
+        .map((p) => ({ p, d: this._ballDistTo(p), inZ: this._ballInZone(p, 1.25) }))
+        .sort((a, b) => a.d - b.d);
+      let sup = 0;
+      const dir = this._attackDir(att);
+      for (const { p, d, inZ } of mates) {
+        if (sup >= 4) break;
+        if (!(inZ || d < 26 || p.pos === "ATT" || p.pos === "MID")) continue;
+        p.fsm = "support";
+        // 空档：侧前方
+        const side = sup % 2 === 0 ? -1 : 1;
+        p.tx = clamp(car.x + side * (10 + sup * 3) + (Math.random() - 0.5) * 2, 8, 92);
+        p.ty = clamp(car.y + dir * (8 + (p.pos === "ATT" ? 4 : 0)), 6, 94);
+        // 勿抢持球人脚下
+        if (Math.hypot(p.tx - car.x, p.ty - car.y) < 5) {
+          p.tx = clamp(p.tx + side * 6, 8, 92);
+        }
+        sup++;
+      }
+    }
+
+    // —— home：回阵型位 ——
+    for (const pl of this.players) {
+      if (pl.el.classList.contains("sent-off")) continue;
+      if (pl.fsm === "home") {
+        pl.tx = clamp(lerp(pl.tx, pl.baseX, 0.55), 5, 95);
+        pl.ty = clamp(lerp(pl.ty, pl.baseY, 0.5), 5, 95);
+      }
+      pl.el.dataset.fsm = pl.fsm;
+    }
   }
 
   /**
@@ -2682,26 +2812,20 @@ export class MatchView {
         }
       }
 
-      // 接应 / 压迫（约 5 次/秒）
+      // FSM 目标分配（约 6 次/秒）：区域追球 / 接应 / 回位
       this.touchTimer = (this.touchTimer || 0) - d;
       if (this.touchTimer <= 0) {
-        this.touchTimer = 0.18;
-        this._supportRuns();
-        this._pressCarrier();
+        this.touchTimer = 0.16;
+        this._assignFsmTargets();
       }
 
-      // 阵型：更低频、更轻推，贴阵型位
+      // 低频整体阵型轻推 + 回位
       this.shapeTimer -= d;
       if (this.shapeTimer <= 0) {
-        this.shapeTimer = 4.2 + Math.random() * 1.8;
-        this._nudgeAttackShape(this.possession, 0.16);
-        this._nudgeDefendShape(
-          this.possession === "home" ? "away" : "home",
-          this.carrier || this.ball
-        );
-        this._pullTowardBase(0.12);
-        this._supportRuns();
-        this._pressCarrier();
+        this.shapeTimer = 4.5 + Math.random() * 1.5;
+        this._nudgeAttackShape(this.possession, 0.12);
+        this._pullTowardBase(0.18);
+        this._assignFsmTargets();
         this._updatePossessionChrome();
       }
 
@@ -2720,13 +2844,14 @@ export class MatchView {
       for (const pl of this.players) {
         if (pl.el.classList.contains("sent-off")) continue;
         const mul = this._speedMul(pl);
-        // FMM：整体更稳，无球别满场飞
-        let speed = 7.5 * mul;
-        if (pl === this.carrier) speed = 14 * mul;
-        else if (this.carrier && pl.team === this.carrier.team) speed = 10 * mul;
-        else if (this.carrier && pl.team !== this.carrier.team && pl.pos !== "GK")
-          speed = 11 * mul;
-        else if (pl.pos === "GK") speed = 5.5;
+        // 按 FSM 调速：压迫/接应稍快，回位更稳
+        let speed = 7 * mul;
+        if (pl.fsm === "carry" || pl === this.carrier) speed = 13.5 * mul;
+        else if (pl.fsm === "press") speed = 12 * mul;
+        else if (pl.fsm === "support") speed = 10.5 * mul;
+        else if (pl.fsm === "cover") speed = 9 * mul;
+        else if (pl.fsm === "home") speed = 6.5 * mul;
+        else if (pl.pos === "GK") speed = 5;
         this._moveToward(pl, speed, d);
         this._applyPlayer(pl);
         pl.heatAcc = (pl.heatAcc || 0) + d;
