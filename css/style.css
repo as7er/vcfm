@@ -4215,6 +4215,33 @@ html[data-theme="light"] .opp-danger-chip {
 html[data-theme="light"] .scout-watch-row {
   background: #fff;
 }
+.dash-atm.good { color: var(--good); }
+.dash-atm.bad { color: var(--bad); }
+.dash-finance { font-size: 0.84rem; line-height: 1.4; }
+.dash-badges { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.badge-chip {
+  display: inline-block;
+  padding: 0.15rem 0.45rem;
+  border-radius: 99px;
+  font-size: 0.72rem;
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  color: #fde68a;
+}
+html[data-theme="light"] .badge-chip {
+  color: #92400e;
+  background: rgba(254, 243, 199, 0.95);
+}
+.rel-good { color: var(--good); font-weight: 700; }
+.rel-bad { color: var(--bad); font-weight: 700; }
+.rel-neutral { color: var(--muted); }
+.player-talk-panel { margin-top: 0.35rem; }
+.player-talk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.player-dot.dragging, .tac-slot.dragging { opacity: 0.55; }
 
 /* ===== 赛前简报 / 生涯 / 设施 / 转会 / PWA ===== */
 .prematch-brief {

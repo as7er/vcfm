@@ -8,6 +8,7 @@ import { ensureContract, needsContractAttention, renewOffer } from "./contracts.
 import { acceptPoachBid, rejectPoachBid, ensurePoachBids } from "./poaching.js";
 import { pushMedia } from "./media.js";
 import { isAvailable } from "./discipline.js";
+import { applyPlayerTalk } from "./relations.js";
 
 const CAT_LABEL = {
   board: "董事会",
@@ -236,41 +237,20 @@ export function resolveInboxAction(world, mailId, actionId) {
     }
   }
 
-  // —— 球员约谈 ——
-  if (mail.ref?.kind === "player") {
-    const p = user?.players?.find((x) => x.id === mail.ref.playerId);
-    if (!p) {
-      finishMail(mail, "球员已离队");
-      return { ok: false, msg: "球员已不在队中" };
-    }
-    if (act === "praise") {
-      p.morale = Math.min(100, Math.round((p.morale || 70) + 5));
-      finishMail(mail, `已表扬 ${p.name}`);
-      world.news?.unshift({ day: world.day, text: `🗣️ 你表扬了 ${p.name}，士气上升。` });
-      return { ok: true, msg: `已表扬 ${p.name}` };
-    }
-    if (act === "promise") {
-      p.morale = Math.min(100, Math.round((p.morale || 70) + 3));
-      p._promisedPlay = (world.day || 0) + 14;
-      finishMail(mail, `已承诺给 ${p.name} 更多出场`);
-      world.news?.unshift({
-        day: world.day,
-        text: `🗣️ 你向 ${p.name} 承诺近两周增加出场机会。`,
-      });
-      return { ok: true, msg: `已承诺给 ${p.name} 更多出场` };
-    }
-    if (act === "rebuff") {
-      p.morale = Math.max(20, Math.round((p.morale || 70) - 6));
-      finishMail(mail, `已回绝 ${p.name}`);
-      world.news?.unshift({ day: world.day, text: `🗣️ 你回绝了 ${p.name} 的诉求，其士气下降。` });
-      return { ok: true, msg: `已回绝 ${p.name}` };
-    }
-    if (act === "renew_hint") {
-      // 仅标记，真正续约仍在合同页
-      p._wantsRenew = true;
-      p.morale = Math.min(100, Math.round((p.morale || 70) + 2));
-      finishMail(mail, `已表示愿意谈续约（请到转会/合同处理）`);
-      return { ok: true, msg: "已表态愿意谈续约，请到转会页处理合同" };
+  // —— 关系约谈请求 / 球员诉求 ——
+  if (mail.ref?.kind === "player_talk" || mail.ref?.kind === "player") {
+    const mapAct = {
+      praise: "praise",
+      listen: "listen",
+      criticize: "criticize",
+      promise: "promise",
+      renew_hint: "contract",
+      rebuff: "criticize",
+    };
+    if (mapAct[act]) {
+      const res = applyPlayerTalk(world, mail.ref.playerId, mapAct[act]);
+      if (res.ok) finishMail(mail, res.msg);
+      return res;
     }
     if (act === "ack") {
       finishMail(mail, "已阅");

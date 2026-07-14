@@ -739,6 +739,9 @@ function escapeAttr(s) {
 /** 主题队固定配色（与 models.ensureKit 同步；avatar 不 import models 以免环依赖） */
 const AVATAR_KIT_THEME = {
   sunset: { primary: "#f97316", secondary: "#5b21b6" },
+  harbor: { primary: "#0ea5e9", secondary: "#f8fafc" },
+  steel: { primary: "#64748b", secondary: "#dc2626" },
+  mill: { primary: "#166534", secondary: "#eab308" },
 };
 
 /** 球员 + 俱乐部球衣色 + 状态表情 */

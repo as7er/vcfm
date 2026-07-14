@@ -20,6 +20,7 @@ export function emptyManagerCareer() {
     sacked: 0,
     bestFinish: null, // { season, division, pos, divName }
     trophies: [], // { season, type, title, detail }
+    badges: [], // { id, title, detail, season, day }
   };
 }
 

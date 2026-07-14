@@ -1,6 +1,7 @@
-﻿/* VCFM 路 绂荤嚎缂撳瓨锛圙itHub Pages 鍙嬪ソ锛? * JS/CSS/HTML锛氱綉缁滀紭鍏?+ no-store锛岄伩鍏嶆敼浠ｇ爜鍚庝粛鍚冩棫缂撳瓨
- * 鍏跺畠璧勬簮锛氱紦瀛樹紭鍏? */
-const CACHE = "vcfm-v58";
+/* VCFM offline cache (GitHub Pages friendly)
+ * JS/CSS/HTML: network-first + no-store
+ */
+const CACHE = "vcfm-v59";
 const ASSETS = [
   "./",
   "./index.html",
@@ -23,6 +24,8 @@ const ASSETS = [
   "./js/loans.js",
   "./js/transfers.js",
   "./js/inbox.js",
+  "./js/relations.js",
+  "./js/worldpulse.js",
   "./manifest.webmanifest",
   "./icons/icon.svg",
 ];
@@ -73,7 +76,6 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  // 浠ｇ爜璧勬簮锛氬己鍒惰蛋缃戠粶锛堢粫杩?HTTP 缂撳瓨锛夛紝澶辫触鍐嶉€€鍥?SW 缂撳瓨
   if (isCodeAsset(url)) {
     event.respondWith(
       fetch(req, { cache: "no-store" })
@@ -89,7 +91,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 鍏跺畠锛氱紦瀛樹紭鍏?  event.respondWith(
+  event.respondWith(
     caches.match(req).then((cached) => {
       const network = fetch(req)
         .then((res) => {
@@ -104,4 +106,3 @@ self.addEventListener("fetch", (event) => {
     })
   );
 });
-

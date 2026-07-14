@@ -39,6 +39,8 @@ import { grantHonor } from "./honors.js";
 import { advanceCupBracket } from "./cup.js";
 import { processClubMatchDiscipline } from "./discipline.js";
 import { ensureManagerCareer, recordManagerMatch } from "./career.js";
+import { noteUserMatchResult } from "./worldpulse.js";
+import { relationMatchNudge, ensurePlayerRelation } from "./relations.js";
 
 function rng() {
   return Math.random();
@@ -595,11 +597,13 @@ function pickScorer(xi, state, club) {
   const pool = attackers.length ? attackers : xi;
   return weightedPick(pool, (p) => {
     const rw = roleWeights(state, club, p);
+    ensurePlayerRelation(p);
     return (
-      (p.attrs?.finishing || p.attrs?.shooting || 10) +
-      (p.pos === "ATT" ? 4 : p.pos === "MID" ? 1.5 : 0) +
-      rw.score * 1.8 +
-      rng() * 3
+      ((p.attrs?.finishing || p.attrs?.shooting || 10) +
+        (p.pos === "ATT" ? 4 : p.pos === "MID" ? 1.5 : 0) +
+        rw.score * 1.8 +
+        rng() * 3) *
+      relationMatchNudge(p)
     );
   });
 }
@@ -1877,6 +1881,7 @@ export function finalizeMatch(state) {
         }
       }
       recordManagerMatch(world, careerGf, careerGa, isCup);
+      noteUserMatchResult(world, careerGf, careerGa);
     } catch (_) {
       /* ignore */
     }

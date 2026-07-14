@@ -22,6 +22,27 @@ export const CLUB_KIT_THEMES = {
     style: "sash",
     numberColor: "#ffffff",
   },
+  // 港湾竞技：海蓝 + 白
+  harbor: {
+    primary: "#0ea5e9",
+    secondary: "#f8fafc",
+    style: "stripes",
+    numberColor: "#0f172a",
+  },
+  // 钢铁城：钢灰 + 赤红
+  steel: {
+    primary: "#64748b",
+    secondary: "#dc2626",
+    style: "halves",
+    numberColor: "#ffffff",
+  },
+  // 磨坊联：深绿 + 金
+  mill: {
+    primary: "#166534",
+    secondary: "#eab308",
+    style: "hoops",
+    numberColor: "#ffffff",
+  },
 };
 
 /** 超联 20 */

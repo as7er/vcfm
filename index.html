@@ -179,6 +179,12 @@
               <div id="form-strip" class="form-strip"></div>
               <h3 data-i18n="dash.career">经理生涯</h3>
               <div id="manager-career-dash" class="career-dash">—</div>
+              <h3 data-i18n="dash.atmosphere">更衣室氛围</h3>
+              <div id="dash-atmosphere" class="dash-atm">—</div>
+              <h3 data-i18n="dash.finance">财政简报</h3>
+              <div id="dash-finance" class="dash-finance muted">—</div>
+              <h3 data-i18n="dash.badges">成就徽章</h3>
+              <div id="dash-badges" class="dash-badges">—</div>
             </div>
             <div class="card">
               <div class="row-between">
@@ -239,6 +245,7 @@
                     <th data-i18n="th.lastR" title="最近一场评分">最近</th>
                     <th data-i18n="th.fit">体能</th>
                     <th data-i18n="th.morale">士气</th>
+                    <th data-i18n="th.relation">关系</th>
                     <th data-i18n="th.contract" title="合同年限">合同</th>
                     <th data-i18n="th.scout">球探估值</th>
                     <th data-i18n="th.wage">周薪</th>
@@ -607,7 +614,18 @@
             <div class="card span-2">
               <h2 data-i18n="tr.poach">来自其他俱乐部的报价</h2>
               <div id="poach-bids" class="poach-bids">—</div>
+              <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem" data-i18n="transfer.scoutMission">球探任务</h3>
+              <div class="scout-mission-btns" style="display:flex;flex-wrap:wrap;gap:0.35rem;margin-bottom:0.5rem">
+                <button type="button" class="btn small" data-scout-mission="div3">乙级 · €15K</button>
+                <button type="button" class="btn small" data-scout-mission="div2">甲级 · €25K</button>
+                <button type="button" class="btn small" data-scout-mission="intl">跨级 · €40K</button>
+              </div>
+              <p class="hint" id="scout-mission-status" style="margin:0 0 0.65rem">—</p>
               <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem" data-i18n="transfer.scoutWatch">球探关注</h3>
+              <label class="row-between" style="margin-bottom:0.35rem;font-size:0.85rem">
+                <span data-i18n="transfer.watchOnly">仅显示关注</span>
+                <input type="checkbox" id="filter-watch-only" />
+              </label>
               <div id="scout-watch-list" class="scout-watch-list">—</div>
             </div>
             <div class="card">
@@ -898,7 +916,7 @@
     <div id="season-summary" class="season-summary hidden" role="dialog" aria-modal="true"></div>
   </div>
 
-  <script type="module" src="js/main.js?v=58"></script>
+  <script type="module" src="js/main.js?v=59"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {
@@ -906,12 +924,12 @@
           caches.keys().then(function (keys) {
             return Promise.all(
               keys
-                .filter(function (k) { return k.indexOf("vcfm-") === 0 && k !== "vcfm-v58"; })
+                .filter(function (k) { return k.indexOf("vcfm-") === 0 && k !== "vcfm-v59"; })
                 .map(function (k) { return caches.delete(k); })
             );
           }).catch(function () {});
         }
-        navigator.serviceWorker.register("./sw.js?v=58").then(function (reg) {
+        navigator.serviceWorker.register("./sw.js?v=59").then(function (reg) {
           try { reg.update(); } catch (e) {}
           if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
         }).catch(function () {});
@@ -920,8 +938,8 @@
           if (refreshing) return;
           refreshing = true;
           try {
-            if (!sessionStorage.getItem("vcfm-sw-reloaded-v58")) {
-              sessionStorage.setItem("vcfm-sw-reloaded-v58", "1");
+            if (!sessionStorage.getItem("vcfm-sw-reloaded-v59")) {
+              sessionStorage.setItem("vcfm-sw-reloaded-v59", "1");
               location.reload();
             }
           } catch (e) {

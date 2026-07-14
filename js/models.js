@@ -395,6 +395,24 @@ const KIT_THEME_BY_ID = {
     style: "sash",
     numberColor: "#ffffff",
   },
+  harbor: {
+    primary: "#0ea5e9",
+    secondary: "#f8fafc",
+    style: "stripes",
+    numberColor: "#0f172a",
+  },
+  steel: {
+    primary: "#64748b",
+    secondary: "#dc2626",
+    style: "halves",
+    numberColor: "#ffffff",
+  },
+  mill: {
+    primary: "#166534",
+    secondary: "#eab308",
+    style: "hoops",
+    numberColor: "#ffffff",
+  },
 };
 
 function hashStr(s) {

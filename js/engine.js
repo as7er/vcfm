@@ -199,6 +199,25 @@ import {
   pushInbox,
   inboxCatLabel,
 } from "./inbox.js";
+import {
+  processRelationsDay,
+  ensureSquadRelations,
+  clubAtmosphere,
+  atmosphereLabel,
+  relationLabel,
+  applyPlayerTalk,
+  ensurePlayerRelation,
+} from "./relations.js";
+import {
+  processScoutMissions,
+  startScoutMission,
+  processWorldPulse,
+  processYouthPulse,
+  financeSnapshot,
+  checkManagerBadges,
+  noteUserMatchResult,
+  ensureScoutMissions,
+} from "./worldpulse.js";
 
 export {
   simulateMatch,
@@ -253,6 +272,21 @@ export {
   syncPoachBidsToInbox,
   pushInbox,
   inboxCatLabel,
+  processRelationsDay,
+  ensureSquadRelations,
+  clubAtmosphere,
+  atmosphereLabel,
+  relationLabel,
+  applyPlayerTalk,
+  ensurePlayerRelation,
+  processScoutMissions,
+  startScoutMission,
+  processWorldPulse,
+  processYouthPulse,
+  financeSnapshot,
+  checkManagerBadges,
+  noteUserMatchResult,
+  ensureScoutMissions,
 };
 
 function rng() {
@@ -442,6 +476,12 @@ export function advanceDay(world) {
   processPoachingDay(world);
   // 信箱：同步挖角、过期、偶发球员/球探邮件
   processInboxDay(world);
+  // 关系/氛围 + 可能的约谈信草稿
+  const relOut = processRelationsDay(world);
+  if (relOut?.inboxDraft) pushInbox(world, relOut.inboxDraft);
+  processScoutMissions(world);
+  processWorldPulse(world);
+  processYouthPulse(world);
 
   // 设施建设完工
   processFacilityDay(world);

@@ -149,6 +149,16 @@ import {
   markInboxRead,
   syncPoachBidsToInbox,
   inboxCatLabel,
+  clubAtmosphere,
+  atmosphereLabel,
+  relationLabel,
+  ensureSquadRelations,
+  ensurePlayerRelation,
+  applyPlayerTalk,
+  financeSnapshot,
+  startScoutMission,
+  ensureScoutMissions,
+  checkManagerBadges,
   buildScoutReport,
   formatScoutReportHtml,
   buildOpponentReport,
@@ -191,7 +201,7 @@ import {
   playerAvatarHtml,
   staffAvatarHtml,
   avatarHtml,
-} from "./avatar.js?v=58";
+} from "./avatar.js?v=59";
 
 /** 解雇后回菜单：优先提示换空槽开新档，避免误覆盖 */
 function handleSacked(result) {
@@ -1678,6 +1688,41 @@ function renderDashboard() {
       dashIb.innerHTML = `<div class="dash-inbox-count">${en ? `${n} pending` : `${n} 封待办`}</div>${lines}`;
     }
   }
+
+  // 更衣室氛围 + 财政 + 成就
+  const en = getLang() === "en";
+  ensureSquadRelations(club);
+  const atm = clubAtmosphere(club);
+  const atmEl = $("#dash-atmosphere");
+  if (atmEl) {
+    atmEl.innerHTML = `<strong>${atm}</strong> · ${escapeHtml(atmosphereLabel(atm, en ? "en" : "zh"))}`;
+    atmEl.className = "dash-atm " + (atm >= 60 ? "good" : atm < 40 ? "bad" : "");
+  }
+  const fin = financeSnapshot(world);
+  const finEl = $("#dash-finance");
+  if (finEl && fin) {
+    finEl.innerHTML = `
+      <div>${en ? "Balance" : "余额"} <strong>${formatMoney(fin.money)}</strong></div>
+      <div class="muted">${en ? "Weekly out" : "周支出"} ${formatMoney(fin.weekly)}
+        （${en ? "wages" : "薪资"} ${formatMoney(fin.squadWage + fin.youthWage + fin.staffWage)}
+        + ${en ? "facilities" : "设施"} ${formatMoney(fin.upkeep)}）</div>
+      <div class="${fin.critical ? "stat-low" : fin.warning ? "stat-mid" : "muted"}">
+        ${en ? "Runway" : "可撑"} ~${fin.weeksCover} ${en ? "weeks" : "周"}
+        ${fin.critical ? (en ? " · CRITICAL" : " · 告急") : fin.warning ? (en ? " · tight" : " · 偏紧") : ""}
+      </div>`;
+  }
+  const badgeEl = $("#dash-badges");
+  if (badgeEl) {
+    const badges = checkManagerBadges(world) || [];
+    if (!badges.length) {
+      badgeEl.innerHTML = `<span class="muted">${en ? "No badges yet" : "暂无成就徽章"}</span>`;
+    } else {
+      badgeEl.innerHTML = badges
+        .slice(0, 6)
+        .map((b) => `<span class="badge-chip" title="${escapeHtml(b.detail || "")}">🏅 ${escapeHtml(b.title)}</span>`)
+        .join(" ");
+    }
+  }
 }
 
 function ovrClass(n) {
@@ -1763,6 +1808,7 @@ function renderSquad() {
         <td class="num-stat rating-cell ${ratingClass(lastR)}" title="${escapeHtml(t("squad.lastRTitle") || "最近一场评分")}">${formatRating(lastR)}</td>
         <td>${Math.round(p.fitness ?? 0)}%</td>
         <td>${Math.round(p.morale ?? 0)}</td>
+        <td class="rel-cell rel-${relationTone(p.relation)}">${escapeHtml(relationLabel((ensurePlayerRelation(p), p.relation), getLang() === "en" ? "en" : "zh"))}</td>
         <td class="contract-cell">${contractCell}</td>
         <td>${formatMoney(p.value)}</td>
         <td>${formatMoney(p.wage)}</td>
@@ -1916,6 +1962,7 @@ function showPlayerModal(playerId) {
           )
         : ""
     }
+    ${!fromOther ? renderPlayerTalkPanel(player) : ""}
     ${renderPlayerContractActions(player, fromOther)}
 
     <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem">本赛季（俱乐部）</h3>
@@ -1992,6 +2039,51 @@ function showPlayerModal(playerId) {
   `;
   $("#modal").classList.remove("hidden");
   bindPlayerContractActions(player, fromOther);
+  bindPlayerTalkActions(player, fromOther);
+}
+
+function renderPlayerTalkPanel(player) {
+  if (!player || world?.sacked) return "";
+  ensurePlayerRelation(player);
+  const en = getLang() === "en";
+  const cd = player.talkCooldown || 0;
+  const cooling = cd > (world.day || 0);
+  return `<div class="player-talk-panel">
+    <h3 style="margin:0.85rem 0 0.35rem;font-size:0.95rem">${en ? "Manager talk" : "主帅约谈"}</h3>
+    <p class="muted" style="margin:0 0 0.4rem">${en ? "Relation" : "关系"}：
+      <strong class="rel-${relationTone(player.relation)}">${escapeHtml(relationLabel(player.relation, en ? "en" : "zh"))}</strong>
+      ${cooling ? ` · ${en ? "Cooldown until D" : "冷却至第"}${cd}${en ? "" : " 天"}` : ""}
+    </p>
+    <div class="player-talk-actions">
+      <button type="button" class="btn small primary" data-talk="praise" ${cooling ? "disabled" : ""}>${en ? "Praise" : "表扬"}</button>
+      <button type="button" class="btn small" data-talk="listen" ${cooling ? "disabled" : ""}>${en ? "Listen" : "倾听"}</button>
+      <button type="button" class="btn small" data-talk="promise" ${cooling ? "disabled" : ""}>${en ? "Promise mins" : "承诺出场"}</button>
+      <button type="button" class="btn small" data-talk="contract" ${cooling ? "disabled" : ""}>${en ? "Contract" : "谈续约"}</button>
+      <button type="button" class="btn small" data-talk="criticize" ${cooling ? "disabled" : ""}>${en ? "Criticize" : "批评"}</button>
+    </div>
+  </div>`;
+}
+
+function relationTone(rel) {
+  const r = Math.round(rel ?? 0);
+  if (r >= 1) return "good";
+  if (r <= -1) return "bad";
+  return "neutral";
+}
+
+function bindPlayerTalkActions(player, fromOther) {
+  if (fromOther || !player) return;
+  document.querySelectorAll("[data-talk]").forEach((btn) => {
+    btn.onclick = () => {
+      const res = applyPlayerTalk(world, player.id, btn.dataset.talk);
+      toast(res.msg);
+      if (res.ok) {
+        saveGame(world);
+        showPlayerModal(player.id);
+        refreshAll();
+      }
+    };
+  });
 }
 
 /**
@@ -2616,6 +2708,68 @@ function bindTacticsDragDrop() {
       else toast(res.msg || t("tac.swapFail"));
     }
     tacPick.dragging = false;
+  });
+
+  // 触屏 pointer：长按拖动换位（补强 HTML5 DnD）
+  let ptr = { id: null, fromSlot: null, fromBench: null, el: null };
+  pitch.addEventListener(
+    "pointerdown",
+    (e) => {
+      const slotEl = e.target.closest(".tac-slot");
+      if (!slotEl || !slotEl.dataset.playerId) return;
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      ptr = {
+        id: e.pointerId,
+        fromSlot: +slotEl.dataset.slot,
+        fromBench: null,
+        el: slotEl,
+        x: e.clientX,
+        y: e.clientY,
+        moved: false,
+      };
+      try {
+        slotEl.setPointerCapture(e.pointerId);
+      } catch (_) {}
+    },
+    { passive: true }
+  );
+  pitch.addEventListener("pointermove", (e) => {
+    if (ptr.id !== e.pointerId || ptr.fromSlot == null) return;
+    const dx = e.clientX - ptr.x;
+    const dy = e.clientY - ptr.y;
+    if (!ptr.moved && dx * dx + dy * dy < 64) return;
+    ptr.moved = true;
+    tacPick.dragging = true;
+    pitch.querySelectorAll(".drag-over").forEach((el) => el.classList.remove("drag-over"));
+    const over = document.elementFromPoint(e.clientX, e.clientY)?.closest?.(".tac-slot");
+    if (over) over.classList.add("drag-over");
+  });
+  pitch.addEventListener("pointerup", (e) => {
+    if (ptr.id !== e.pointerId) return;
+    const from = ptr.fromSlot;
+    const moved = ptr.moved;
+    pitch.querySelectorAll(".drag-over").forEach((el) => el.classList.remove("drag-over"));
+    try {
+      ptr.el?.releasePointerCapture?.(e.pointerId);
+    } catch (_) {}
+    ptr = { id: null, fromSlot: null, fromBench: null, el: null };
+    if (!moved || from == null) {
+      setTimeout(() => {
+        tacPick.dragging = false;
+      }, 30);
+      return;
+    }
+    const over = document.elementFromPoint(e.clientX, e.clientY)?.closest?.(".tac-slot");
+    if (over && +over.dataset.slot !== from) {
+      const club = getUserClub(world);
+      ensureTactics(club);
+      const res = swapLineupSlots(club, from, +over.dataset.slot);
+      if (res.ok) afterLineupChange(club, res);
+      else toast(res.msg || t("tac.swapFail"));
+    }
+    setTimeout(() => {
+      tacPick.dragging = false;
+    }, 30);
   });
 
   // 点击：点选互换 / 替补上场（触屏友好）
@@ -3330,14 +3484,37 @@ function renderTransfer() {
     statusEl.className = open ? "transfer-window-box open" : "transfer-window-box closed";
   }
 
-  // 球探关注列表（来自信箱「加入关注」）
+  // 球探任务 + 关注列表
+  const enTr = getLang() === "en";
+  ensureScoutMissions(world);
+  const smStatus = $("#scout-mission-status");
+  if (smStatus) {
+    const active = (world.scoutMissions || []).find((m) => m.status === "active");
+    smStatus.textContent = active
+      ? enTr
+        ? `Mission active · returns day ${active.doneDay}`
+        : `任务进行中 · 第 ${active.doneDay} 天回报`
+      : enTr
+        ? "No active mission — send scouts below."
+        : "当前无任务 — 可派遣球探。";
+  }
+  document.querySelectorAll("[data-scout-mission]").forEach((btn) => {
+    btn.onclick = () => {
+      const res = startScoutMission(world, btn.dataset.scoutMission);
+      toast(res.msg);
+      if (res.ok) {
+        saveGame(world);
+        refreshAll();
+      }
+    };
+  });
+
   const watchEl = $("#scout-watch-list");
   if (watchEl) {
-    const en = getLang() === "en";
     const ids = world.scoutWatch || [];
     if (!ids.length) {
       watchEl.innerHTML = `<p class="muted" style="margin:0">${escapeHtml(
-        en ? "No watched players — add from Inbox scout tips." : "暂无关注目标（信箱球探邮件可添加）"
+        enTr ? "No watched players — Inbox or missions add them." : "暂无关注（信箱/球探任务可添加）"
       )}</p>`;
     } else {
       const rows = [];
@@ -3355,7 +3532,7 @@ function renderTransfer() {
           }
         }
       }
-      watchEl.innerHTML = rows.join("") || `<p class="muted" style="margin:0">${en ? "Watched players left clubs." : "关注对象已离队"}</p>`;
+      watchEl.innerHTML = rows.join("") || `<p class="muted" style="margin:0">${enTr ? "Watched players left clubs." : "关注对象已离队"}</p>`;
     }
   }
 
@@ -3409,12 +3586,22 @@ function renderTransfer() {
   }
 
   const pos = $("#filter-pos").value;
-  const market = getMarketPlayers(world, pos);
+  let market = getMarketPlayers(world, pos);
+  const watchOnly = $("#filter-watch-only")?.checked;
+  if (watchOnly) {
+    const set = new Set(world.scoutWatch || []);
+    market = market.filter(({ player: p }) => set.has(p.id));
+  }
   const mt = $("#market-table tbody");
   const userClub = getUserClub(world);
   ensureStaff(userClub);
   const buyDisabled = !open || world.sacked;
   const en = getLang() === "en";
+  const watchFilter = $("#filter-watch-only");
+  if (watchFilter && !watchFilter.dataset.bound) {
+    watchFilter.dataset.bound = "1";
+    watchFilter.addEventListener("change", () => renderTransfer());
+  }
   mt.innerHTML = market
     .map(({ player: p, club }) => {
       const valTxt = formatScoutValue(world, p);
@@ -3820,6 +4007,26 @@ function onAdvance() {
     toast(t("toast.playFirst"));
     return;
   }
+  // 紧急信箱：优先处理再推进
+  const urgent = listInbox(world, { pendingOnly: true, limit: 20 }).filter(
+    (m) => (m.priority || 1) >= 3
+  );
+  if (urgent.length && !world._inboxSkipGate) {
+    const en = getLang() === "en";
+    if (
+      !confirm(
+        en
+          ? `You have ${urgent.length} urgent inbox item(s). Open inbox first?\n(OK = open inbox, Cancel = advance anyway)`
+          : `有 ${urgent.length} 封紧急信箱待办。是否先打开信箱？\n（确定=打开信箱，取消=仍要推进）`
+      )
+    ) {
+      world._inboxSkipGate = true;
+    } else {
+      goToInboxTab();
+      return;
+    }
+  }
+  world._inboxSkipGate = false;
   const res = advanceDay(world);
   if (handleSacked(res)) return;
   const { userMatches } = res;
