@@ -18,3 +18,6 @@ dist/
 /_smoke_p1.mjs
 /_trace.mjs
 /_trace_goal.mjs
+
+# local match recordings / FMM reference clips (do not upload)
+/rec/
