@@ -12,3 +12,9 @@ node_modules/
 .cache/
 dist/
 *.tmp
+
+# ad-hoc root probes (use js/sim/_*.mjs for engine probes)
+/_nan.mjs
+/_smoke_p1.mjs
+/_trace.mjs
+/_trace_goal.mjs

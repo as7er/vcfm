@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>VCFM SimEngine 预览</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: #0b1220; color: #e5e7eb;
+    font: 14px/1.4 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+    padding: 14px; min-height: 100vh;
+  }
+  h1 { font-size: 16px; margin: 4px 0; font-weight: 700; }
+  .sub { color: #94a3b8; font-size: 12px; margin-top: -6px; }
+  .wrap {
+    position: relative; width: min(94vw, 520px); aspect-ratio: 2/3;
+    background: linear-gradient(160deg, #14532d, #166534 55%, #15803d);
+    border-radius: 10px; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,.5);
+  }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .scorebar {
+    display: flex; align-items: center; gap: 14px; justify-content: center;
+    background: #111827; padding: 8px 18px; border-radius: 8px; font-weight: 700;
+    min-width: min(94vw, 520px);
+  }
+  .scorebar .home { color: #60a5fa; } .scorebar .away { color: #f87171; }
+  .scorebar .clock { color: #fbbf24; font-variant-numeric: tabular-nums; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  button, select {
+    background: #1f2937; color: #e5e7eb; border: 1px solid #374151;
+    border-radius: 7px; padding: 8px 14px; font-size: 13px; cursor: pointer;
+  }
+  button:hover { background: #374151; }
+  button.on { background: #2563eb; border-color: #3b82f6; }
+  .stats {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 18px;
+    min-width: min(94vw, 520px); font-size: 12px; color: #cbd5e1;
+    background: #111827; padding: 10px 16px; border-radius: 8px;
+  }
+  .stats b { color: #f1f5f9; font-variant-numeric: tabular-nums; }
+  .legend { font-size: 11px; color: #64748b; text-align: center; max-width: 520px; }
+</style>
+</head>
+<body>
+  <h1>VCFM SimEngine 预览</h1>
+  <div class="sub">未经"演出"修饰的引擎原始输出 · 用于判断节奏与观感</div>
+
+  <div class="scorebar">
+    <span class="home" id="homeName">主队</span>
+    <span id="score">0 - 0</span>
+    <span class="away" id="awayName">客队</span>
+    <span class="clock" id="clock">00:00</span>
+  </div>
+
+  <div class="wrap">
+    <canvas id="cv"></canvas>
+  </div>
+
+  <div class="controls">
+    <button id="playBtn" class="on">⏸ 暂停</button>
+    <select id="speedSel">
+      <option value="1">实时 ×1</option>
+      <option value="2" selected>×2</option>
+      <option value="4">×4</option>
+      <option value="8">×8</option>
+    </select>
+    <button id="resetBtn">↻ 新比赛</button>
+    <button id="headingBtn" class="on">朝向</button>
+    <button id="targetBtn">目标线</button>
+  </div>
+
+  <div class="stats">
+    <div>控球 主 <b id="possH">50</b>% / 客 <b id="possA">50</b>%</div>
+    <div>射门 <b id="shots">0-0</b></div>
+    <div>传球 <b id="passes">0</b></div>
+    <div>抢断 <b id="tackles">0</b></div>
+    <div>扑救 <b id="saves">0</b></div>
+    <div>角球 <b id="corners">0</b></div>
+  </div>
+
+  <div class="legend">
+    蓝=主队(守下方 攻上) · 红=客队 · 黄环=持球 · 亮点=球。
+    这是引擎逻辑的直接可视化：每帧画 SimEngine.snapshot()，无补间/无镜头/无特效。
+  </div>
+
+<script type="module">
+import { SimEngine, SIM } from "./js/sim/engine.js";
+
+// —— 造两支测试队（与冒烟测试一致，纯前端不依赖存档）——
+function makeClub(name, power, formation = "4-3-3") {
+  const roles = ["GK","DEF","DEF","DEF","DEF","MID","MID","MID","ATT","ATT","ATT"];
+  const players = [], lineup = [];
+  for (let i = 0; i < 11; i++) {
+    const mean = power / 5;
+    const g = () => Math.max(1, Math.min(20, Math.round(mean + (Math.random() - 0.5) * 5)));
+    const id = `${name}-p${i}`;
+    players.push({ id, name: `${name}#${i}`, pos: roles[i], number: i + 1, fitness: 100,
+      attrs: { pace: g(), shooting: g(), passing: g(), dribbling: g(), defending: g(),
+        physical: g(), finishing: g(), tackling: g(), marking: g(), strength: g(),
+        stamina: g(), vision: g(), reflexes: g(), handling: g(), positioning: g(), kicking: g() } });
+    lineup.push(id);
+  }
+  return { name, players, tactics: { formation, lineup } };
+}
+
+const cv = document.getElementById("cv");
+const ctx = cv.getContext("2d");
+let W = 0, H = 0, dpr = 1;
+function resize() {
+  const r = cv.getBoundingClientRect();
+  dpr = Math.min(2, window.devicePixelRatio || 1);
+  W = Math.floor(r.width); H = Math.floor(r.height);
+  cv.width = Math.floor(W * dpr); cv.height = Math.floor(H * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener("resize", resize);
+
+let eng, playing = true, speed = 2;
+let showHeading = true, showTarget = false;
+let simAccT = 0; // 累积时间，按 SIM.DT 步进
+let ownerSteps = { home: 0, away: 0 };
+// 插值：保存上一模拟帧与当前模拟帧的位置，渲染时按 simAccT/DT 在两者间 lerp，
+// 让 10Hz 的模拟在 60Hz 屏幕上平滑（消除"卡顿/低帧率"观感）。
+let prevPos = null, curPos = null;
+
+function clamp(n, a, b) { return Math.max(a, Math.min(b, n)); }
+function lerp(a, b, t) { return a + (b - a) * t; }
+/** 最短弧插值角度（heading 跨 ±π 时不打转） */
+function lerpAngle(a, b, t) {
+  let d = b - a;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return a + d * t;
+}
+
+/** 抓取当前所有 agent + 球的位置（插值用） */
+function grabPos() {
+  const p = { players: {}, ball: { x: eng.ball.x, y: eng.ball.y } };
+  for (const a of eng.agents) {
+    p.players[a.id] = { x: a.x, y: a.y, vx: a.vx, vy: a.vy, heading: a.heading };
+  }
+  return p;
+}
+
+function newMatch() {
+  eng = new SimEngine(makeClub("HOME", 68), makeClub("AWAY", 62));
+  ownerSteps = { home: 0, away: 0 };
+  simAccT = 0;
+  prevPos = curPos = grabPos();
+  document.getElementById("homeName").textContent = "HOME";
+  document.getElementById("awayName").textContent = "AWAY";
+}
+newMatch();
+resize();
+
+// 球场标线
+function drawPitch() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.strokeStyle = "rgba(255,255,255,.35)"; ctx.lineWidth = 1.4;
+  const m = 6;
+  ctx.strokeRect(m, m, W - 2*m, H - 2*m);
+  ctx.beginPath(); ctx.moveTo(m, H/2); ctx.lineTo(W - m, H/2); ctx.stroke();
+  ctx.beginPath(); ctx.arc(W/2, H/2, W*0.12, 0, Math.PI*2); ctx.stroke();
+  // 禁区（上下）
+  const boxW = W * 0.44, boxH = H * 0.14;
+  ctx.strokeRect(W/2 - boxW/2, m, boxW, boxH);
+  ctx.strokeRect(W/2 - boxW/2, H - m - boxH, boxW, boxH);
+  // 球门口标记
+  ctx.strokeStyle = "rgba(255,255,255,.6)";
+  const gw = W * (SIM.GOAL_X1 - SIM.GOAL_X0) / 100;
+  ctx.beginPath(); ctx.moveTo(W/2 - gw/2, m); ctx.lineTo(W/2 + gw/2, m); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W/2 - gw/2, H - m); ctx.lineTo(W/2 + gw/2, H - m); ctx.stroke();
+}
+
+function px(x) { return (x / 100) * W; }
+function py(y) { return (y / 100) * H; }
+
+function draw(alpha = 1) {
+  drawPitch();
+  const snap = eng.snapshot();
+  // 位置从 prev→cur 插值，元信息（号码/角色/持球）从 snapshot 取
+  const ip = (id, k) => {
+    const c = curPos.players[id], pv = prevPos.players[id] || c;
+    return lerp(pv[k], c[k], alpha);
+  };
+
+  // 目标线（调试用，不插值，直接看引擎意图）
+  if (showTarget) {
+    ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.lineWidth = 1;
+    for (const a of eng.agents) {
+      ctx.beginPath(); ctx.moveTo(px(a.x), py(a.y)); ctx.lineTo(px(a.tx), py(a.ty)); ctx.stroke();
+    }
+  }
+
+  // 球员
+  for (const p of snap.players) {
+    if (!curPos.players[p.id]) continue;
+    const ix = ip(p.id, "x"), iy = ip(p.id, "y");
+    const x = px(ix), y = py(iy), r = Math.max(7, W * 0.022);
+    const ivx = ip(p.id, "vx"), ivy = ip(p.id, "vy");
+    const ihead = p.heading; // 朝向已在引擎里平滑，直接用
+    // 阴影
+    ctx.fillStyle = "rgba(0,0,0,.28)";
+    ctx.beginPath(); ctx.ellipse(x, y + r*0.5, r*0.7, r*0.28, 0, 0, Math.PI*2); ctx.fill();
+    // 朝向箭头
+    if (showHeading && Math.hypot(ivx||0, ivy||0) > 1) {
+      const hx = Math.cos(ihead), hy = Math.sin(ihead);
+      ctx.beginPath();
+      ctx.moveTo(x + hx*r*1.4, y + hy*r*1.4);
+      ctx.lineTo(x - hy*r*0.5, y + hx*r*0.5);
+      ctx.lineTo(x + hy*r*0.5, y - hx*r*0.5);
+      ctx.closePath();
+      ctx.fillStyle = p.team === "home" ? "rgba(147,197,253,.7)" : "rgba(252,165,165,.7)";
+      ctx.fill();
+    }
+    // 圆点
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2);
+    ctx.fillStyle = p.role === "GK"
+      ? (p.team === "home" ? "#1e3a8a" : "#7f1d1d")
+      : (p.team === "home" ? "#3b82f6" : "#ef4444");
+    ctx.fill();
+    // 持球黄环
+    if (p.hasBall) {
+      ctx.strokeStyle = "#fde047"; ctx.lineWidth = 3; ctx.stroke();
+    } else {
+      ctx.strokeStyle = "rgba(255,255,255,.5)"; ctx.lineWidth = 1; ctx.stroke();
+    }
+    // 号码
+    ctx.fillStyle = "#fff"; ctx.font = `700 ${Math.max(8, r*0.9)}px system-ui`;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(String(p.num), x, y);
+  }
+
+  // 球（插值）
+  const bx = px(lerp(prevPos.ball.x, curPos.ball.x, alpha));
+  const by = py(lerp(prevPos.ball.y, curPos.ball.y, alpha));
+  const br = Math.max(3.5, W * 0.012);
+  ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI*2);
+  ctx.fillStyle = "#fff"; ctx.fill();
+  ctx.strokeStyle = "rgba(0,0,0,.5)"; ctx.lineWidth = 1; ctx.stroke();
+}
+
+function updateHud() {
+  document.getElementById("score").textContent = `${eng.score.home} - ${eng.score.away}`;
+  const min = Math.floor(eng.t / 60), sec = Math.floor(eng.t % 60);
+  document.getElementById("clock").textContent =
+    `${String(min).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
+  const shots = eng.events.filter(e => e.type === "shot");
+  document.getElementById("shots").textContent =
+    `${shots.filter(s=>s.team==="home").length}-${shots.filter(s=>s.team==="away").length}`;
+  document.getElementById("passes").textContent = eng.events.filter(e=>e.type==="pass").length;
+  document.getElementById("tackles").textContent = eng.events.filter(e=>e.type==="tackle").length;
+  document.getElementById("saves").textContent = eng.events.filter(e=>e.type==="save").length;
+  document.getElementById("corners").textContent =
+    eng.events.filter(e=>e.type==="corner").length;
+  const tot = ownerSteps.home + ownerSteps.away || 1;
+  document.getElementById("possH").textContent = Math.round(ownerSteps.home/tot*100);
+  document.getElementById("possA").textContent = Math.round(ownerSteps.away/tot*100);
+}
+
+let lastTs = 0;
+function loop(ts) {
+  const realDt = Math.min(0.1, (ts - lastTs) / 1000 || 0);
+  lastTs = ts;
+  if (playing && eng.t < 90*60) {
+    // 按速度倍率累积模拟时间，逐 SIM.DT 步进
+    simAccT += realDt * speed;
+    let guard = 0;
+    while (simAccT >= SIM.DT && guard < 60) {
+      prevPos = curPos;          // 上一模拟帧
+      eng.step();
+      curPos = grabPos();        // 当前模拟帧
+      const o = eng.ball.owner ? eng.agentById(eng.ball.owner) : null;
+      if (o) ownerSteps[o.team]++;
+      simAccT -= SIM.DT;
+      guard++;
+    }
+  }
+  // 插值因子：本次渲染落在 prev→cur 之间的位置（0..1）
+  const alpha = playing ? clamp(simAccT / SIM.DT, 0, 1) : 1;
+  draw(alpha);
+  updateHud();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// —— 控件 ——
+const playBtn = document.getElementById("playBtn");
+playBtn.onclick = () => {
+  playing = !playing;
+  playBtn.textContent = playing ? "⏸ 暂停" : "▶ 播放";
+  playBtn.classList.toggle("on", playing);
+};
+document.getElementById("speedSel").onchange = (e) => { speed = +e.target.value; };
+document.getElementById("resetBtn").onclick = () => newMatch();
+const headingBtn = document.getElementById("headingBtn");
+headingBtn.onclick = () => { showHeading = !showHeading; headingBtn.classList.toggle("on", showHeading); };
+const targetBtn = document.getElementById("targetBtn");
+targetBtn.onclick = () => { showTarget = !showTarget; targetBtn.classList.toggle("on", showTarget); };
+</script>
+</body>
+</html>

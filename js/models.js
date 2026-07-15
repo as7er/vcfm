@@ -641,7 +641,91 @@ export function defaultTactics() {
     lineup: [],
     /** 与 lineup 等长：每槽角色 id（见 data.PLAYER_ROLES） */
     roles: [],
+    /**
+     * 核心球员 id（梅西/C罗/内马尔式「进攻绝对权」）
+     * 须在首发中；null 表示未指定
+     */
+    corePlayerId: null,
   };
+}
+
+/** 读/校验核心球员：不在首发则清空 */
+export function getCorePlayerId(club) {
+  ensureTactics(club);
+  const id = club.tactics.corePlayerId || null;
+  if (!id) return null;
+  const xi = new Set(club.tactics.lineup || []);
+  if (!xi.has(id)) {
+    club.tactics.corePlayerId = null;
+    return null;
+  }
+  return id;
+}
+
+/**
+ * 从首发里自动挑「进攻核心」：中前场优先，综合射门/盘带/速度/总评
+ * 主客队共用，避免只有用户队有绝对进攻权
+ */
+export function pickAutoCorePlayerId(club) {
+  ensureTactics(club);
+  const map = new Map((club.players || []).map((p) => [p.id, p]));
+  const xi = (club.tactics.lineup || []).map((id) => map.get(id)).filter(Boolean);
+  if (!xi.length) return null;
+  let best = null;
+  let bestScore = -1;
+  for (const p of xi) {
+    if (!p || p.pos === "GK") continue;
+    const a = p.attrs || {};
+    const posB = p.pos === "ATT" ? 1.25 : p.pos === "MID" ? 1.1 : 0.75;
+    const skill =
+      (a.finishing || 10) * 0.28 +
+      (a.shooting || 10) * 0.22 +
+      (a.dribbling || 10) * 0.28 +
+      (a.pace || 10) * 0.12 +
+      (a.passing || 10) * 0.1;
+    const score = (skill + (p.ovr || 10) * 0.35) * posB;
+    if (score > bestScore) {
+      bestScore = score;
+      best = p.id;
+    }
+  }
+  return best;
+}
+
+/**
+ * 保证有核心：已设置且在首发则保留；否则自动指定
+ * 主客队开赛前都应调用，避免单方面才有梅西/C罗式行为
+ * @param {object} club
+ * @param {{ force?: boolean }} [opts] force=true 时即使已有也重算
+ */
+export function ensureCorePlayer(club, { force = false } = {}) {
+  ensureTactics(club);
+  if (!force) {
+    const cur = getCorePlayerId(club);
+    if (cur) return cur;
+  }
+  const id = pickAutoCorePlayerId(club);
+  club.tactics.corePlayerId = id;
+  return id;
+}
+
+/** 设置核心球员（点同一人可取消） */
+export function setCorePlayerId(club, playerId) {
+  ensureTactics(club);
+  if (!playerId) {
+    club.tactics.corePlayerId = null;
+    return { ok: true, corePlayerId: null };
+  }
+  const xi = club.tactics.lineup || [];
+  if (!xi.includes(playerId)) {
+    return { ok: false, msg: "核心球员须在首发十一人中" };
+  }
+  if (club.tactics.corePlayerId === playerId) {
+    club.tactics.corePlayerId = null;
+    return { ok: true, corePlayerId: null, cleared: true };
+  }
+  club.tactics.corePlayerId = playerId;
+  return { ok: true, corePlayerId: playerId };
 }
 
 /**
@@ -695,12 +779,18 @@ export function ensureTactics(club) {
     if (t.defensiveLine == null) t.defensiveLine = d.defensiveLine;
     if (!Array.isArray(t.lineup)) t.lineup = [];
     if (!Array.isArray(t.roles)) t.roles = [];
+    if (t.corePlayerId === undefined) t.corePlayerId = null;
     t.pressing = Math.max(1, Math.min(5, +t.pressing || 3));
     t.tempo = Math.max(1, Math.min(5, +t.tempo || 3));
     t.width = Math.max(1, Math.min(5, +t.width || 3));
     t.defensiveLine = Math.max(1, Math.min(5, +t.defensiveLine || 3));
   }
   ensureLineupRoles(club);
+  // 核心须在首发
+  if (club.tactics.corePlayerId) {
+    const xi = new Set(club.tactics.lineup || []);
+    if (!xi.has(club.tactics.corePlayerId)) club.tactics.corePlayerId = null;
+  }
   return club.tactics;
 }
 
@@ -819,6 +909,28 @@ export function autoLineup(club) {
   club.tactics.lineup = lineup;
   ensureLineupRoles(club, { reset: true });
   return lineup;
+}
+
+/**
+ * 把已有首发名单对齐到阵型槽：优先同位置，GK 槽强制尽量是门将。
+ * 供 matchview / SimEngine 共用，避免「球门前没人」。
+ * @param {object[]} xi
+ * @param {{ pos: string }[]} slots
+ * @returns {(object|null)[]}
+ */
+export function assignPlayersToFormationSlots(xi, slots) {
+  const pool = (xi || []).filter(Boolean);
+  const used = new Set();
+  const out = [];
+  for (const slot of slots || []) {
+    let p =
+      pool.find((x) => !used.has(x.id) && x.pos === slot.pos) ||
+      (slot.pos === "GK" ? pool.find((x) => !used.has(x.id) && x.pos === "GK") : null) ||
+      pool.find((x) => !used.has(x.id));
+    if (p) used.add(p.id);
+    out.push(p || null);
+  }
+  return out;
 }
 
 /**

@@ -24,7 +24,7 @@ import {
 } from "./data.js";
 import { ensureMedia, mediaSeasonKickoff } from "./media.js";
 import { t, initPrefs, getLang } from "./i18n.js";
-import { getMatchView, destroyMatchView } from "./matchview.js";
+import { getMatchView, destroyMatchView } from "./matchview.js?v=68";
 
 function nationLabel(p) {
   if (p.nationFlag && p.nationName) return `${p.nationFlag} ${p.nationName}`;
@@ -51,6 +51,8 @@ import {
   YOUTH_UPGRADE_COST,
   ensureKit,
   ensureTactics,
+  getCorePlayerId,
+  setCorePlayerId,
   assignSquadNumbers,
   kitBackground,
   ensurePlayerNumber,
@@ -2901,6 +2903,7 @@ function renderTactics() {
     autoLineup(club);
   }
   ensureLineupRoles(club);
+  const coreId = getCorePlayerId(club);
   const players = getLineupPlayers(club);
   const pitch = $("#pitch");
   if (!pitch) return;
@@ -2910,6 +2913,20 @@ function renderTactics() {
   const kitBg = kitBackground(kit);
   const kitNc = kit.numberColor || "#fff";
   const en = getLang() === "en";
+  // 核心球员展示
+  const coreDisp = $("#tac-core-display");
+  if (coreDisp) {
+    if (coreId) {
+      const cp = club.players.find((x) => x.id === coreId);
+      coreDisp.classList.remove("muted");
+      coreDisp.innerHTML = cp
+        ? `⭐ <strong>${escapeHtml(cp.name)}</strong> <span class="muted">#${cp.number ?? "·"} · ${escapeHtml(cp.pos || "")}</span>`
+        : escapeHtml(en ? "Not set" : "未指定");
+    } else {
+      coreDisp.classList.add("muted");
+      coreDisp.textContent = en ? "Not set — tap ⭐ on the pitch" : "未指定 — 在战术板点 ⭐";
+    }
+  }
   pitch.innerHTML = formation.slots
     .map((slot, i) => {
       const p = players[i];
@@ -2929,29 +2946,36 @@ function renderTactics() {
       const roleSel = `<select class="tac-role-sel" data-slot-role="${i}" title="${escapeHtml(
         en ? "Player role" : "角色指令"
       )}" aria-label="${escapeHtml(en ? "Role" : "角色")}">${roleOpts.join("")}</select>`;
+      const isCore = p && p.id === coreId;
       const full = p
-        ? `${shirtNo != null ? `#${shirtNo} ` : ""}${p.name} · ${roleLabel(roleId, en ? "en" : "zh")}`
+        ? `${shirtNo != null ? `#${shirtNo} ` : ""}${p.name} · ${roleLabel(roleId, en ? "en" : "zh")}${isCore ? (en ? " · CORE" : " · 核心") : ""}`
         : `${POS_LABEL[slot.pos] || slot.pos}`;
       const badge =
         shirtNo != null
           ? `<span class="pitch-num" style="background:${kitBg};color:${kitNc};border-color:${kit.primary || "#fff"}">${shirtNo}</span>`
           : `<span class="pitch-slot-pos">${escapeHtml(slot.pos)}</span>`;
       const nameText = shirtNo != null ? `#${shirtNo} ${label}` : label;
-      // 名牌：资料链接；拖拽句柄在整个 slot
       const nameHtml = p
         ? `<button type="button" class="player-link pitch-player-link" data-player-link="${escapeHtml(p.id)}">${escapeHtml(nameText)}</button>`
         : `<span class="pitch-empty">${escapeHtml(POS_LABEL[slot.pos] || slot.pos)}</span>`;
+      const coreBtn = p
+        ? `<button type="button" class="tac-core-btn${isCore ? " is-core" : ""}" data-core-id="${escapeHtml(p.id)}" title="${escapeHtml(
+            en ? "Set as core (talisman)" : "设为核心球员"
+          )}" aria-pressed="${isCore ? "true" : "false"}">⭐</button>`
+        : "";
       const oop = p && p.pos !== slot.pos ? " out-of-pos" : "";
       const empty = !p ? " empty" : "";
-      return `<div class="player-dot tac-slot${p ? " clickable-player" : ""}${oop}${empty}"
+      const coreCls = isCore ? " is-core" : "";
+      return `<div class="player-dot tac-slot${p ? " clickable-player" : ""}${oop}${empty}${coreCls}"
         style="left:${slot.x}%;top:${slot.y}%"
         title="${escapeHtml(full)}"
         draggable="${p ? "true" : "false"}"
         data-slot="${i}"
         data-slot-pos="${escapeHtml(slot.pos)}"
         ${p ? `data-player-id="${escapeHtml(p.id)}"` : ""}>
-        <div class="circle kit-dot" style="${style}">${av || fallback}${badge}</div>
+        <div class="circle kit-dot" style="${style}">${av || fallback}${badge}${isCore ? '<span class="pitch-core-star">⭐</span>' : ""}</div>
         <div class="name">${nameHtml}</div>
+        ${coreBtn}
         ${roleSel}
       </div>`;
     })
@@ -3004,8 +3028,38 @@ function renderTactics() {
 
   bindTacticsDragDrop();
   bindTacticsRoleSelects();
+  bindTacticsCoreButtons();
   applyTacPickHighlight();
   renderTacticsSummary();
+}
+
+/** 核心球员 ⭐ 按钮 */
+function bindTacticsCoreButtons() {
+  const pitch = $("#pitch");
+  if (!pitch) return;
+  pitch.querySelectorAll("[data-core-id]").forEach((btn) => {
+    btn.addEventListener("mousedown", (e) => e.stopPropagation());
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (!world) return;
+      const club = getUserClub(world);
+      const id = btn.getAttribute("data-core-id");
+      const res = setCorePlayerId(club, id);
+      if (!res.ok) {
+        toast(res.msg || t("tac.coreFail"));
+        return;
+      }
+      saveGame(world);
+      renderTactics();
+      if (res.cleared) {
+        toast(t("tac.coreCleared"));
+      } else {
+        const p = club.players.find((x) => x.id === res.corePlayerId);
+        toast(t("tac.coreSet", { name: p?.name || "" }));
+      }
+    });
+  });
 }
 
 /** 槽位角色下拉（每次 render 后重绑） */
@@ -4136,6 +4190,12 @@ function syncMatchSpeedUI() {
 }
 
 /**
+ * 高光观赛：细播段落用实时动画速度（rate=1，不抖）。
+ * 平淡时段 skip，整场墙钟目标约 ≤10 分钟（见 adapt.buildHighlightWindows）。
+ */
+const SIM_HIGHLIGHT_RATE = 1;
+
+/**
  * 直播/快速模拟事件停顿（毫秒，再除以倍速）
  * ×1 ≈ FMM「正常观赛」：空分钟也有节奏，关键戏更长
  */
@@ -4147,6 +4207,8 @@ function matchEventWaitMs(ev) {
     case "tick":
       // 每一比赛分钟的「呼吸」——之前几乎为 0，所以整体飞快
       return 280;
+    case "sim_frame":
+      return 16; // 连续时间轴下几乎不用
     case "chance":
     case "woodwork":
     case "penalty":
@@ -4184,18 +4246,202 @@ function matchEventWaitMs(ev) {
  * 支持暂停 / 逐事件；进球会写入可回看列表
  * @param {boolean} live 是否写评论/更新比分条（直播）
  */
+/**
+ * 连续 sim 时间轴上的事件（进球/扑救…）：同步刷 UI，用 hold 卡时间轴而不是 await 长 sleep
+ * （避免打断 rAF 插值流畅度）
+ */
+function handleSimLiveEvent(ev, snap) {
+  if (!ev || ev.type === "tick" || ev.type === "sim_frame") return;
+  const spd = Math.max(0.25, Number(matchSpeed) || 1);
+  const fixture = pendingMatch;
+  if (snap?.minute != null) setMatchMinute(snap.minute);
+  if (snap?.homeGoals != null) setMatchScore(snap.homeGoals, snap.awayGoals);
+  if (snap?.home) updateLiveStats(snap);
+
+  if (ev.type === "goal") {
+    const scene = matchView?.captureSceneSnapshot?.() || null;
+    rememberGoalReplay(ev, snap, fixture, scene);
+    if (ev.text) appendMatchEvent(ev, { goalIndex: matchPlayback.goals.length - 1 });
+    if (matchView) {
+      if (snap?.sim) matchView.applySimSnapshot(snap.sim);
+      // 轻量路径也会触发入网特效；再补一次更强的撞网（直播高光里一眼能看见）
+      matchView.onEvent(ev, snap, fixture);
+      try {
+        const homeId = fixture?.home || matchView.home?.id;
+        const attHome = ev.teamId === homeId;
+        const mouth = attHome
+          ? { gx: 50, gy: 2 }
+          : { gx: 50, gy: 98 };
+        matchView._goalNetEffect?.(mouth.gx, mouth.gy, attHome);
+      } catch (_) {
+        /* ignore */
+      }
+      // 进球停顿：让撞网动画播完
+      matchView.holdSimTimeline?.(3800 / Math.min(spd, 1.35));
+    }
+    return;
+  }
+
+  if (ev.text) appendMatchEvent(ev);
+  if (matchView) {
+    if (snap?.sim) matchView.applySimSnapshot(snap.sim);
+    matchView.onEvent(ev, snap, fixture);
+    const holdMap = {
+      save: 700,
+      chance: 650,
+      woodwork: 700,
+      corner: 500,
+      card: 800,
+      red: 1100,
+      injury: 900,
+      coach: 400,
+      context: 350,
+    };
+    const h = holdMap[ev.type];
+    if (h) matchView.holdSimTimeline?.(h / Math.min(spd, 1.5));
+  }
+}
+
+/** 刷新直播比分条 / 分钟 / 统计 */
+function refreshLiveHudFromState(minute) {
+  if (!matchState) return;
+  if (minute != null) setMatchMinute(minute);
+  setMatchScore(matchState.hg, matchState.ag);
+  if (!matchState.stats) return;
+  const ht = matchState.stats.home.possessionTicks;
+  const at = matchState.stats.away.possessionTicks;
+  const tot = ht + at || 1;
+  updateLiveStats({
+    home: {
+      xg: Math.round(matchState.stats.home.xg * 100) / 100,
+      shots: matchState.stats.home.shots,
+      shotsOn: matchState.stats.home.shotsOn,
+      possession: Math.round((ht / tot) * 100),
+    },
+    away: {
+      xg: Math.round(matchState.stats.away.xg * 100) / 100,
+      shots: matchState.stats.away.shots,
+      shotsOn: matchState.stats.away.shotsOn,
+      possession: 100 - Math.round((ht / tot) * 100),
+    },
+    homeGoals: matchState.hg,
+    awayGoals: matchState.ag,
+    minute: minute ?? matchState.minute,
+  });
+}
+
+/**
+ * 高光观赛计划执行：play 段实时细播，skip 段快进时钟
+ */
+async function playHighlightPlanBridge(spec) {
+  const segs = spec?.segments || [];
+  if (matchView?.setSimDrive) matchView.setSimDrive(true);
+
+  const getSpeed = () => Math.max(0.25, Number(matchSpeed) || 1);
+  const isPaused = () => !!(matchPlayback.paused || matchPlayback.replaying);
+
+  // 开场提示一次
+  if (segs.some((s) => s.kind === "play") && matchView?.setCaption) {
+    const en = getLang() === "en";
+    matchView.setCaption(
+      en ? "Highlights mode · dull passages skipped" : "高光观赛 · 平淡时段已跳过",
+      "info",
+      2200
+    );
+  }
+
+  for (const seg of segs) {
+    if (seg.kind === "skip") {
+      try {
+        spec.onSkip?.(seg);
+      } catch (e) {
+        console.warn(e);
+      }
+      refreshLiveHudFromState(seg.toMin);
+      // 跳过：极短过渡 + 明确提示（让人看出「确实在跳过平淡」）
+      const gapMin = Math.max(0, (seg.toMin || 0) - (seg.fromMin || 0));
+      const skipMs = Math.min(220, 60 + gapMin * 5);
+      if (gapMin >= 2) {
+        const msg =
+          getLang() === "en"
+            ? `⏩ Skip ${seg.fromMin}'→${seg.toMin}'`
+            : `⏩ 跳过平淡 ${seg.fromMin}'→${seg.toMin}'`;
+        if (matchView?.setBanner) {
+          matchView.setBanner(msg, "info");
+          setTimeout(() => matchView.setBanner?.(""), 200);
+        }
+        if (matchView?.setCaption) matchView.setCaption(msg, "info", 450);
+      }
+      await sleepPlayback(skipMs / getSpeed());
+      continue;
+    }
+
+    if (seg.kind === "play" && seg.frames?.length >= 2 && matchView?.playSimTimeline) {
+      await matchView.playSimTimeline(seg.frames, {
+        getSpeed,
+        isPaused,
+        rate: SIM_HIGHLIGHT_RATE, // 高光用真实动画速度
+        onSimT: (t, minute) => {
+          refreshLiveHudFromState(minute);
+          try {
+            spec.onSimT?.(t, minute);
+          } catch (e) {
+            console.warn(e);
+          }
+        },
+      });
+      refreshLiveHudFromState(seg.toMin);
+      continue;
+    }
+
+    // 无帧的 play 当 skip
+    try {
+      spec.onSkip?.(seg);
+    } catch (_) {
+      /* ignore */
+    }
+    refreshLiveHudFromState(seg.toMin);
+  }
+}
+
 async function driveMatchEvent(ev, snap, { live = true } = {}) {
   const spd = Math.max(0.25, Number(matchSpeed) || 1);
   const fixture = pendingMatch;
+  const simDrive = !!(matchView?.simDrive || snap?.sim || snap?.engine === "v2");
+
+  // 连续时间轴弹出的事件：走轻量 UI + hold，保持流畅
+  if (ev?._simLive && live) {
+    handleSimLiveEvent(ev, snap);
+    return;
+  }
+
+  // 旧式逐帧 sim_frame（兼容）：几乎不再使用
+  if (ev.type === "sim_frame") {
+    if (live && snap) setMatchMinute(snap.minute);
+    if (snap?.home) updateLiveStats(snap);
+    if (matchView?.applySimSnapshot && snap?.sim) {
+      matchView.applySimSnapshot(snap.sim);
+    } else if (matchView?.onTick) {
+      matchView.onTick(snap);
+    }
+    await sleepPlayback(Math.max(8, 16 / spd));
+    return;
+  }
 
   if (ev.type === "tick") {
     if (live && snap) setMatchMinute(snap.minute);
-    // 导演 tick：用 snap 控球偏置推连续表演（不改比分）
-    if (matchView?.onTick) matchView.onTick(snap);
+    if (snap?.sim && matchView?.applySimSnapshot) {
+      matchView.applySimSnapshot(snap.sim);
+    } else if (matchView?.onTick) {
+      matchView.onTick(snap);
+    }
     // 空分钟也要停：否则 90 分钟几乎瞬间跳完
-    // 攻势段落中略拉长呼吸，更像「这一波」
     let tickMs = matchEventWaitMs(ev);
-    if (matchView?._attackPhaseActive?.()) tickMs = Math.round(tickMs * 1.25);
+    if (!simDrive && matchView?._attackPhaseActive?.()) tickMs = Math.round(tickMs * 1.25);
+    // 空间投影连续时间轴下 tick 几乎不用；兜底短停
+    if (simDrive) {
+      tickMs = snap?.sim ? 40 : 200;
+    }
     const wait = live ? tickMs / spd : Math.max(12, tickMs / (spd * 8));
     await sleepPlayback(wait);
     return;
@@ -4212,8 +4458,17 @@ async function driveMatchEvent(ev, snap, { live = true } = {}) {
         setMatchMinute(ev.minute);
       }
     }
+
+    // 空间投影：贴帧 + 横幅/音效，停顿接近旧版进球高光时长
+    if (simDrive) {
+      if (snap?.sim && matchView?.applySimSnapshot) matchView.applySimSnapshot(snap.sim);
+      if (matchView) matchView.onEvent(ev, snap, fixture);
+      const goalWait = live ? 3200 / Math.min(spd, 1.25) : 500;
+      await sleepPlayback(goalWait);
+      return;
+    }
+
     if (matchView?.extendAttackFromEvent) matchView.extendAttackFromEvent(ev, fixture);
-    // 高光前轻对齐控球（完整组织在 playGoalHighlight 内）
     if (matchView?.prepareEvent) {
       await matchView.prepareEvent(ev, snap, fixture, {
         speed: spd,
@@ -4222,13 +4477,11 @@ async function driveMatchEvent(ev, snap, { live = true } = {}) {
       });
     }
     if (matchView?.playGoalHighlight) {
-      // 进球高光：×1 时不加速；快进档才略压缩
       const goalSpd = Math.min(spd, live ? 1.15 : 1.5);
       await matchView.playGoalHighlight(ev, snap, fixture, {
         speed: goalSpd,
         lang: getLang(),
         sleepFn: sleepPlayback,
-        // 直播：用抓取的场面作参考（高光内仍从当前帧推进）
         scene: scene || null,
         rewatch: false,
       });
@@ -4236,17 +4489,21 @@ async function driveMatchEvent(ev, snap, { live = true } = {}) {
     return;
   }
 
-  // 关键事件延长攻势 + 预演
-  if (matchView?.extendAttackFromEvent) matchView.extendAttackFromEvent(ev, fixture);
-  if (matchView?.prepareEvent) {
-    await matchView.prepareEvent(ev, snap, fixture, {
-      speed: spd,
-      live,
-      sleepFn: sleepPlayback,
-    });
+  // 关键事件：空间投影只贴帧 + 轻事件，不做预演编舞
+  if (simDrive) {
+    if (snap?.sim && matchView?.applySimSnapshot) matchView.applySimSnapshot(snap.sim);
+    if (matchView) matchView.onEvent(ev, snap, fixture);
+  } else {
+    if (matchView?.extendAttackFromEvent) matchView.extendAttackFromEvent(ev, fixture);
+    if (matchView?.prepareEvent) {
+      await matchView.prepareEvent(ev, snap, fixture, {
+        speed: spd,
+        live,
+        sleepFn: sleepPlayback,
+      });
+    }
+    if (matchView) matchView.onEvent(ev, snap, fixture);
   }
-
-  if (matchView) matchView.onEvent(ev, snap, fixture);
 
   if (live) {
     if (ev.text) appendMatchEvent(ev);
@@ -4264,8 +4521,13 @@ async function driveMatchEvent(ev, snap, { live = true } = {}) {
 
   const base = matchEventWaitMs(ev);
   if (base > 0) {
-    // 快速模拟仍可见画面，但明显快于直播
-    const wait = live ? base / spd : base / (spd * 2.2);
+    let wait = live ? base / spd : base / (spd * 2.2);
+    // 空间投影：事件停顿接近旧导演，略短于完整预演（已无 prepare 编舞）
+    if (simDrive && live) {
+      wait = Math.max(wait, Math.min(base, 1100) / spd);
+    } else if (simDrive) {
+      wait = Math.min(wait, 220);
+    }
     await sleepPlayback(Math.max(50, wait));
   }
 }
@@ -4714,6 +4976,15 @@ function toggleMatchStatsPanel() {
 function setMatchLiveState(state) {
   const live = document.querySelector(".fm-sb-live");
   const badge = $("#match-com-badge");
+  // 布局态：赛前让出高度给简报/讲话，避免底栏与下拉被裁
+  const layout = document.querySelector(".match-layout.fm-match");
+  if (layout) {
+    layout.classList.remove("pre-kickoff", "live-kick", "ht-kick", "ft-kick");
+    if (state === "pre") layout.classList.add("pre-kickoff");
+    else if (state === "ht") layout.classList.add("ht-kick");
+    else if (state === "ft") layout.classList.add("ft-kick");
+    else layout.classList.add("live-kick");
+  }
   if (live) {
     live.classList.remove("is-idle", "is-ft");
     if (state === "pre" || state === "ht") {
@@ -4733,6 +5004,8 @@ function setMatchLiveState(state) {
     badge.className = "fm-com-badge" + (state !== "pre" ? " " + state : "");
     badge.textContent = state === "pre" ? "PRE" : state.toUpperCase();
   }
+  // 布局 class 切换后球场高度会变，必须重测 canvas（否则要手动缩放页面才正常）
+  matchView?.refreshLayout?.();
 }
 
 function setMatchBusy(busy) {
@@ -4839,12 +5112,21 @@ async function runMatch(mode) {
     ensureMatchPitch(true);
     const live = mode === "live";
     matchState._liveMode = live;
+    // 直播 + 用户场 sim：球场切真空间投影（关导演自由 AI）
+    if (live && matchView?.setSimDrive) matchView.setSimDrive(true);
     const onEvent = async (ev, snap) => {
-      if (snap?.home) updateLiveStats(snap);
+      if (ev?._simLive) {
+        handleSimLiveEvent(ev, snap);
+        return;
+      }
+      if (snap?.home && ev?.type !== "sim_frame") updateLiveStats(snap);
       await driveMatchEvent(ev, snap, { live });
     };
 
-    await playFirstHalf(matchState, { onEvent });
+    await playFirstHalf(matchState, {
+      onEvent,
+      playHighlightPlan: live ? playHighlightPlanBridge : undefined,
+    });
 
     // 非直播：上半场事件写入日志（画面已在 onEvent 驱动）
     if (!live) {
@@ -4929,6 +5211,7 @@ function ensureMatchPitch(remount = false) {
   } else {
     matchView.setOnPlayerClick(onPlayerClick);
   }
+  matchView?.refreshLayout?.();
 }
 
 function hideHtPanel() {
@@ -5501,8 +5784,11 @@ async function finishHalfTime(applyOrders) {
   try {
     const live = !!matchState._liveMode;
     setMatchLiveState("live");
-    // 下半场：直播时显示场边战术条
-    if (live) setLiveTacBarVisible(true);
+    // 下半场：直播时显示场边战术条 + 继续真空间投影
+    if (live) {
+      setLiveTacBarVisible(true);
+      if (matchView?.setSimDrive) matchView.setSimDrive(true);
+    }
 
     // 开球提示（横幅 + 评论）
     if (matchView?.showSecondHalfKickoff) {
@@ -5517,6 +5803,10 @@ async function finishHalfTime(applyOrders) {
 
     // continueSecondHalf：中场战术/换人事件会立刻 onEvent
     const onEvent = async (ev, snap) => {
+      if (ev?._simLive) {
+        handleSimLiveEvent(ev, snap);
+        return;
+      }
       if (snap?.home) updateLiveStats(snap);
       await driveMatchEvent(ev, snap, { live });
     };
@@ -5525,7 +5815,10 @@ async function finishHalfTime(applyOrders) {
       matchView.phase = "play";
     }
 
-    const result = await continueSecondHalf(matchState, orders, { onEvent });
+    const result = await continueSecondHalf(matchState, orders, {
+      onEvent,
+      playHighlightPlan: live ? playHighlightPlanBridge : undefined,
+    });
 
     if (!live) {
       // 快速模拟：onEvent 不写日志，此处补刷（含中场战术/换人）

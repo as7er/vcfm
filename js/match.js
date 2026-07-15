@@ -9,6 +9,7 @@ import {
   ensureMatchLineup,
   ensureTactics,
   ensureLineupRoles,
+  ensureCorePlayer,
   formatMoney,
   ensurePlayerHistory,
   roleDefForPlayer,
@@ -41,6 +42,15 @@ import { processClubMatchDiscipline } from "./discipline.js";
 import { ensureManagerCareer, recordManagerMatch } from "./career.js";
 import { noteUserMatchResult } from "./worldpulse.js";
 import { relationMatchNudge, ensurePlayerRelation } from "./relations.js";
+import {
+  shouldUseSim,
+  ensureSimEngine,
+  resyncSimAfterHalfTime,
+  runSimPeriodRaw,
+  defaultFlavorText,
+  buildHighlightWindows,
+  buildHighlightSegments,
+} from "./sim/adapt.js";
 
 function rng() {
   return Math.random();
@@ -412,6 +422,10 @@ export function createMatchSession(world, fixture) {
   // 用户保留手动/上次首发；AI 强制重排
   ensureMatchLineup(home, { forceAuto: home.id !== world.userClubId });
   ensureMatchLineup(away, { forceAuto: away.id !== world.userClubId });
+  // 主客都保证有核心（用户已指定则保留；AI / 未指定则自动选进攻最强的）
+  // 避免「只有用户队会回撤内切/绝对进攻权」的单方面表现
+  ensureCorePlayer(home);
+  ensureCorePlayer(away);
 
   const isCup = fixture.competition === "cup";
   // 与赛前简报同一天气（已锁定则复用）
@@ -667,6 +681,343 @@ function addGoal(state, minute, club, xi, { penalty = false } = {}) {
       penalty,
     }
   );
+}
+
+/**
+ * SimEngine 适配：记一粒已知射手的进球（不再随机抽人）。
+ * 射门/xG 已在时段统计里加过，这里只改比分与射手数据。
+ */
+function addSimGoal(state, minute, team, scorerId) {
+  const club = team === "home" ? state.home : state.away;
+  const sk = team;
+  const xi = activeXi(state, club);
+  let scorer =
+    (scorerId && xi.find((p) => p.id === scorerId)) ||
+    (scorerId && club.players.find((p) => p.id === scorerId)) ||
+    pickScorer(xi, state, club);
+  if (!scorer) return null;
+  const assister = pickAssister(xi, scorer, state, club);
+  if (sk === "home") state.hg++;
+  else state.ag++;
+  if (!state.isCup) {
+    ensureStats(scorer).goals++;
+    if (assister) ensureStats(assister).assists++;
+  }
+  const assistText = assister ? `（助攻：${assister.name}）` : "";
+  return pushEv(
+    state,
+    minute,
+    "goal",
+    `⚽ ${minute}' ${club.short || club.name} ${scorer.name} 破门！${assistText}`,
+    {
+      teamId: club.id,
+      playerId: scorer.id,
+      assistId: assister?.id || null,
+      penalty: false,
+      fromSim: true,
+    }
+  );
+}
+
+function pushSimFlavor(state, item) {
+  const club = item.team === "home" ? state.home : state.away;
+  if (!club) return null;
+  const text = defaultFlavorText(state, item);
+  const type =
+    item.type === "corner"
+      ? "corner"
+      : item.type === "save"
+        ? "save"
+        : item.type === "offside"
+          ? "chance"
+          : item.type === "tackle" || item.type === "intercept"
+            ? "chance"
+            : "chance";
+  if (item.type === "corner") state.stats[item.team].corners++;
+  if (item.type === "save") state.stats[item.team].saves++;
+  const extra = { teamId: club.id, fromSim: true };
+  if (item.agentId) extra.playerId = item.agentId;
+  return pushEv(state, item.minute, type, text, extra);
+}
+
+/**
+ * 用户场：SimEngine 跑完时段 → scaled 记账。
+ * 直播：只细播「高光窗」（进球/扑救/威胁），其余 skip，整场观赛约 ≤10 分钟。
+ * opts.playHighlightPlan 由 main 注入。
+ */
+async function simulatePeriodWithSim(state, fromMin, toMin, { onEvent, playHighlightPlan } = {}) {
+  ensureSimEngine(state);
+  if (fromMin >= 46) resyncSimAfterHalfTime(state);
+
+  const liveStream = !!(state._liveMode && onEvent);
+  // 高光窗需要够密的帧才能 60fps 插值不抖；平淡时段只用来抽帧边界
+  const period = runSimPeriodRaw(state.simEng, fromMin, toMin, {
+    record: liveStream,
+    sampleEvery: liveStream ? 1 : 5,
+  });
+  const { scaled, flavor, tStart, tEnd, frames } = period;
+
+  // 射门 / xG / 控球（缩放量级）
+  for (const team of ["home", "away"]) {
+    const n = scaled.shots[team] || 0;
+    const st = state.stats[team];
+    st.shots += n;
+    st.shotsOn += Math.round(n * (0.34 + rng() * 0.08));
+    st.xg += n * (0.09 + rng() * 0.04);
+    const totalShots = Math.max(1, (scaled.shots.home || 0) + (scaled.shots.away || 0));
+    st.possessionTicks += Math.round(40 + (n / totalShots) * 80 + rng() * 15);
+  }
+
+  const lo = tStart <= 0 ? 1 : 46;
+  const hi = tEnd <= 45 * 60 + 1 ? 45 : 90;
+
+  /** 按模拟时间排序的事件线索 */
+  const cues = [];
+  for (const g of scaled.goals) {
+    let minute = Math.max(lo, Math.min(hi, g.minute));
+    if (minute < fromMin || minute > toMin) continue;
+    const t = g.t != null ? g.t : minute * 60;
+    cues.push({ t, minute, kind: "goal", team: g.team, scorerId: g.scorerId });
+  }
+  for (const f of flavor) {
+    const minute = Math.max(fromMin, Math.min(toMin, f.minute));
+    const t = f.t != null ? f.t : minute * 60;
+    cues.push({ t, minute, kind: "flavor", item: f });
+  }
+  cues.sort((a, b) => a.t - b.t || a.minute - b.minute);
+
+  const rawInPeriod = (state.simEng.events || []).filter(
+    (e) => e.t > tStart && e.t <= tEnd
+  );
+  const hl = buildHighlightWindows({
+    rawEvents: rawInPeriod,
+    scaledGoals: scaled.goals,
+    tStart,
+    tEnd,
+  });
+  const segments = buildHighlightSegments(frames || [], hl.windows, tStart, tEnd);
+
+  if (state.simEngineMeta) {
+    state.simEngineMeta.halves.push({
+      tStart,
+      tEnd,
+      scaledScore: { ...scaled.score },
+      scaledShots: { ...scaled.shots },
+      goals: scaled.goals.length,
+      frames: frames?.length || 0,
+      highlightWindows: hl.windows.length,
+      highlightPlaySec: Math.round(hl.playSec),
+    });
+  }
+
+  // —— 直播：高光细播 + 平淡跳过 ——
+  if (liveStream && typeof playHighlightPlan === "function") {
+    let cueIdx = 0;
+    let lastMinDone = fromMin - 1;
+    const minutesDone = new Set();
+
+    const finishMinuteSideEffects = (minute, { silent } = {}) => {
+      if (minutesDone.has(minute)) return;
+      minutesDone.add(minute);
+      state.minute = minute;
+      const mark = state.events.length;
+      tryCardOrFoul(state, minute);
+      tryInjury(state, minute);
+      midMatchCoachPrompt(state, minute);
+      if (minute % 15 === 0) {
+        for (const club of [state.home, state.away]) {
+          const sk = club === state.home ? "home" : "away";
+          const fitW = state._fitW?.[sk] || fitnessMultOf(club.tactics);
+          for (const p of activeXi(state, club)) {
+            const drain = Math.max(
+              1,
+              Math.round(fitW + (state.weather.pace < 0.92 ? 0.5 : 0))
+            );
+            p.fitness = Math.round(Math.max(30, (p.fitness || 100) - drain));
+          }
+        }
+        recomputeSides(state);
+      }
+      if (!silent && onEvent) {
+        const snap = liveSnap(state, minute, null);
+        for (const ev of state.events.slice(mark)) {
+          ev._simLive = true;
+          onEvent(ev, snap);
+        }
+      }
+    };
+
+    const advanceCuesTo = (t, { show } = { show: true }) => {
+      while (cueIdx < cues.length && cues[cueIdx].t <= t + 0.05) {
+        const c = cues[cueIdx++];
+        const mark = state.events.length;
+        if (c.kind === "goal") addSimGoal(state, c.minute, c.team, c.scorerId);
+        else if (c.kind === "flavor") pushSimFlavor(state, c.item);
+        if (show && onEvent) {
+          const snap = liveSnap(state, c.minute, null);
+          snap.simT = t;
+          for (const ev of state.events.slice(mark)) {
+            ev._simLive = true;
+            onEvent(ev, snap);
+          }
+        }
+      }
+    };
+
+    const advanceMinutesTo = (minute, { silent } = {}) => {
+      while (lastMinDone < minute) {
+        lastMinDone++;
+        if (lastMinDone >= fromMin && lastMinDone <= toMin) {
+          finishMinuteSideEffects(lastMinDone, { silent });
+        }
+      }
+    };
+
+    await playHighlightPlan({
+      segments,
+      fromMin,
+      toMin,
+      tStart,
+      tEnd,
+      highlightPlaySec: hl.playSec,
+      // 高光播放中：按 simT 弹出线索
+      onSimT: (t, minute) => {
+        state.minute = minute;
+        advanceMinutesTo(minute, { silent: false });
+        advanceCuesTo(t, { show: true });
+      },
+      // 跳过时段：瞬间记账 + 时钟跳到终点
+      onSkip: (seg) => {
+        advanceMinutesTo(seg.toMin, { silent: true });
+        advanceCuesTo(seg.t1, { show: false });
+        // 跳过段里的进球仍要进日志（静默已 add），再补一条「快进」提示可选
+        state.minute = seg.toMin;
+      },
+    });
+
+    for (; cueIdx < cues.length; cueIdx++) {
+      const c = cues[cueIdx];
+      if (c.kind === "goal") addSimGoal(state, c.minute, c.team, c.scorerId);
+      else pushSimFlavor(state, c.item);
+    }
+    for (let m = fromMin; m <= toMin; m++) finishMinuteSideEffects(m, { silent: true });
+    return;
+  }
+
+  // —— 非直播（快速/无画面）：按分钟写事件 ——
+  /** @type {Record<number, Array>} */
+  const byMin = {};
+  for (let m = fromMin; m <= toMin; m++) byMin[m] = [];
+  for (const c of cues) {
+    byMin[c.minute].push(c);
+  }
+
+  for (let minute = fromMin; minute <= toMin; minute++) {
+    state.minute = minute;
+    const mark = state.events.length;
+
+    for (const c of byMin[minute] || []) {
+      if (c.kind === "goal") addSimGoal(state, minute, c.team, c.scorerId);
+      else if (c.kind === "flavor") pushSimFlavor(state, c.item);
+    }
+
+    tryCardOrFoul(state, minute);
+    tryInjury(state, minute);
+    midMatchCoachPrompt(state, minute);
+
+    if (minute % 15 === 0) {
+      for (const club of [state.home, state.away]) {
+        const sk = club === state.home ? "home" : "away";
+        const fitW = state._fitW?.[sk] || fitnessMultOf(club.tactics);
+        for (const p of activeXi(state, club)) {
+          const drain = Math.max(
+            1,
+            Math.round(fitW + (state.weather.pace < 0.92 ? 0.5 : 0))
+          );
+          p.fitness = Math.round(Math.max(30, (p.fitness || 100) - drain));
+        }
+      }
+      recomputeSides(state);
+    }
+
+    if (onEvent) {
+      const snap = liveSnap(state, minute, null);
+      const recent = state.events.slice(mark);
+      for (const ev of recent) {
+        await onEvent(ev, snap);
+      }
+      if (!recent.length) {
+        await onEvent({ minute, type: "tick", text: "" }, snap);
+      }
+    }
+  }
+}
+
+/** 同步版时段模拟（instant / 快速完赛） */
+function simulatePeriodWithSimSync(state, fromMin, toMin) {
+  // 复用 async 逻辑但不 await onEvent：用空 opts 同步跑完
+  // 因 simulatePeriodWithSim 内部无真正 await（onEvent 缺省），可直接调用并忽略 Promise
+  // 为避免微任务时序问题，内联同步路径：
+  ensureSimEngine(state);
+  if (fromMin >= 46) resyncSimAfterHalfTime(state);
+
+  const period = runSimPeriodRaw(state.simEng, fromMin, toMin);
+  const { scaled, flavor, tStart, tEnd } = period;
+
+  for (const team of ["home", "away"]) {
+    const n = scaled.shots[team] || 0;
+    const st = state.stats[team];
+    st.shots += n;
+    st.shotsOn += Math.round(n * (0.34 + rng() * 0.08));
+    st.xg += n * (0.09 + rng() * 0.04);
+    const totalShots = Math.max(1, (scaled.shots.home || 0) + (scaled.shots.away || 0));
+    st.possessionTicks += Math.round(40 + (n / totalShots) * 80 + rng() * 15);
+  }
+
+  const lo = tStart <= 0 ? 1 : 46;
+  const hi = tEnd <= 45 * 60 + 1 ? 45 : 90;
+  const byMin = {};
+  for (let m = fromMin; m <= toMin; m++) byMin[m] = [];
+  for (const g of scaled.goals) {
+    const minute = Math.max(lo, Math.min(hi, g.minute));
+    if (minute < fromMin || minute > toMin) continue;
+    byMin[minute].push({ kind: "goal", team: g.team, scorerId: g.scorerId });
+  }
+  for (const f of flavor) {
+    const minute = Math.max(fromMin, Math.min(toMin, f.minute));
+    byMin[minute].push({ kind: "flavor", ...f, minute });
+  }
+  if (state.simEngineMeta) {
+    state.simEngineMeta.halves.push({
+      tStart,
+      tEnd,
+      scaledScore: { ...scaled.score },
+      scaledShots: { ...scaled.shots },
+      goals: scaled.goals.length,
+    });
+  }
+
+  for (let minute = fromMin; minute <= toMin; minute++) {
+    state.minute = minute;
+    for (const item of byMin[minute] || []) {
+      if (item.kind === "goal") addSimGoal(state, minute, item.team, item.scorerId);
+      else pushSimFlavor(state, item);
+    }
+    tryCardOrFoul(state, minute);
+    tryInjury(state, minute);
+    midMatchCoachPrompt(state, minute);
+    if (minute % 15 === 0) {
+      for (const club of [state.home, state.away]) {
+        const sk = club === state.home ? "home" : "away";
+        const fitW = state._fitW?.[sk] || fitnessMultOf(club.tactics);
+        for (const p of activeXi(state, club)) {
+          const drain = Math.max(1, Math.round(fitW));
+          p.fitness = Math.round(Math.max(30, (p.fitness || 100) - drain));
+        }
+      }
+      recomputeSides(state);
+    }
+  }
 }
 
 function tryAttack(state, minute, club, opp, atk, def, xgPer90) {
@@ -995,6 +1346,17 @@ export async function playFirstHalf(state, opts = {}) {
   if (derby) bits.push("🔥 德比大战");
   if (bigMatch) bits.push(isCup ? "🏆 焦点杯赛" : "⭐ 焦点战");
   pushEv(state, 0, "context", `情境：${bits.join(" · ")}`);
+  // 用户场走 v2 空间模拟时给一条标记，方便战报/调试
+  if (shouldUseSim(state)) {
+    pushEv(
+      state,
+      0,
+      "context",
+      state._liveMode
+        ? "⚙️ 空间模拟 v2 · 高光观赛（进球/扑救细看，平淡跳过）"
+        : "⚙️ 比赛引擎：空间模拟 v2"
+    );
+  }
   if (opts.onEvent) {
     const snap0 = liveSnap(state, 0);
     for (const ev of state.events) {
@@ -1002,7 +1364,11 @@ export async function playFirstHalf(state, opts = {}) {
     }
   }
   state.phase = "h1";
-  await simulateMinutes(state, 1, 45, opts);
+  if (shouldUseSim(state)) {
+    await simulatePeriodWithSim(state, 1, 45, opts);
+  } else {
+    await simulateMinutes(state, 1, 45, opts);
+  }
   pushEv(state, 45, "ht", `中场休息 ${home.name} ${state.hg} - ${state.ag} ${away.name}`);
   if (opts.onEvent) {
     const ht = state.events[state.events.length - 1];
@@ -1386,7 +1752,11 @@ function styleLabel(s) {
 export async function playSecondHalf(state, opts = {}) {
   aiHalfTime(state);
   state.phase = "h2";
-  await simulateMinutes(state, 46, 90, opts);
+  if (shouldUseSim(state)) {
+    await simulatePeriodWithSim(state, 46, 90, opts);
+  } else {
+    await simulateMinutes(state, 46, 90, opts);
+  }
   pushEv(
     state,
     90,
@@ -1409,8 +1779,8 @@ function possessionPct(state) {
   return { home: hp, away: 100 - hp };
 }
 
-/** 直播/回放用的实时数据快照（xG、控球、射门） */
-function liveSnap(state, minute) {
+/** 直播/回放用的实时数据快照（xG、控球、射门；可选 sim 真投影帧） */
+function liveSnap(state, minute, simFrame = null) {
   const poss = possessionPct(state);
   const hs = state.stats.home;
   const as = state.stats.away;
@@ -1430,6 +1800,9 @@ function liveSnap(state, minute) {
       shotsOn: as.shotsOn,
       possession: poss.away,
     },
+    /** 空间模拟压缩帧：matchview.applySimSnapshot 直接画 */
+    sim: simFrame || null,
+    engine: state.simEng ? "v2" : "v1",
   };
 }
 
@@ -2019,13 +2392,25 @@ export function simulateMatchSync(world, fixture, opts = {}) {
   if (derby) bits.push("🔥 德比大战");
   if (bigMatch) bits.push(isCup ? "🏆 焦点杯赛" : "⭐ 焦点战");
   pushEv(state, 0, "context", `情境：${bits.join(" · ")}`);
-  runMinutesSync(state, 1, 45);
-  pushEv(state, 45, "ht", `中场休息 ${home.name} ${state.hg} - ${state.ag} ${away.name}`);
-  aiHalfTime(state);
-  if (opts.htTalkId && state.userClub) {
-    applyTeamTalk(state, opts.htTalkId, "ht");
+  // 用户场：空间模拟 v2；AI 后台场：概率引擎（性能）
+  if (shouldUseSim(state)) {
+    pushEv(state, 0, "context", "⚙️ 比赛引擎：空间模拟 v2");
+    simulatePeriodWithSimSync(state, 1, 45);
+    pushEv(state, 45, "ht", `中场休息 ${home.name} ${state.hg} - ${state.ag} ${away.name}`);
+    aiHalfTime(state);
+    if (opts.htTalkId && state.userClub) {
+      applyTeamTalk(state, opts.htTalkId, "ht");
+    }
+    simulatePeriodWithSimSync(state, 46, 90);
+  } else {
+    runMinutesSync(state, 1, 45);
+    pushEv(state, 45, "ht", `中场休息 ${home.name} ${state.hg} - ${state.ag} ${away.name}`);
+    aiHalfTime(state);
+    if (opts.htTalkId && state.userClub) {
+      applyTeamTalk(state, opts.htTalkId, "ht");
+    }
+    runMinutesSync(state, 46, 90);
   }
-  runMinutesSync(state, 46, 90);
   pushEv(state, 90, "ft", `全场结束 ${home.name} ${state.hg} - ${state.ag} ${away.name}`);
   return finalizeMatch(state);
 }

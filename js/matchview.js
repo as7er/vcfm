@@ -13,7 +13,12 @@
  */
 
 import { FORMATIONS, playerDisplaySurname } from "./data.js";
-import { ensureKit, getLineupPlayers, autoLineup } from "./models.js";
+import {
+  ensureKit,
+  getLineupPlayers,
+  autoLineup,
+  assignPlayersToFormationSlots,
+} from "./models.js";
 
 function clamp(n, a, b) {
   return Math.max(a, Math.min(b, n));
@@ -132,6 +137,272 @@ export class MatchView {
     this._flashCardToken = 0;
     /** FMM：热区默认关 */
     this.heatEnabled = false;
+    /**
+     * 真空间投影模式：位置由 SimEngine 快照驱动，关闭自由导演 AI。
+     * 直播 v2 时开启。
+     */
+    this.simDrive = false;
+  }
+
+  /**
+   * 开启/关闭空间模拟投影驱动
+   * @param {boolean} on
+   */
+  setSimDrive(on) {
+    this.simDrive = !!on;
+    this.fieldEl?.classList.toggle("mp-sim-drive", !!on);
+    // 开赛时布局常从 pre-kickoff 变 live，必须重测 canvas
+    this.refreshLayout?.();
+    if (this.simDrive) {
+      this.scriptLock = false;
+      this.flight = null;
+      this.ballFlightUntil = 0;
+      this.ballState = "free";
+      this.actionTimer = 999;
+      this.aftermathUntil = 0;
+      this.attackPhase = null;
+      // 清轨迹/传球网，避免和 Canvas 球员叠成重影
+      this.trails = [];
+      if (this.trailSvg) this.trailSvg.innerHTML = "";
+      if (this.networkSvg) {
+        const paths = this.networkSvg.querySelector("#mp-net-paths");
+        if (paths) paths.innerHTML = "";
+      }
+      this.passNetwork?.clear?.();
+      if (this.phase === "pre" || this.phase === "pause") this.phase = "play";
+    }
+  }
+
+  /**
+   * 把 SimEngine 压缩帧投影到 2D 球场（球员坐标 + 球 + 持球高亮）
+   * @param {object|null} sim compactSimFrame / snapshot
+   * @param {{ soft?: boolean }} [opts] soft=true 时指数平滑（防抖），不强制切镜头
+   */
+  applySimSnapshot(sim, opts = {}) {
+    if (!this._built || !sim?.players?.length) return false;
+    this.simDrive = true;
+    this.scriptLock = false;
+    this.flight = null;
+    this.ballFlightUntil = 0;
+    if (this.phase !== "goal") this.phase = "play";
+
+    const soft = !!opts.soft;
+    // 平滑系数：约 70ms 跟上目标，去掉帧边界硬切造成的肉眼抖动
+    const smooth = soft ? 0.38 : 1;
+
+    const byId = new Map(sim.players.map((s) => [s.id, s]));
+    let carrier = null;
+    for (const pl of this.players) {
+      if (pl.el.classList.contains("sent-off")) continue;
+      const s = byId.get(pl.id);
+      if (!s) continue;
+      const tx = clamp(s.x, 0, 100);
+      const ty = clamp(s.y, 0, 100);
+      pl.x = smooth >= 1 ? tx : pl.x + (tx - pl.x) * smooth;
+      pl.y = smooth >= 1 ? ty : pl.y + (ty - pl.y) * smooth;
+      pl.tx = pl.x;
+      pl.ty = pl.y;
+      if (s.heading != null && Number.isFinite(s.heading)) pl.heading = s.heading;
+      const has = !!s.hasBall;
+      pl.el.classList.toggle("has-ball", has);
+      if (has) carrier = pl;
+      this._applyPlayer(pl);
+    }
+
+    if (carrier) {
+      this.carrier = carrier;
+      this.lastCarrierId = carrier.id;
+      this.possession = carrier.team;
+      this.ballState = "held";
+    } else {
+      this.carrier = null;
+      this.ballState = "free";
+      for (const pl of this.players) pl.el.classList.remove("has-ball");
+    }
+
+    if (sim.ball) {
+      const bx = clamp(sim.ball.x, 0, 100);
+      const by = clamp(sim.ball.y, 0, 100);
+      this.ball.x = smooth >= 1 ? bx : this.ball.x + (bx - this.ball.x) * smooth;
+      this.ball.y = smooth >= 1 ? by : this.ball.y + (by - this.ball.y) * smooth;
+      this.ball.tx = this.ball.x;
+      this.ball.ty = this.ball.y;
+    }
+    this._applyBall();
+    // 禁止每帧强制 ball 镜头——镜头来回抢会造成「抖得眼晕」
+    if (!this._simPlay) this.camMode = this.camMode || "wide";
+    return true;
+  }
+
+  /** 两帧之间插值（对齐 sim-viewer：10Hz 模拟 → 屏幕 60fps 平滑） */
+  applySimSnapshotLerped(fa, fb, alpha) {
+    if (!fa?.players?.length) return false;
+    if (!fb?.players?.length || alpha <= 0) {
+      return this.applySimSnapshot(fa, { soft: true });
+    }
+    if (alpha >= 1) return this.applySimSnapshot(fb, { soft: true });
+    const t = clamp(alpha, 0, 1);
+    const byB = new Map(fb.players.map((p) => [p.id, p]));
+    const players = fa.players.map((a) => {
+      const b = byB.get(a.id) || a;
+      let h = a.heading ?? 0;
+      let hb = b.heading ?? h;
+      let dh = hb - h;
+      while (dh > Math.PI) dh -= Math.PI * 2;
+      while (dh < -Math.PI) dh += Math.PI * 2;
+      return {
+        id: a.id,
+        team: a.team,
+        role: a.role,
+        num: a.num,
+        x: a.x + (b.x - a.x) * t,
+        y: a.y + (b.y - a.y) * t,
+        heading: h + dh * t,
+        // 持球态跟前一帧，避免 50% 处来回闪
+        hasBall: !!a.hasBall,
+      };
+    });
+    // 球 owner 用前半/后半切换一次即可
+    const ball = {
+      x: (fa.ball?.x ?? 50) + ((fb.ball?.x ?? 50) - (fa.ball?.x ?? 50)) * t,
+      y: (fa.ball?.y ?? 50) + ((fb.ball?.y ?? 50) - (fa.ball?.y ?? 50)) * t,
+      owner: fa.ball?.owner ?? null,
+    };
+    // 插值本身已是 60fps 平滑，不再二次 soft（双重平滑会发糊/发飘）
+    return this.applySimSnapshot(
+      { t: (fa.t ?? 0) + ((fb.t ?? 0) - (fa.t ?? 0)) * t, ball, players },
+      { soft: false }
+    );
+  }
+
+  /**
+   * 连续回放密集 sim 帧 —— 严格对齐 sim-viewer：
+   *   simT += realDt * speed * rate   （×1 且 rate=1 时 = 实时动画）
+   *   在相邻录制帧之间按 alpha 插值，每显示帧只画一次
+   *
+   * @param {Array} frames compactSimFrame[]  建议 sampleEvery=1（0.1s）
+   * @param {object} [opts]
+   * @param {() => number} [opts.getSpeed]
+   * @param {() => boolean} [opts.isPaused]
+   * @param {number} [opts.rate] ×1 时模拟秒/墙钟秒，默认 1（= sim-viewer ×1 动画速度）
+   * @param {(t:number, minute:number) => void} [opts.onSimT]
+   */
+  playSimTimeline(frames, opts = {}) {
+    return new Promise((resolve) => {
+      if (!this._built || !frames?.length) {
+        resolve();
+        return;
+      }
+      this.stopSimTimeline();
+      this.setSimDrive(true);
+      this.frozen = false;
+      if (this.phase === "pre" || this.phase === "pause") this.phase = "play";
+      // 全场稳镜头，避免跟球狂抖
+      this.camMode = "wide";
+      this.cam.tx = 0;
+      this.cam.ty = 0;
+      this.cam.tScale = 1;
+
+      const t0 = frames[0].t ?? 0;
+      const sp = {
+        frames,
+        i: 0,
+        // 绝对模拟时钟（与 sim-viewer 的 eng.t / simAccT 同思路）
+        simT: t0,
+        lastTs: 0,
+        getSpeed: typeof opts.getSpeed === "function" ? opts.getSpeed : () => 1,
+        isPaused: typeof opts.isPaused === "function" ? opts.isPaused : () => false,
+        // ×1 → rate 1：动画真实速度；×2/×4 只加速，不靠「跳帧」装快
+        rate: Number(opts.rate) > 0 ? Number(opts.rate) : 1,
+        onSimT: opts.onSimT || null,
+        holdUntil: 0,
+        raf: 0,
+        resolve,
+        lastEmitT: t0 - 1,
+      };
+      this._simPlay = sp;
+      this.applySimSnapshot(frames[0], { soft: false });
+
+      const tick = (ts) => {
+        if (this._simPlay !== sp) return;
+        if (!sp.lastTs) sp.lastTs = ts;
+        // 与 sim-viewer 一样钳制，防止切后台后一帧跳太大
+        const realDt = Math.min(0.05, (ts - sp.lastTs) / 1000);
+        sp.lastTs = ts;
+
+        if (sp.isPaused() || this.frozen) {
+          sp.raf = requestAnimationFrame(tick);
+          return;
+        }
+        if (ts < sp.holdUntil) {
+          // hold 期间仍刷新 DOM 位置（保持静止平滑），不推进 simT
+          sp.raf = requestAnimationFrame(tick);
+          return;
+        }
+
+        const speed = Math.max(0.25, Number(sp.getSpeed()) || 1);
+        // 核心：墙钟 → 模拟时间（×1+rate1 = 画面真实速度）
+        sp.simT += realDt * speed * sp.rate;
+
+        const fr = sp.frames;
+        const tEnd = fr[fr.length - 1].t ?? 0;
+        if (sp.simT > tEnd) sp.simT = tEnd;
+
+        // 找到 simT 所在的 [i, i+1] 帧（不靠累加 gap 误差）
+        while (sp.i < fr.length - 1 && (fr[sp.i + 1].t ?? 0) <= sp.simT) {
+          sp.i++;
+        }
+        const a = fr[sp.i];
+        const b = fr[Math.min(sp.i + 1, fr.length - 1)];
+        const tA = a.t ?? 0;
+        const tB = b.t ?? tA;
+        const span = Math.max(1e-6, tB - tA);
+        const alpha = sp.i >= fr.length - 1 ? 1 : clamp((sp.simT - tA) / span, 0, 1);
+
+        this.applySimSnapshotLerped(a, b, alpha);
+
+        const minute = Math.max(1, Math.min(90, Math.ceil(sp.simT / 60) || 1));
+        // 事件线索约 8Hz 足够，避免每帧狂刷
+        if (sp.onSimT && (sp.simT - sp.lastEmitT >= 0.12 || sp.simT >= tEnd)) {
+          sp.lastEmitT = sp.simT;
+          try {
+            sp.onSimT(sp.simT, minute);
+          } catch (e) {
+            console.warn("onSimT", e);
+          }
+        }
+
+        if (sp.simT >= tEnd - 1e-6) {
+          this._simPlay = null;
+          sp.resolve();
+          return;
+        }
+        sp.raf = requestAnimationFrame(tick);
+      };
+
+      sp.raf = requestAnimationFrame(tick);
+    });
+  }
+
+  /** 进球等：暂停时间轴推进 holdMs 毫秒（墙钟） */
+  holdSimTimeline(ms) {
+    if (!this._simPlay) return;
+    const t = performance.now() + Math.max(0, Number(ms) || 0);
+    this._simPlay.holdUntil = Math.max(this._simPlay.holdUntil || 0, t);
+  }
+
+  stopSimTimeline() {
+    if (this._simPlay?.raf) cancelAnimationFrame(this._simPlay.raf);
+    if (this._simPlay?.resolve) {
+      const r = this._simPlay.resolve;
+      this._simPlay.resolve = null;
+      try {
+        r();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    this._simPlay = null;
   }
 
   /**
@@ -734,11 +1005,11 @@ export class MatchView {
                 Math.hypot(a.x - gk.x, a.y - gk.y) - Math.hypot(b.x - gk.x, b.y - gk.y)
             )[0];
           if (def) {
-            this._passTo(gk, def, { flightMs: 320 });
+            this._passTo(gk, def, { flightMs: 560 });
           } else {
             this._setCarrier(gk, { stick: true });
           }
-          this.actionTimer = 0.35;
+          this.actionTimer = 0.5;
         }, 450);
       }
     } else {
@@ -873,6 +1144,11 @@ export class MatchView {
    */
   async prepareEvent(ev, snap, fixture, opts = {}) {
     if (!this._built || !ev || this.phase === "pre" || this.phase === "idle") return;
+    // 真空间投影：不编舞，只贴最新引擎帧
+    if (this.simDrive || snap?.sim) {
+      if (snap?.sim) this.applySimSnapshot(snap.sim);
+      return;
+    }
     const sleepFn = typeof opts.sleepFn === "function" ? opts.sleepFn : sleep;
     const speed = Math.max(0.25, Number(opts.speed) || 1);
     const wait = (ms) => sleepFn(Math.max(40, ms / Math.min(speed, 2.2)));
@@ -1084,8 +1360,8 @@ export class MatchView {
           8,
           92
         );
-        this._passTo(organizer, hero, { flightMs: live ? 480 : 220 });
-        await wait(live ? 620 : 240);
+        this._passTo(organizer, hero, { flightMs: live ? 700 : 380 });
+        await wait(live ? 860 : 420);
         if (this.carrier !== hero) this._setCarrier(hero, { stick: true });
         this._setTouch(hero, 1200);
         await wait(live ? 420 : 140);
@@ -1168,10 +1444,10 @@ export class MatchView {
     }
   }
 
-  /** 防守方：后卫压迫球 + 中前场整体回撤本半场 */
+  /** 防守方：后卫追球深度 + 中前场按球回撤（不再锁死 baseY） */
   _nudgeDefendShape(team, toward) {
-    const tx = toward?.x ?? 50;
-    const ty = toward?.y ?? 50;
+    const tx = toward?.x ?? this.ball?.x ?? 50;
+    const ty = toward?.y ?? this.ball?.y ?? 50;
     const outfield = this.players.filter(
       (p) => p.team === team && p.pos !== "GK" && !p.el.classList.contains("sent-off")
     );
@@ -1179,54 +1455,53 @@ export class MatchView {
     const mids = outfield.filter((p) => p.pos === "MID");
     const atts = outfield.filter((p) => p.pos === "ATT");
 
-    // 后卫：近球压迫
+    // 后卫：强跟球深度，弱跟 base（避免「锁在进攻阵型后卫位」）
     defs.sort(
       (a, b) => Math.hypot(a.x - tx, a.y - ty) - Math.hypot(b.x - tx, b.y - ty)
     );
     for (let i = 0; i < defs.length; i++) {
       const pl = defs[i];
-      if (i < 2) {
-        pl.tx = clamp(lerp(pl.baseX, tx, 0.35) + (Math.random() - 0.5) * 3, 8, 92);
-        pl.ty = clamp(lerp(pl.baseY, ty, 0.3) + (Math.random() - 0.5) * 2.5, 8, 92);
-      } else if (i < 5) {
-        pl.tx = clamp(lerp(pl.baseX, tx, 0.18) + (Math.random() - 0.5) * 2.5, 8, 92);
-        pl.ty = clamp(lerp(pl.baseY, ty, 0.15) + (Math.random() - 0.5) * 2, 8, 92);
-      } else {
-        pl.tx = clamp(lerp(pl.x, pl.baseX, 0.4), 6, 94);
-        pl.ty = clamp(lerp(pl.y, pl.baseY, 0.35), 5, 95);
-      }
+      const ballW = i < 2 ? 0.55 : i < 4 ? 0.42 : 0.3;
+      const lineY =
+        team === "home"
+          ? clamp(ty - (i < 2 ? 8 : 12), 56, 91)
+          : clamp(ty + (i < 2 ? 8 : 12), 9, 44);
+      pl.tx = clamp(lerp(pl.baseX, tx, ballW) + (Math.random() - 0.5) * 2.5, 8, 92);
+      pl.ty = clamp(lerp(pl.baseY, lineY, 0.72) + (Math.random() - 0.5) * 2, 6, 94);
     }
 
-    // 中场回撤到本半场中圈一带
     for (const pl of mids) {
-      if (team === "home") {
-        pl.tx = clamp(lerp(pl.tx, pl.baseX, 0.35), 10, 90);
-        pl.ty = clamp(Math.max(pl.baseY, 50 + (Math.random() - 0.5) * 4), 48, 72);
-      } else {
-        pl.tx = clamp(lerp(pl.tx, pl.baseX, 0.35), 10, 90);
-        pl.ty = clamp(Math.min(pl.baseY, 50 + (Math.random() - 0.5) * 4), 28, 52);
-      }
+      const lineY =
+        team === "home"
+          ? clamp(ty - 22, 48, 80)
+          : clamp(ty + 22, 20, 52);
+      pl.tx = clamp(lerp(pl.baseX, tx, 0.22) + (Math.random() - 0.5) * 2, 10, 90);
+      pl.ty = clamp(lineY + (Math.random() - 0.5) * 3, team === "home" ? 46 : 18, team === "home" ? 82 : 54);
     }
-    // 前锋必须退过中线，禁止蹲对方禁区
     for (const pl of atts) {
-      if (team === "home") {
-        pl.tx = clamp(lerp(pl.tx, pl.baseX, 0.45), 12, 88);
-        pl.ty = clamp(Math.max(48, pl.baseY * 0.35 + 50 * 0.65), 46, 62);
-      } else {
-        pl.tx = clamp(lerp(pl.tx, pl.baseX, 0.45), 12, 88);
-        pl.ty = clamp(Math.min(52, pl.baseY * 0.35 + 50 * 0.65), 38, 54);
-      }
+      const lineY =
+        team === "home"
+          ? clamp(Math.max(48, ty - 34), 46, 68)
+          : clamp(Math.min(52, ty + 34), 32, 54);
+      pl.tx = clamp(lerp(pl.baseX, 50, 0.2) + (Math.random() - 0.5) * 4, 12, 88);
+      pl.ty = lineY;
     }
   }
 
-  /** 把无人球球员轻轻拉回阵型位 */
+  /**
+   * 把无人球球员轻轻拉回阵型位
+   * 无球方只收横向 baseX，不把 Y 拉回进攻 base（否则前锋又会蹲对方半场）
+   */
   _pullTowardBase(amount = 0.15) {
     const a = clamp(amount, 0.05, 0.4);
     for (const pl of this.players) {
       if (pl.el.classList.contains("sent-off")) continue;
       if (pl === this.carrier) continue;
       pl.tx = clamp(lerp(pl.tx, pl.baseX, a), 5, 95);
-      pl.ty = clamp(lerp(pl.ty, pl.baseY, a * 0.85), 5, 95);
+      if (pl.team === this.possession) {
+        pl.ty = clamp(lerp(pl.ty, pl.baseY, a * 0.85), 5, 95);
+      }
+      // 无球方 Y 交给 _applyDefensiveDrop / FSM cover
     }
   }
 
@@ -1236,6 +1511,16 @@ export class MatchView {
    */
   onTick(snap) {
     if (!this._built || !snap) return;
+    // 空间投影帧优先
+    if (snap.sim) {
+      this.applySimSnapshot(snap.sim);
+      this.updateLiveStrip?.(snap);
+      return;
+    }
+    if (this.simDrive) {
+      this.updateLiveStrip?.(snap);
+      return;
+    }
     const hp = snap.home?.possession;
     if (hp != null && Number.isFinite(hp)) {
       // 缓变，避免每分钟硬切
@@ -1370,11 +1655,13 @@ export class MatchView {
 
   _spawnTeam(actors, club, isHome, color, numColor) {
     const form = FORMATIONS[club.tactics?.formation] || FORMATIONS["4-3-3"];
-    const xi = getLineupPlayers(club);
+    const xi = getLineupPlayers(club) || [];
     const slots = form.slots || [];
+    // 与 SimEngine 一致：按槽位匹配位置，门将必须在 GK 槽
+    const assigned = assignPlayersToFormationSlots(xi, slots);
     for (let i = 0; i < Math.min(11, slots.length); i++) {
       const slot = slots[i];
-      const p = xi[i];
+      const p = assigned[i] || xi[i] || null;
       const pos = slotToPitch(slot, isHome);
       const el = document.createElement("div");
       el.className = `mp-player ${isHome ? "home" : "away"}`;
@@ -1387,10 +1674,14 @@ export class MatchView {
       const name = p
         ? playerDisplaySurname(p.name, p.nationality)
         : "?";
-      // FMM 2D：队服色圆点 + 号码为主；短名仅在持球/焦点时显示（CSS）
+      // 门将用醒目球衣色（金/亮绿），场上不会「找不着门将」
+      const rolePos = slot.pos || p?.pos || "MID";
+      const isGk = rolePos === "GK";
+      const dotBg = isGk ? (isHome ? "#eab308" : "#a3e635") : color;
+      const dotFg = isGk ? "#0f172a" : numColor;
       el.innerHTML = `
         <div class="mp-shadow" aria-hidden="true"></div>
-        <div class="mp-dot" style="background:${color};color:${numColor}">
+        <div class="mp-dot${isGk ? " mp-dot-gk" : ""}" style="background:${dotBg};color:${dotFg}">
           <span class="mp-num">${num}</span>
         </div>
         <div class="mp-name">${escapeHtml(name)}</div>
@@ -1414,7 +1705,6 @@ export class MatchView {
       const jitter = () => (Math.random() - 0.5) * 0.7;
       const baseX = clamp(pos.x + jitter(), 4, 96);
       const baseY = clamp(pos.y + jitter(), 4, 96);
-      const rolePos = p?.pos || slot.pos;
       // 个人防区半径：球进入才离开阵型位（参考 FM 区域职责）
       const zoneR =
         rolePos === "GK" ? 16 : rolePos === "DEF" ? 20 : rolePos === "MID" ? 26 : 22;
@@ -1526,30 +1816,93 @@ export class MatchView {
   }
 
   // ---------- Canvas 渲染层（与 DOM 并存：Canvas 画球星，DOM 点选） ----------
+  /**
+   * 按球场真实布局尺寸同步 canvas 像素缓冲。
+   * 注意：不要写死 style.width/height 像素——会和 CSS 100% 打架，
+   * 首屏 flex 未算完时量错，必须缩放页面才触发 resize 才正常。
+   */
+  _resizeCanvas() {
+    if (!this.canvas || !this.fieldEl) return false;
+    // clientWidth 不吃 transform 缩放误差，比 getBoundingClientRect 更稳
+    const w = Math.floor(this.fieldEl.clientWidth || 0);
+    const h = Math.floor(this.fieldEl.clientHeight || 0);
+    if (w < 40 || h < 40) {
+      this._canvasNeedsResize = true;
+      return false;
+    }
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const bw = Math.floor(w * dpr);
+    const bh = Math.floor(h * dpr);
+    // 清掉可能残留的内联尺寸，交给 CSS inset:0; width/height:100%
+    this.canvas.style.width = "";
+    this.canvas.style.height = "";
+    if (this.canvas.width !== bw || this.canvas.height !== bh || !this._cx) {
+      this.canvas.width = bw;
+      this.canvas.height = bh;
+      this._cx = this.canvas.getContext("2d");
+    }
+    if (this._cx) this._cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this._cw = w;
+    this._ch = h;
+    this._canvasNeedsResize = false;
+    return true;
+  }
+
+  /** 布局变化后强制重测（开赛、换屏、简报收起等） */
+  refreshLayout() {
+    this._resizeCanvas();
+    // 再排两帧，等 flex/百分比高度落稳
+    requestAnimationFrame(() => {
+      this._resizeCanvas();
+      requestAnimationFrame(() => this._resizeCanvas());
+    });
+  }
+
   _initCanvas() {
     if (!this.canvas || !this.fieldEl) return;
-    const resize = () => {
-      const r = this.fieldEl.getBoundingClientRect();
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const w = Math.max(120, Math.floor(r.width));
-      const h = Math.max(160, Math.floor(r.height));
-      this.canvas.width = Math.floor(w * dpr);
-      this.canvas.height = Math.floor(h * dpr);
-      this.canvas.style.width = `${w}px`;
-      this.canvas.style.height = `${h}px`;
-      this._cx = this.canvas.getContext("2d");
-      this._cx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      this._cw = w;
-      this._ch = h;
-    };
-    resize();
-    this._onCanvasResize = resize;
-    window.addEventListener("resize", resize);
+    this._resizeCanvas();
+
+    // 窗口缩放
+    this._onCanvasResize = () => this._resizeCanvas();
+    window.addEventListener("resize", this._onCanvasResize);
+
+    // 球场盒子尺寸变化（比 window.resize 更关键：切 tab、flex 重算、pre→live）
+    if (typeof ResizeObserver !== "undefined") {
+      this._fieldRo = new ResizeObserver(() => {
+        this._resizeCanvas();
+      });
+      this._fieldRo.observe(this.fieldEl);
+      if (this.root) this._fieldRo.observe(this.root);
+    }
+
+    // 首屏多次补测：父级 match-layout 往往晚一拍才有高度
+    requestAnimationFrame(() => {
+      this._resizeCanvas();
+      requestAnimationFrame(() => this._resizeCanvas());
+    });
+    this._resizeTimers = [50, 150, 400, 800].map((ms) =>
+      setTimeout(() => this._resizeCanvas(), ms)
+    );
+
     // DOM 球员改为透明热区，视觉交给 Canvas
     this.fieldEl.classList.add("mp-canvas-mode");
   }
 
   _drawCanvas() {
+    // 每帧检查：布局若已变化则重绑缓冲（不用再手动缩放页面）
+    if (this.fieldEl) {
+      const fw = Math.floor(this.fieldEl.clientWidth || 0);
+      const fh = Math.floor(this.fieldEl.clientHeight || 0);
+      if (
+        this._canvasNeedsResize ||
+        !this._cw ||
+        !this._ch ||
+        (fw >= 40 && Math.abs(fw - this._cw) > 1) ||
+        (fh >= 40 && Math.abs(fh - this._ch) > 1)
+      ) {
+        this._resizeCanvas();
+      }
+    }
     const ctx = this._cx;
     if (!ctx || !this._canvasEnabled || !this._cw) return;
     const w = this._cw;
@@ -1593,14 +1946,23 @@ export class MatchView {
       ctx.beginPath();
       ctx.ellipse(x, y + r * 0.55, r * 0.7, r * 0.28, 0, 0, Math.PI * 2);
       ctx.fill();
-      // 圆点
-      const bg = pl.el.querySelector(".mp-dot")?.style?.background || "#3d8bfd";
+      // 圆点（门将固定金/亮绿，不跟场上队服混）
+      const isGk = pl.pos === "GK";
+      const bg = isGk
+        ? pl.team === "home"
+          ? "#eab308"
+          : "#a3e635"
+        : pl.el.querySelector(".mp-dot")?.style?.background || "#3d8bfd";
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.fillStyle = bg;
       ctx.fill();
-      ctx.lineWidth = pl.team === "home" ? 2 : 1.5;
-      ctx.strokeStyle = pl.team === "home" ? "#fff" : "rgba(15,23,42,0.75)";
+      ctx.lineWidth = isGk ? 2.5 : pl.team === "home" ? 2 : 1.5;
+      ctx.strokeStyle = isGk
+        ? "rgba(15,23,42,0.9)"
+        : pl.team === "home"
+          ? "#fff"
+          : "rgba(15,23,42,0.75)";
       if (pl.el.classList.contains("has-ball")) {
         ctx.strokeStyle = "#fde68a";
         ctx.lineWidth = 2.5;
@@ -1610,6 +1972,24 @@ export class MatchView {
         ctx.strokeStyle = "rgba(96,165,250,0.85)";
       }
       ctx.stroke();
+      // 朝向：沿速度方向在圆点边缘画一个小箭头（跑动时才显示）
+      if (pl.heading !== undefined && Math.hypot(pl.vx || 0, pl.vy || 0) > 1.2) {
+        const hx = Math.cos(pl.heading);
+        const hy = Math.sin(pl.heading);
+        const tipX = x + hx * r * 1.35;
+        const tipY = y + hy * r * 1.35;
+        // 垂直于朝向的两个底角
+        const nx = -hy, ny = hx;
+        const baseX = x + hx * r * 0.55;
+        const baseY = y + hy * r * 0.55;
+        ctx.beginPath();
+        ctx.moveTo(tipX, tipY);
+        ctx.lineTo(baseX + nx * r * 0.42, baseY + ny * r * 0.42);
+        ctx.lineTo(baseX - nx * r * 0.42, baseY - ny * r * 0.42);
+        ctx.closePath();
+        ctx.fillStyle = pl.team === "home" ? "rgba(255,255,255,0.9)" : "rgba(15,23,42,0.8)";
+        ctx.fill();
+      }
       // 号码
       ctx.fillStyle = pl.el.querySelector(".mp-dot")?.style?.color || "#fff";
       ctx.font = `900 ${Math.max(9, r * 0.95)}px system-ui,sans-serif`;
@@ -1841,7 +2221,7 @@ export class MatchView {
    * @param {{ x:number, y:number, receiverId?:string|null, kind?:string, ms?:number }} opts
    */
   _beginFlight(opts = {}) {
-    const ms = opts.ms ?? 320;
+    const ms = opts.ms ?? 520;
     const kind = opts.kind || "pass";
     this.ballState = kind === "shot" || kind === "goal" || kind === "wood" || kind === "save" ? "shot" : "flight";
     this.flight = {
@@ -1878,21 +2258,20 @@ export class MatchView {
   }
 
   /**
-   * 对方「倒数第二名」防守线 Y（含门将）
-   * 主队进攻朝 y→0：线 = 对方 y 从小到大第 2 人
-   * 客队进攻朝 y→100：线 = 对方 y 从大到小第 2 人
+   * 对方「倒数第二名」防守线 Y（FIFA：全队含门将，取最靠近本方球门的第二人）
+   * —— 不是「以门将为唯一基准」；门将通常是最后一人，线在他身前的第二人。
+   * 主队进攻朝 y→0：对方 y 升序第 2
+   * 客队进攻朝 y→100：对方 y 降序第 2
    */
   _offsideLineY(attackingTeam) {
     const defTeam = attackingTeam === "home" ? "away" : "home";
     const defs = this.players.filter(
       (p) => p.team === defTeam && !p.el.classList.contains("sent-off")
     );
-    if (defs.length < 2) {
-      return attackingTeam === "home" ? 50 : 50;
-    }
+    if (defs.length < 2) return 50;
     if (attackingTeam === "home") {
-      // 越位线：对方更靠近 0 的两人里的第二近
       const ys = defs.map((p) => p.y).sort((a, b) => a - b);
+      // ys[0] 常是门将，ys[1] 才是越位线（第二近球门）
       return ys[1];
     }
     const ys = defs.map((p) => p.y).sort((a, b) => b - a);
@@ -1941,68 +2320,221 @@ export class MatchView {
     return { x: tx, y: clamp(ty, 5, 95) };
   }
 
+  /** 归一化位置：模型可能是 ST/LW 等，统一到 GK|DEF|MID|ATT */
+  _normPos(pl) {
+    const p = String(pl?.pos || "").toUpperCase();
+    if (p === "GK" || p === "G") return "GK";
+    if (["DEF", "CB", "FB", "LB", "RB", "LWB", "RWB", "WB", "SW"].includes(p)) return "DEF";
+    if (["MID", "CM", "DM", "AM", "LM", "RM", "CDM", "CAM", "WM", "LMID", "RMID"].includes(p)) return "MID";
+    if (["ATT", "ST", "CF", "FW", "LW", "RW", "SS", "LF", "RF"].includes(p)) return "ATT";
+    // 阵型槽位已是 DEF/MID/ATT
+    if (p === "DEF" || p === "MID" || p === "ATT") return p;
+    return "MID";
+  }
+
   /**
-   * 无球方回防：前场/中场必须退回本半场，禁止蹲在对方禁区
-   * 主队本半场 y≥48；客队本半场 y≤52
+   * 三线站位 Y（FM 块状）：按有球/无球 + 球深度，给 DEF/MID/ATT 一条线
+   * 主队攻 y→0、守 y→100；客队相反
+   */
+  _roleLineY(team, pos, ballY, hasBall) {
+    const role = ["GK", "DEF", "MID", "ATT"].includes(pos) ? pos : this._normPos({ pos });
+    if (role === "GK") {
+      return team === "home"
+        ? clamp(Math.max(90, ballY + (hasBall ? 4 : 2)), 88, 96)
+        : clamp(Math.min(10, ballY - (hasBall ? 4 : 2)), 4, 12);
+    }
+    if (team === "home") {
+      if (hasBall) {
+        if (role === "DEF") return clamp(Math.min(ballY + 28, 74), 52, 78);
+        if (role === "MID") return clamp(ballY + 10, 30, 62);
+        return clamp(ballY - 4, 12, 42);
+      }
+      // 无球：球在对方半场 → 中高位；球在己半场 → 整线跟着退
+      // 前锋永远过中线附近，禁止蹲对方禁区
+      if (ballY < 48) {
+        if (role === "DEF") return clamp(58 + (48 - ballY) * 0.15, 56, 66);
+        if (role === "MID") return 50;
+        return 48; // ATT 中线
+      }
+      if (role === "DEF") return clamp(ballY - 6, 60, 90);
+      if (role === "MID") return clamp(ballY - 18, 52, 78);
+      return clamp(Math.max(50, ballY - 28), 48, 66);
+    }
+    // away 无球：绝不能停在 y 很大的对方（主队）半场/禁区
+    if (hasBall) {
+      if (role === "DEF") return clamp(Math.max(ballY - 28, 26), 22, 48);
+      if (role === "MID") return clamp(ballY - 10, 38, 70);
+      return clamp(ballY + 4, 58, 88);
+    }
+    if (ballY > 52) {
+      // 球在主队半场：客队前锋站中线，后卫略前压
+      if (role === "DEF") return clamp(42 - (ballY - 52) * 0.15, 34, 44);
+      if (role === "MID") return 50;
+      return 52; // ATT 中线
+    }
+    // 球在客队半场（被压）：整线回撤
+    if (role === "DEF") return clamp(ballY + 6, 10, 40);
+    if (role === "MID") return clamp(ballY + 18, 22, 48);
+    return clamp(Math.min(50, ballY + 28), 34, 52);
+  }
+
+  /**
+   * 每帧强制：无球方不得蹲在对方半场/禁区（修「粉攻上半场、紫前锋还在粉禁区」）
+   * 以 carrier 为准同步 possession，避免控球标记滞后
+   */
+  _enforceOutOfPossessionShape() {
+    if (this.carrier && this.carrier.team) {
+      this.possession = this.carrier.team;
+    }
+    const att = this.possession === "away" ? "away" : "home";
+    const def = att === "home" ? "away" : "home";
+    const ballY = this.ball?.y ?? 50;
+    const ballX = this.ball?.x ?? 50;
+
+    for (const pl of this.players) {
+      if (pl.el.classList.contains("sent-off")) continue;
+      if (pl === this.carrier) continue;
+      const role = this._normPos(pl);
+      if (role === "GK") continue;
+      if (pl.team !== def) continue;
+
+      const lineY = this._roleLineY(pl.team, role, ballY, false);
+      // 无球硬上限/下限：比角色线更严一点，前锋尤其不许越中线太深
+      let maxY = 100;
+      let minY = 0;
+      if (def === "away") {
+        // 客队无球：y 不能太大（不能沉到主队球门前）
+        maxY = role === "ATT" ? 52 : role === "MID" ? 56 : 46;
+        // 球在客队半场时后卫可更深（小数）
+        if (role === "DEF" && ballY < 40) maxY = 42;
+        if (pl.y > maxY || pl.ty > maxY) {
+          pl.ty = Math.min(pl.ty, maxY, lineY + 2);
+          // 错位大：直接改坐标，不靠慢慢走
+          if (pl.y > maxY + 2) {
+            pl.y = lerp(pl.y, Math.min(maxY, lineY), 0.85);
+            pl.x = lerp(pl.x, clamp(pl.baseX * 0.55 + ballX * 0.45, 8, 92), 0.4);
+            pl.tx = pl.x;
+          }
+        }
+        // 极端：还在对方大禁区/球门区
+        if (pl.y > 64) {
+          pl.y = lineY;
+          pl.ty = lineY;
+          pl.x = clamp(pl.baseX * 0.6 + 50 * 0.4, 10, 90);
+          pl.tx = pl.x;
+          pl.fsm = "cover";
+        }
+      } else {
+        // 主队无球：y 不能太小
+        minY = role === "ATT" ? 48 : role === "MID" ? 44 : 54;
+        if (role === "DEF" && ballY > 60) minY = 58;
+        if (pl.y < minY || pl.ty < minY) {
+          pl.ty = Math.max(pl.ty, minY, lineY - 2);
+          if (pl.y < minY - 2) {
+            pl.y = lerp(pl.y, Math.max(minY, lineY), 0.85);
+            pl.x = lerp(pl.x, clamp(pl.baseX * 0.55 + ballX * 0.45, 8, 92), 0.4);
+            pl.tx = pl.x;
+          }
+        }
+        if (pl.y < 36) {
+          pl.y = lineY;
+          pl.ty = lineY;
+          pl.x = clamp(pl.baseX * 0.6 + 50 * 0.4, 10, 90);
+          pl.tx = pl.x;
+          pl.fsm = "cover";
+        }
+      }
+    }
+  }
+
+  /**
+   * 无球方强制回防 + 有球方保持三线（写 tx/ty）
+   * 严重错位时直接改 y，避免「慢慢走回」在截图里永远不对
    */
   _applyDefensiveDrop(defTeam) {
     const ballY = this.ball?.y ?? 50;
-    for (const pl of this.players) {
-      if (pl.team !== defTeam || pl.el.classList.contains("sent-off")) continue;
-      if (pl === this.carrier) continue;
-      if (pl.pos === "GK") continue;
+    const ballX = this.ball?.x ?? 50;
+    const attTeam = defTeam === "home" ? "away" : "home";
 
-      // 目标回撤深度：球越靠近己方球门，前场越要退
-      let homeMinY; // 主队回撤后 y 不该小于此（主队守下半场）
-      let awayMaxY; // 客队回撤后 y 不该大于此
-      if (defTeam === "home") {
-        // 主队无球：前锋至少退到中线附近，球在己半场时再深一点
-        homeMinY =
-          pl.pos === "ATT"
-            ? ballY > 55
-              ? 52
-              : 46
-            : pl.pos === "MID"
-              ? ballY > 55
-                ? 58
-                : 50
-              : ballY > 60
-                ? 68
-                : 62; // DEF 更高
-        // 禁止留在对方半场禁区（y 很小）
-        if (pl.ty < homeMinY) pl.ty = homeMinY;
-        if (pl.y < homeMinY - 8) {
-          // 已经越位蹲坑：强制目标拉回
-          pl.tx = clamp(lerp(pl.x, pl.baseX, 0.4), 8, 92);
-          pl.ty = homeMinY + (pl.pos === "ATT" ? 2 : 4);
+    for (const pl of this.players) {
+      if (pl.el.classList.contains("sent-off")) continue;
+      if (pl === this.carrier) continue;
+      if (pl.pos === "GK") {
+        // 门将只在己方小禁区活动
+        if (pl.team === "home") {
+          pl.tx = clamp(lerp(pl.baseX, ballX, 0.12), 32, 68);
+          pl.ty = clamp(Math.max(pl.baseY, ballY > 70 ? ballY - 4 : 92), 88, 96);
+        } else {
+          pl.tx = clamp(lerp(pl.baseX, ballX, 0.12), 32, 68);
+          pl.ty = clamp(Math.min(pl.baseY, ballY < 30 ? ballY + 4 : 8), 4, 12);
         }
-        // 绝对禁止无球时进对方大禁区
-        if (pl.y < 34 || pl.ty < 34) {
-          pl.ty = Math.max(pl.ty, homeMinY);
-          pl.tx = clamp(lerp(pl.tx, pl.baseX, 0.5), 10, 90);
+        continue;
+      }
+
+      const role = this._normPos(pl);
+      const hasBall = pl.team !== defTeam;
+      // 无球前锋：绝不走 press 特例留在对方半场
+      const nearBallRole =
+        pl.team === defTeam && role === "ATT"
+          ? false
+          : pl.fsm === "press" || pl.fsm === "support" || pl.fsm === "carry";
+      const lineY = this._roleLineY(pl.team, role, ballY, hasBall);
+      const xPull = role === "DEF" ? 0.32 : role === "MID" ? 0.18 : 0.1;
+      const wantX = clamp(pl.baseX * (1 - xPull) + ballX * xPull + (Math.random() - 0.5) * 1.2, 6, 94);
+
+      if (!nearBallRole) {
+        pl.tx = wantX;
+        pl.ty = lineY + (Math.random() - 0.5) * 1.5;
+      } else if (pl.team === defTeam) {
+        if (defTeam === "home" && role === "DEF" && pl.ty < 52) pl.ty = 52;
+        if (defTeam === "away" && role === "DEF" && pl.ty > 48) pl.ty = 48;
+      }
+
+      // —— 有球方：后卫别全压进对方禁区 ——
+      if (pl.team === attTeam && role === "DEF") {
+        if (attTeam === "home" && pl.ty < 40) pl.ty = 40;
+        if (attTeam === "away" && pl.ty > 60) pl.ty = 60;
+      }
+    }
+
+    this._hardCorrectShape(defTeam);
+    this._enforceOutOfPossessionShape();
+  }
+
+  /**
+   * 错位过大时硬拉坐标（表现层，不改比分）
+   * 解决：回防目标设了但人还在对面半场「慢慢走」的截图问题
+   */
+  _hardCorrectShape(defTeam) {
+    const ballY = this.ball?.y ?? 50;
+    for (const pl of this.players) {
+      if (pl.el.classList.contains("sent-off")) continue;
+      if (pl === this.carrier) continue;
+      const role = this._normPos(pl);
+      if (role === "GK") continue;
+
+      const dy = pl.ty - pl.y;
+      const ady = Math.abs(dy);
+      const adx = Math.abs(pl.tx - pl.x);
+
+      if (pl.team === defTeam) {
+        // 无球：错位猛纠；前锋在对方半场直接拉回中线
+        if (defTeam === "away" && pl.y > 55) {
+          const ly = this._roleLineY("away", role, ballY, false);
+          pl.y = role === "ATT" ? ly : lerp(pl.y, ly, 0.75);
+          pl.ty = ly;
+        } else if (defTeam === "home" && pl.y < 45) {
+          const ly = this._roleLineY("home", role, ballY, false);
+          pl.y = role === "ATT" ? ly : lerp(pl.y, ly, 0.75);
+          pl.ty = ly;
+        } else if (ady > 14) {
+          pl.y = lerp(pl.y, pl.ty, 0.5);
+          pl.x = lerp(pl.x, pl.tx, 0.3);
         }
       } else {
-        awayMaxY =
-          pl.pos === "ATT"
-            ? ballY < 45
-              ? 48
-              : 54
-            : pl.pos === "MID"
-              ? ballY < 45
-                ? 42
-                : 50
-              : ballY < 40
-                ? 32
-                : 38;
-        if (pl.ty > awayMaxY) pl.ty = awayMaxY;
-        if (pl.y > awayMaxY + 8) {
-          pl.tx = clamp(lerp(pl.x, pl.baseX, 0.4), 8, 92);
-          pl.ty = awayMaxY - (pl.pos === "ATT" ? 2 : 4);
-        }
-        if (pl.y > 66 || pl.ty > 66) {
-          pl.ty = Math.min(pl.ty, awayMaxY);
-          pl.tx = clamp(lerp(pl.tx, pl.baseX, 0.5), 10, 90);
-        }
+        if (role === "DEF" && ady > 22) pl.y = lerp(pl.y, pl.ty, 0.3);
+        if (role === "ATT" && ady > 24) pl.y = lerp(pl.y, pl.ty, 0.25);
+        if (adx > 30) pl.x = lerp(pl.x, pl.tx, 0.2);
       }
     }
   }
@@ -2280,12 +2812,16 @@ export class MatchView {
       pl.tx = clamp(car.x + (Math.random() - 0.5) * (3.2 / tight), 6, 94);
       pl.ty = clamp(car.y + (Math.random() - 0.5) * (2.6 / tight), 6, 94);
     }
-    // 协防线：更贴 base
-    for (let i = 2; i < Math.min(5, defs.length); i++) {
+    // 协防线：按球深度落位，不贴进攻 base
+    for (let i = 2; i < Math.min(6, defs.length); i++) {
       const pl = defs[i];
-      const coverDir = this._attackDir(car.team);
-      pl.tx = clamp(pl.baseX * 0.55 + car.x * 0.28 + 50 * 0.17 + (Math.random() - 0.5) * 3, 8, 92);
-      pl.ty = clamp(pl.baseY + coverDir * 1.8 + (Math.random() - 0.5) * 2, 6, 94);
+      const defSide = pl.team;
+      const lineY =
+        defSide === "home"
+          ? clamp(car.y - (pl.pos === "DEF" ? 10 : 18), 54, 90)
+          : clamp(car.y + (pl.pos === "DEF" ? 10 : 18), 10, 46);
+      pl.tx = clamp(pl.baseX * 0.35 + car.x * 0.45 + 50 * 0.2 + (Math.random() - 0.5) * 2.5, 8, 92);
+      pl.ty = clamp(lineY + (Math.random() - 0.5) * 2, 6, 94);
     }
   }
 
@@ -2294,20 +2830,90 @@ export class MatchView {
    * speed ≈ 每秒可走完的球场百分比
    */
   _moveToward(pl, speed, dt) {
+    if (pl.vx === undefined) { pl.vx = 0; pl.vy = 0; }
+    // 瞬移检测：若上帧末记录的位置与本帧起点对不上，说明被硬纠偏函数
+    // （_hardCorrectShape / _enforceOutOfPossessionShape 等）直接改了坐标，
+    // 此时旧速度已过期，清零避免朝错误方向"滑行"。
+    if (pl._lastX !== undefined) {
+      const jump = Math.hypot(pl.x - pl._lastX, pl.y - pl._lastY);
+      const expected = Math.hypot(pl.vx, pl.vy) * dt + 0.5;
+      if (jump > expected * 2 + 1.5) { pl.vx = 0; pl.vy = 0; }
+    }
+
     const dx = pl.tx - pl.x;
     const dy = pl.ty - pl.y;
     const dist = Math.hypot(dx, dy);
     if (dist < 0.06) {
-      pl.x = pl.tx;
-      pl.y = pl.ty;
+      // 到位：让速度快速衰减而不是硬停，避免"急刹"抖动
+      pl.vx *= 0.55; pl.vy *= 0.55;
+      pl.x += pl.vx * dt; pl.y += pl.vy * dt;
+      pl._lastX = pl.x; pl._lastY = pl.y;
       return;
     }
-    // 指数平滑：近距离更粘、远距离更快追上（比纯匀速更「丝滑」）
-    const k = 1 - Math.exp(-Math.max(0.5, speed) * 0.085 * Math.max(0.001, dt));
-    const maxStep = speed * dt * 1.15;
-    const step = Math.min(dist, Math.max(maxStep * k * 3.2, maxStep * 0.35));
-    pl.x += (dx / dist) * step;
-    pl.y += (dy / dist) * step;
+
+    // arrive 行为：接近目标（<slowR）时降低期望速度，形成自然减速
+    const slowR = 5.5;
+    const desiredSpeed = speed * Math.min(1, dist / slowR);
+    const dvx = (dx / dist) * desiredSpeed;
+    const dvy = (dy / dist) * desiredSpeed;
+
+    // 加速度上限：不能瞬间达到期望速度 —— 这就是"惯性/体重感"
+    // 系数越大越灵活，越小越"重"；持球/冲刺自然更跟手。
+    const accel = speed * 4.8;
+    const maxDv = accel * dt;
+    let ax = dvx - pl.vx;
+    let ay = dvy - pl.vy;
+    const amag = Math.hypot(ax, ay);
+    if (amag > maxDv) { ax = ax / amag * maxDv; ay = ay / amag * maxDv; }
+
+    pl.vx += ax; pl.vy += ay;
+    // 速度上限兜底（防止 dt 抖动累积过冲）
+    const vmag = Math.hypot(pl.vx, pl.vy);
+    const vmax = speed * 1.25;
+    if (vmag > vmax) { pl.vx = pl.vx / vmag * vmax; pl.vy = pl.vy / vmag * vmax; }
+
+    pl.x += pl.vx * dt;
+    pl.y += pl.vy * dt;
+    pl._lastX = pl.x; pl._lastY = pl.y;
+
+    // 朝向：按速度方向平滑旋转（供渲染画朝向用）
+    if (vmag > 0.8) {
+      const target = Math.atan2(pl.vy, pl.vx);
+      if (pl.heading === undefined) pl.heading = target;
+      let diff = target - pl.heading;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      pl.heading += diff * Math.min(1, dt * 12);
+    }
+  }
+
+  /**
+   * 分离力：距离过近的球员互相推开一点，避免叠罗汉。
+   * 只有 22 人，O(n²) 无所谓。持球人与门将不参与被推（保持画面焦点稳定）。
+   * 替代原来靠 (Math.random()) 抖动防重叠的做法，更稳更干净。
+   */
+  _applySeparation(dt) {
+    const R = 3.8;        // 期望最小间距（场地百分比坐标）
+    const ps = this.players;
+    for (let i = 0; i < ps.length; i++) {
+      const a = ps[i];
+      if (a.el.classList.contains("sent-off")) continue;
+      if (a === this.carrier || a.pos === "GK") continue;
+      for (let j = i + 1; j < ps.length; j++) {
+        const b = ps[j];
+        if (b.el.classList.contains("sent-off")) continue;
+        if (b === this.carrier || b.pos === "GK") continue;
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const d = Math.hypot(dx, dy);
+        if (d > 0.01 && d < R) {
+          const push = ((R - d) / R) * 7 * dt;
+          const ux = dx / d, uy = dy / d;
+          a.x += ux * push; a.y += uy * push;
+          b.x -= ux * push; b.y -= uy * push;
+        }
+      }
+    }
   }
 
   _ballDistTo(pl) {
@@ -2321,71 +2927,66 @@ export class MatchView {
 
   /**
    * 球员有限状态机目标分配（表现层 AI，不改比分）
-   * - carry: 持球人
-   * - press: 无球方近球压迫（球在扩大防区内或全局最近 2 人）
-   * - support: 有球方接应
-   * - cover: 协防
-   * - home: 回阵型位
+   * 核心：先铺三线块状站位，再只挑少量人 press/support，禁止全员扎堆禁区
    */
   _assignFsmTargets() {
     if (this.phase !== "play" || this.frozen || this.scriptLock) return;
     const car = this.carrier;
+    // 持球人优先：防止 possession 滞后导致无球前锋仍按「进攻站位」
+    if (car?.team) this.possession = car.team;
     const bx = this.ball?.x ?? 50;
     const by = this.ball?.y ?? 50;
     const att = this.possession === "away" ? "away" : "home";
     const def = att === "home" ? "away" : "home";
+    const dir = this._attackDir(att);
 
-    // 重置
+    // 1) 全员先回角色线（块状阵型），再覆盖少数特例
     for (const pl of this.players) {
       if (pl.el.classList.contains("sent-off")) continue;
       pl.fsm = pl === car ? "carry" : "home";
+      if (pl === car) continue;
+      const role = this._normPos(pl);
+      const hasBall = pl.team === att;
+      const lineY = this._roleLineY(pl.team, role, by, hasBall);
+      const xPull = role === "DEF" ? 0.28 : role === "MID" ? 0.16 : 0.1;
+      pl.tx = clamp(pl.baseX * (1 - xPull) + bx * xPull, 6, 94);
+      pl.ty = clamp(lineY + (Math.random() - 0.5) * 1.2, 5, 95);
     }
-    if (car) {
-      car.fsm = "carry";
-      // 持球目标由 _dribbleCarrier 管；这里保证不锁死
-    }
+    if (car) car.fsm = "carry";
 
-    // —— 防守压迫：球进防区或全局最近 2 人 ——
+    const danger = def === "home" ? by > 62 : by < 38;
+    const pressMax = danger ? 3 : 2;
+
+    // 2) 无球：最多 2–3 人逼抢，其余 cover 在角色线上（前锋几乎不参与后场逼抢）
     const defenders = this.players
-      .filter(
-        (p) =>
-          p.team === def &&
-          p.pos !== "GK" &&
-          !p.el.classList.contains("sent-off")
-      )
-      .map((p) => ({
-        p,
-        d: this._ballDistTo(p),
-        inZ: this._ballInZone(p, 1.35),
-      }))
+      .filter((p) => p.team === def && this._normPos(p) !== "GK" && !p.el.classList.contains("sent-off"))
+      .map((p) => ({ p, d: this._ballDistTo(p), role: this._normPos(p) }))
       .sort((a, b) => a.d - b.d);
 
     let pressN = 0;
-    for (const { p, d, inZ } of defenders) {
-      if (pressN >= 2) break;
-      if (inZ || d < 18) {
+    for (const { p, d, role } of defenders) {
+      if (pressN >= pressMax) break;
+      if (role === "ATT" && !danger) continue; // 前锋无球时留守中线，不跟着去对方半场蹲
+      if (d < (danger ? 32 : 22) || (pressN < 2 && d < 36 && role !== "ATT")) {
         p.fsm = "press";
         const tight = 0.55 + this._attr(p, "tackling", 10) / 45;
-        p.tx = clamp(bx + (Math.random() - 0.5) * (2.8 / tight), 6, 94);
-        p.ty = clamp(by + (Math.random() - 0.5) * (2.4 / tight), 6, 94);
+        p.tx = clamp(bx + (Math.random() - 0.5) * (2.6 / tight), 6, 94);
+        let py = clamp(by + (Math.random() - 0.5) * (2.2 / tight), 6, 94);
+        if (def === "home") py = Math.max(py, role === "DEF" ? 52 : 44);
+        else py = Math.min(py, role === "DEF" ? 48 : 56);
+        p.ty = py;
         pressN++;
       }
     }
-    // 协防 2 人：球近则收，否则 home
-    let coverN = 0;
-    for (const { p, d, inZ } of defenders) {
+    for (const { p, role } of defenders) {
       if (p.fsm === "press") continue;
-      if (coverN >= 2) break;
-      if (inZ || d < 28) {
-        p.fsm = "cover";
-        const dir = this._attackDir(att);
-        p.tx = clamp(p.baseX * 0.5 + bx * 0.35 + 50 * 0.15, 8, 92);
-        p.ty = clamp(p.baseY * 0.55 + by * 0.3 + dir * 1.2, 6, 94);
-        coverN++;
-      }
+      p.fsm = "cover";
+      const lineY = this._roleLineY(def, role, by, false);
+      p.tx = clamp(p.baseX * 0.45 + bx * 0.4 + 50 * 0.15, 8, 92);
+      p.ty = clamp(lineY + (Math.random() - 0.5) * 1.5, 6, 94);
     }
 
-    // —— 进攻接应：球在区域或距球较近的中前场 ——
+    // 3) 有球：最多 2 人近球接应（禁止「所有中前场都冲禁区」）
     if (car) {
       const mates = this.players
         .filter(
@@ -2395,44 +2996,45 @@ export class MatchView {
             p.pos !== "GK" &&
             !p.el.classList.contains("sent-off")
         )
-        .map((p) => ({ p, d: this._ballDistTo(p), inZ: this._ballInZone(p, 1.25) }))
+        .map((p) => ({ p, d: this._ballDistTo(p) }))
         .sort((a, b) => a.d - b.d);
+
+      // 后腰拖后：选最靠己方半场的中场
+      const mids = mates.filter((m) => m.p.pos === "MID").sort((a, b) => {
+        return att === "home" ? b.p.baseY - a.p.baseY : a.p.baseY - b.p.baseY;
+      });
+      if (mids[0]) {
+        const dm = mids[0].p;
+        dm.fsm = "cover";
+        dm.subRole = "dm_hold";
+        dm.tx = clamp(lerp(dm.baseX, 50, 0.3), 22, 78);
+        dm.ty = this._roleLineY(att, "MID", by, true) + (att === "home" ? 4 : -4);
+      }
+
+      // 边后卫偶尔套边（最多 1）
+      const fb = mates.find((m) => m.p.pos === "DEF" && (m.p.baseX < 26 || m.p.baseX > 74));
+      if (fb && Math.random() < 0.4) {
+        fb.p.fsm = "support";
+        fb.p.subRole = "overlap";
+        fb.p.tx = clamp(fb.p.baseX + (fb.p.baseX < 50 ? -5 : 5), 6, 94);
+        fb.p.ty = clamp(this._roleLineY(att, "DEF", by, true) + dir * 6, 12, 88);
+      }
+
+      // 近球接应最多 2 人，且必须真正靠近球（不能全员 ATT 自动入选）
       let sup = 0;
-      const dir = this._attackDir(att);
-      // 边后卫套边 / 后腰拖后
-      const fbs = mates.filter(
-        (m) => m.p.pos === "DEF" && (m.p.baseX < 28 || m.p.baseX > 72)
-      );
-      const dms = mates.filter(
-        (m) => m.p.pos === "MID" && m.p.baseY > (att === "home" ? 45 : 0) && m.p.baseY < (att === "home" ? 100 : 55)
-      );
-      for (const { p } of fbs.slice(0, 2)) {
-        if (Math.random() > 0.55) continue;
-        p.fsm = "support";
-        p.subRole = "overlap";
-        p.tx = clamp(p.baseX + (p.baseX < 50 ? -4 : 4), 6, 94);
-        p.ty = clamp(p.baseY + dir * 10, 8, 90);
-        sup++;
-      }
-      for (const { p } of dms.slice(0, 1)) {
-        p.fsm = "cover";
-        p.subRole = "dm_hold";
-        p.tx = clamp(lerp(p.baseX, 50, 0.25), 20, 80);
-        p.ty = clamp(p.baseY - dir * 2, 20, 80);
-      }
-      for (const { p, d, inZ } of mates) {
-        if (sup >= 4) break;
+      for (const { p, d } of mates) {
+        if (sup >= 2) break;
         if (p.fsm === "support" || p.fsm === "cover") continue;
-        if (!(inZ || d < 26 || p.pos === "ATT" || p.pos === "MID")) continue;
+        const role = this._normPos(p);
+        if (role === "DEF") continue;
+        if (d > 28 && !(role === "ATT" && d < 36)) continue;
         p.fsm = "support";
-        p.subRole = p.pos === "ATT" ? "poach" : "link";
-        const side = sup % 2 === 0 ? -1 : 1;
-        let nx = clamp(car.x + side * (10 + sup * 3) + (Math.random() - 0.5) * 2, 8, 92);
-        let ny = clamp(car.y + dir * (8 + (p.pos === "ATT" ? 4 : 0)), 6, 94);
-        if (Math.hypot(nx - car.x, ny - car.y) < 5) {
-          nx = clamp(nx + side * 6, 8, 92);
-        }
-        // 接应位不得越位
+        p.subRole = role === "ATT" ? "poach" : "link";
+        const side = sup === 0 ? -1 : 1;
+        let nx = clamp(car.x + side * (12 + sup * 4), 10, 90);
+        let ny = clamp(car.y + dir * (5 + (role === "ATT" ? 3 : 0)), 8, 92);
+        if (att === "home" && ny < 14) ny = 14;
+        if (att === "away" && ny > 86) ny = 86;
         const c = this._clampTargetOffside(p, nx, ny);
         p.tx = c.x;
         p.ty = c.y;
@@ -2440,27 +3042,50 @@ export class MatchView {
       }
     }
 
-    // —— home：回阵型位 ——
+    // 4) 禁区人数软顶：有球方非持球进大禁区 ≤ 3
+    this._capAttackersInBox(att, car);
+
     for (const pl of this.players) {
-      if (pl.el.classList.contains("sent-off")) continue;
-      if (pl.fsm === "home") {
-        pl.tx = clamp(lerp(pl.tx, pl.baseX, 0.55), 5, 95);
-        pl.ty = clamp(lerp(pl.ty, pl.baseY, 0.5), 5, 95);
-      }
-      pl.el.dataset.fsm = pl.fsm;
+      if (!pl.el.classList.contains("sent-off")) pl.el.dataset.fsm = pl.fsm;
     }
 
-    // —— 无球方强制回防（前场不准蹲对方半场/禁区）——
     this._applyDefensiveDrop(def);
-    // —— 有球方接应点不得越位 ——
+    this._enforceOutOfPossessionShape();
     this._applyOffsideClamp(att);
+  }
+
+  /** 有球方非持球进对方大禁区的人数上限，多余的退到角色线 */
+  _capAttackersInBox(attTeam, car) {
+    const inBox = this.players.filter((p) => {
+      if (p.team !== attTeam || p.el.classList.contains("sent-off")) return false;
+      if (p === car || p.pos === "GK") return false;
+      if (attTeam === "home") return p.ty <= 30 || p.y <= 28;
+      return p.ty >= 70 || p.y >= 72;
+    });
+    if (inBox.length <= 3) return;
+    // 离球门最近的优先留下，远的 / 后卫优先清出
+    inBox.sort((a, b) => {
+      const ga = attTeam === "home" ? a.y : 100 - a.y;
+      const gb = attTeam === "home" ? b.y : 100 - b.y;
+      const ra = a.pos === "DEF" ? -10 : a.pos === "MID" ? 0 : 5;
+      const rb = b.pos === "DEF" ? -10 : b.pos === "MID" ? 0 : 5;
+      return ga + ra - (gb + rb);
+    });
+    const by = this.ball?.y ?? 50;
+    for (let i = 3; i < inBox.length; i++) {
+      const p = inBox[i];
+      p.fsm = "home";
+      p.ty = this._roleLineY(attTeam, p.pos, by, true);
+      p.tx = clamp(p.baseX * 0.7 + 50 * 0.3, 10, 90);
+    }
   }
 
   /**
    * 传球给接应点：球进入 flight，落地后由 _resolveFlight 接球
-   * passing 高 → 飞行更准更快；vision 高 → 预判更靠前
+   * passing 高 → 更准、略快；vision 高 → 预判更靠前
+   * 飞行时长按场地%距离估算，接近 FM 2D 观感（短传 ~0.45–0.7s，中传 ~0.8–1.2s）
    */
-  _passTo(fromPl, toPl, { flightMs = 320 } = {}) {
+  _passTo(fromPl, toPl, { flightMs = 520 } = {}) {
     if (!fromPl || !toPl) return;
     const from = { x: this.ball.x, y: this.ball.y };
     const passing = this._attr(fromPl, "passing", 10);
@@ -2474,10 +3099,10 @@ export class MatchView {
     const scatter = Math.max(0.4, 2.2 - passing / 12);
     const tx = clamp(aimX + (Math.random() - 0.5) * scatter, 5, 95);
     const ty = clamp(aimY + (Math.random() - 0.5) * scatter, 5, 95);
-    // 好传球稍快
-    const ms = Math.round(flightMs * (1.08 - passing / 80));
+    // 好传球略快（最多约 8%），不再把短传压到“瞬移”
+    const ms = Math.round(flightMs * (1.04 - passing / 120));
     this._beginFlight({ x: tx, y: ty, receiverId: toPl.id, kind: "pass", ms });
-    this._addTrail(from.x, from.y, tx, ty, "pass", ms / 1000 + 0.08);
+    this._addTrail(from.x, from.y, tx, ty, "pass", ms / 1000 + 0.12);
     this._recordPass(fromPl, toPl);
     this.lastCarrierId = fromPl.id;
     this.carrier = null; // 保持 ballState=flight
@@ -2691,14 +3316,14 @@ export class MatchView {
         )
         .sort((a, b) => Math.hypot(a.x - 50, a.y - (car.team === "home" ? 14 : 86)) - Math.hypot(b.x - 50, b.y - (car.team === "home" ? 14 : 86)))[0];
       if (boxMate && Math.random() < 0.72) {
-        this._passTo(car, boxMate, { flightMs: 380 });
+        this._passTo(car, boxMate, { flightMs: 620 });
         car.fsm = "support";
         this.setCaption(
           document.documentElement.lang === "en" ? "Cross!" : "传中！",
           "info",
           900
         );
-        this.actionTimer = 0.45;
+        this.actionTimer = 0.7;
         if (this._inOppBox(car)) this._boxPassStreak = (this._boxPassStreak || 0) + 1;
         return;
       }
@@ -2760,7 +3385,8 @@ export class MatchView {
         }
       }
       const dist = Math.hypot(passTo.x - car.x, passTo.y - car.y);
-      const flightMs = clamp(170 + dist * (9.5 - passing / 20), 180, 560);
+      // 场地%：短 ~12 → ~0.5s，中 ~25 → ~0.9s，长 ~45 → ~1.4s
+      const flightMs = clamp(300 + dist * (14 - passing / 30), 320, 1200);
       this._passTo(car, passTo, { flightMs });
       if (this._inOppBox(car)) this._boxPassStreak = (this._boxPassStreak || 0) + 1;
       // 传球被断（表现）
@@ -2771,7 +3397,7 @@ export class MatchView {
           this.carrier = null;
           this.ballState = "free";
           this.actionTimer = 0.15;
-        }, flightMs + 100);
+        }, flightMs + 140);
       } else {
         this.actionTimer = 0.4 + Math.random() * 0.3;
       }
@@ -3011,7 +3637,7 @@ export class MatchView {
         // 近球区域交给盘带/插上/压迫
         if (dist < 22) continue;
       }
-      const dir = pl.team === "home" ? dirHome : dirAway;
+      const hasBall = pl.team === this.possession;
       let spread = 5;
       let push = 3;
       if (pl.pos === "GK") {
@@ -3027,15 +3653,32 @@ export class MatchView {
         spread = 7;
         push = 5.5;
       }
-      const hasBall = pl.team === this.possession;
       if (!hasBall) {
-        spread *= 0.7;
-        push *= 0.55;
-        pl.tx = clamp(pl.baseX * 0.55 + 50 * 0.45 + (Math.random() - 0.5) * spread, 6, 94);
+        // 无球：横向收拢 + Y 跟球深度，禁止漂回进攻 baseY
+        spread *= 0.65;
+        pl.tx = clamp(pl.baseX * 0.5 + focusX * 0.35 + 50 * 0.15 + (Math.random() - 0.5) * spread, 6, 94);
+        if (pl.team === "home") {
+          const lineY =
+            pl.pos === "DEF"
+              ? clamp(focusY - 12, 56, 90)
+              : pl.pos === "MID"
+                ? clamp(focusY - 24, 48, 78)
+                : clamp(Math.max(48, focusY - 34), 46, 66);
+          pl.ty = clamp(lineY + (Math.random() - 0.5) * 2, 5, 95);
+        } else {
+          const lineY =
+            pl.pos === "DEF"
+              ? clamp(focusY + 12, 10, 44)
+              : pl.pos === "MID"
+                ? clamp(focusY + 24, 22, 52)
+                : clamp(Math.min(52, focusY + 34), 34, 54);
+          pl.ty = clamp(lineY + (Math.random() - 0.5) * 2, 5, 95);
+        }
       } else {
+        const dir = pl.team === "home" ? dirHome : dirAway;
         pl.tx = clamp(pl.baseX + (Math.random() - 0.5) * spread, 6, 94);
+        pl.ty = clamp(pl.baseY + dir * push + (Math.random() - 0.5) * (spread * 0.5), 5, 95);
       }
-      pl.ty = clamp(pl.baseY + dir * push + (Math.random() - 0.5) * (spread * 0.5), 5, 95);
     }
   }
 
@@ -3157,15 +3800,14 @@ export class MatchView {
   _applyPlayer(pl) {
     pl.el.style.left = `${pl.x}%`;
     pl.el.style.top = `${pl.y}%`;
-    // FMM：默认隐藏姓名，持球/高亮时显示
+    // FMM：默认隐藏姓名；持球/高亮/点选时显示
+    // 赛前/中场暂停不再强制全员挂名（22 人叠字会糊成一团）
     const showName =
       pl.el.classList.contains("has-ball") ||
       pl.el.classList.contains("highlight") ||
       pl.el.classList.contains("selected") ||
       pl.el.classList.contains("mp-focus") ||
-      pl.el.classList.contains("scorer") ||
-      this.phase === "pre" ||
-      this.phase === "pause";
+      pl.el.classList.contains("scorer");
     pl.el.classList.toggle("show-name", showName);
   }
 
@@ -3386,11 +4028,24 @@ export class MatchView {
   }
 
   destroy() {
+    this.stopSimTimeline?.();
     this.stopLoop();
     this.hideFlashCard?.();
     if (this._onCanvasResize) {
       window.removeEventListener("resize", this._onCanvasResize);
       this._onCanvasResize = null;
+    }
+    if (this._fieldRo) {
+      try {
+        this._fieldRo.disconnect();
+      } catch (_) {
+        /* ignore */
+      }
+      this._fieldRo = null;
+    }
+    if (this._resizeTimers?.length) {
+      for (const t of this._resizeTimers) clearTimeout(t);
+      this._resizeTimers = null;
     }
     if (this._rec?.active) this.stopRecording();
     this.root.innerHTML = "";
@@ -3404,6 +4059,7 @@ export class MatchView {
     this.ballFlightUntil = 0;
     this.frozen = false;
     this.scriptLock = false;
+    this.simDrive = false;
     this.aftermathUntil = 0;
     this.attackPhase = null;
     this.flashCardEl = null;
@@ -3419,6 +4075,27 @@ export class MatchView {
     const staged = this.phase === "goal" && !this.frozen; // 进球/回放：只跟目标
     // scriptLock：关键事件预演，只朝脚本目标跑，不跑自由 AI
     // pre / idle / pause：钉阵型；UI frozen：冻结当前帧
+
+    // —— 真空间投影：位置由 playSimTimeline 写入，这里只稳镜头+绘制 ——
+    // 禁止每帧切 ball 镜头（跟球狂抖是「眼晕」主因）
+    if (this.simDrive && (livePlay || staged) && !this.frozen) {
+      for (const pl of this.players) {
+        if (pl.el.classList.contains("sent-off")) continue;
+        this._applyPlayer(pl);
+      }
+      this._applyBall();
+      this.camMode = "wide";
+      this.cam.tx = 0;
+      this.cam.ty = 0;
+      this.cam.tScale = 1;
+      this.cam.x = lerp(this.cam.x, 0, 1 - Math.pow(0.02, d));
+      this.cam.y = lerp(this.cam.y, 0, 1 - Math.pow(0.02, d));
+      this.cam.scale = lerp(this.cam.scale, 1, 1 - Math.pow(0.04, d));
+      this._applyCamera();
+      this._drawCanvas();
+      this._updateTouchClasses(ts);
+      return;
+    }
 
     if (this.frozen && this.phase === "play") {
       // UI 暂停：保留站位与球，不跑 AI
@@ -3487,27 +4164,24 @@ export class MatchView {
         }
       }
 
-      // FSM 目标分配（约 6 次/秒）：区域追球 / 接应 / 回位
+      // 持球人 → possession 同步（每帧）
+      if (this.carrier?.team) this.possession = this.carrier.team;
+
+      // FSM 目标分配（约 8 次/秒）：三线站位 + 少量 press/support
       this.touchTimer = (this.touchTimer || 0) - d;
       if (this.touchTimer <= 0) {
-        this.touchTimer = 0.16;
+        this.touchTimer = 0.12;
         this._assignFsmTargets();
       }
 
-      // 低频整体阵型轻推 + 回位
+      // 每帧硬约束：无球前锋不得蹲对方禁区（555 截图问题）
+      this._enforceOutOfPossessionShape();
+
+      // 低频仅刷新 chrome
       this.shapeTimer -= d;
       if (this.shapeTimer <= 0) {
-        this.shapeTimer = 4.5 + Math.random() * 1.5;
-        this._nudgeAttackShape(this.possession, 0.12);
-        // 无球方整队回撤，而不是只推后卫
-        this._nudgeDefendShape(
-          this.possession === "home" ? "away" : "home",
-          this.carrier || this.ball
-        );
-        this._pullTowardBase(0.18);
+        this.shapeTimer = 2.8 + Math.random() * 1.2;
         this._assignFsmTargets();
-        this._applyDefensiveDrop(this.possession === "home" ? "away" : "home");
-        this._applyOffsideClamp(this.possession);
         this._updatePossessionChrome();
       }
 
@@ -3534,10 +4208,23 @@ export class MatchView {
         else if (pl.fsm === "cover") speed = 9 * mul;
         else if (pl.fsm === "home") speed = 6.5 * mul;
         else if (pl.pos === "GK") speed = 5;
-        // 每帧软约束：无球方前场不准越中线太深
-        if (pl.team !== this.possession && pl.pos !== "GK" && pl !== this.carrier) {
-          if (pl.team === "home" && pl.ty < 44) pl.ty = 44;
-          if (pl.team === "away" && pl.ty > 56) pl.ty = 56;
+        // 每帧：无球方跟角色线；错位加速（硬边界已在 _enforceOutOfPossessionShape）
+        if (pl !== this.carrier && this._normPos(pl) !== "GK") {
+          const by = this.ball?.y ?? 50;
+          const role = this._normPos(pl);
+          const hasBall = pl.team === this.possession;
+          if (!hasBall) {
+            const lineY = this._roleLineY(pl.team, role, by, false);
+            if (Math.abs(pl.y - lineY) > 8) speed = Math.max(speed, 16 * mul);
+            if (Math.abs(pl.y - lineY) > 18) speed = Math.max(speed, 22 * mul);
+            // 目标始终贴线，防止又漂回进攻 base
+            if (pl.fsm !== "press") {
+              pl.ty = lineY;
+            }
+          } else if (role === "DEF") {
+            if (pl.team === "home" && pl.ty < 38) pl.ty = 38;
+            if (pl.team === "away" && pl.ty > 62) pl.ty = 62;
+          }
         }
         // 有球方非持球：目标不得明显越位
         if (pl.team === this.possession && pl !== this.carrier && pl.pos !== "GK") {
@@ -3546,6 +4233,12 @@ export class MatchView {
           pl.ty = c.y;
         }
         this._moveToward(pl, speed, d);
+      }
+      // 全体移动后再跑分离力，避免叠罗汉（推开的位移本帧即生效）
+      this._applySeparation(d);
+      // 分离后统一写 DOM + 热区
+      for (const pl of this.players) {
+        if (pl.el.classList.contains("sent-off")) continue;
         this._applyPlayer(pl);
         pl.heatAcc = (pl.heatAcc || 0) + d;
         if (pl.heatAcc > 0.45) {
@@ -3595,8 +4288,16 @@ export class MatchView {
         const bdx = this.ball.tx - this.ball.x;
         const bdy = this.ball.ty - this.ball.y;
         const bdist = Math.hypot(bdx, bdy);
-        const bSpeed =
-          this.ballState === "shot" ? 110 : this._isBallInFlight() ? 95 : 40;
+        // 飞行/射门：用剩余 flight 时间对齐视觉速度，避免“时长还没到球已瞬移到位”
+        let bSpeed = 36;
+        if (this.flight && (this.ballState === "flight" || this.ballState === "shot")) {
+          const remainSec = Math.max(0.05, (this.flight.until - performance.now()) / 1000);
+          bSpeed = Math.min(120, Math.max(14, bdist / remainSec));
+        } else if (this.ballState === "shot") {
+          bSpeed = 72;
+        } else if (this._isBallInFlight()) {
+          bSpeed = 48;
+        }
         if (bdist < 0.15) {
           this.ball.x = this.ball.tx;
           this.ball.y = this.ball.ty;
@@ -3785,11 +4486,18 @@ export class MatchView {
     const dist = Math.hypot(tx - this.ball.x, ty - this.ball.y);
     const ms =
       kind === "goal"
-        ? clamp(280 + dist * 8, 320, 900)
+        ? clamp(360 + dist * 10, 420, 1100)
         : kind === "pass"
-          ? clamp(160 + dist * 8, 180, 520)
-          : clamp(220 + dist * 7, 260, 750);
-    this._addTrail(this.ball.x, this.ball.y, tx, ty, kind, kind === "goal" ? 0.9 : 0.65);
+          ? clamp(300 + dist * 13, 320, 1100)
+          : clamp(280 + dist * 9, 320, 900);
+    this._addTrail(
+      this.ball.x,
+      this.ball.y,
+      tx,
+      ty,
+      kind,
+      kind === "goal" ? 1.05 : kind === "pass" ? ms / 1000 + 0.1 : 0.75
+    );
     this.carrier = null;
     this._beginFlight({ x: tx, y: ty, kind, ms });
     if (kind === "goal" || kind === "shot") {
@@ -3818,7 +4526,101 @@ export class MatchView {
    * 根据比赛事件驱动画面
    */
   onEvent(ev, snap, fixture) {
-    if (!this._built || !ev || ev.type === "tick") return;
+    if (!this._built || !ev || ev.type === "tick" || ev.type === "sim_frame") return;
+
+    // —— 真空间投影：只横幅/音效/贴帧，不瞬移编舞 ——
+    if (this.simDrive || snap?.sim) {
+      if (snap?.sim) this.applySimSnapshot(snap.sim);
+      this.updateLiveStrip?.(snap);
+      const homeId0 = fixture?.home || this.home?.id;
+      switch (ev.type) {
+        case "kickoff":
+          this.phase = "play";
+          this.frozen = false;
+          this.setBanner(ev.text || "Kick-off", "info");
+          this.setCaption(ev.text || "Kick-off", "info", 1400);
+          this.playSfx("whistle");
+          setTimeout(() => this.setBanner(""), 1200);
+          if (!this._rec?.active) this.startRecording();
+          this._syncClickable();
+          break;
+        case "context":
+          this.setBanner(ev.text?.replace(/^情境：/, "") || "", "info");
+          this.setCaption(ev.text?.replace(/^情境：/, "") || "", "info", 1800);
+          setTimeout(() => this.setBanner(""), 1600);
+          break;
+        case "goal": {
+          this.camMode = "box";
+          this.camBoostUntil = performance.now() + 1400;
+          const scorer = ev.playerId && this.players.find((p) => p.id === ev.playerId);
+          if (scorer) {
+            scorer.el.classList.add("scorer", "highlight");
+            this._setFocus([scorer], 2000);
+            setTimeout(() => scorer.el.classList.remove("scorer", "highlight"), 2200);
+          }
+          this.setBanner("⚽ GOAL!", "goal");
+          this.setCaption(ev.text || "GOAL", "goal", 2200);
+          this.playSfx("goal");
+          this.playSfx("cheer");
+          setTimeout(() => this.setBanner(""), 1800);
+          break;
+        }
+        case "save":
+          this.setBanner("🧤", "info");
+          this.setCaption(ev.text || "SAVE", "info", 1200);
+          this.playSfx("save");
+          setTimeout(() => this.setBanner(""), 900);
+          break;
+        case "corner":
+          this.setBanner("🚩", "info");
+          this.setCaption(ev.text || "CORNER", "info", 1000);
+          setTimeout(() => this.setBanner(""), 800);
+          break;
+        case "chance":
+        case "woodwork":
+          this.setBanner(ev.type === "woodwork" ? "🪵" : "!", "warn");
+          this.setCaption(ev.text || "", "warn", 1100);
+          setTimeout(() => this.setBanner(""), 900);
+          break;
+        case "card":
+        case "red":
+          this.setBanner(ev.type === "red" ? "🟥" : "🟨", "warn");
+          this.setCaption(ev.type === "red" ? "RED CARD" : "YELLOW", "warn", 1400);
+          if (ev.type === "red" && ev.playerId) {
+            const pl = this.players.find((p) => p.id === ev.playerId);
+            if (pl) pl.el.classList.add("sent-off");
+          }
+          setTimeout(() => this.setBanner(""), 1100);
+          break;
+        case "injury":
+        case "sub":
+        case "tactics":
+        case "coach":
+          if (ev.text) {
+            this.setCaption(ev.text, "info", 1400);
+          }
+          if (ev.type === "sub" && ev.outId && ev.inId) {
+            // 换人 DOM 仍走原逻辑
+            try {
+              this.applySubOnPitch?.(ev.outId, ev.inId, 
+                ev.teamId === homeId0 ? this.home : this.away);
+            } catch (_) { /* ignore */ }
+          }
+          break;
+        case "ht":
+        case "ft":
+          this.setBanner(ev.type === "ht" ? "HT" : "FT", "info");
+          this.setCaption(ev.text || "", "info", 2000);
+          this.playSfx("whistle");
+          this.phase = "pause";
+          setTimeout(() => this.setBanner(""), 1600);
+          break;
+        default:
+          break;
+      }
+      return;
+    }
+
     const homeId = fixture?.home || this.home?.id;
     const isHomeTeam = (teamId) => teamId === homeId;
 
@@ -4382,27 +5184,56 @@ export class MatchView {
     return { gx: clamp(gx, 42, 58), gy: clamp(gy, 0.6, 99.4) };
   }
 
-  /** 进球入网特效：球到位 + 球网颤 + 光晕 */
+  /** 进球入网特效：永久球门网撞击 + 大块网纹 + 光环 + 全场闪 */
   _goalNetEffect(gx, gy, attHome) {
     this._burst(gx, gy, "goal");
+    // 永久球门口“被撞凹”再回弹
+    const mouthSel = attHome ? ".mp-goal-mouth.top" : ".mp-goal-mouth.bot";
+    const mouth = this.fieldEl?.querySelector(mouthSel);
+    if (mouth) {
+      mouth.classList.remove("mp-goal-mouth-hit");
+      // 强制重启动画
+      void mouth.offsetWidth;
+      mouth.classList.add("mp-goal-mouth-hit");
+      setTimeout(() => mouth.classList.remove("mp-goal-mouth-hit"), 1000);
+    }
+    // 全场一瞬绿闪（指向球门端）
+    if (this.fieldEl) {
+      this.fieldEl.style.setProperty("--goal-flash-y", attHome ? "6%" : "94%");
+      this.fieldEl.classList.remove("mp-goal-flash");
+      void this.fieldEl.offsetWidth;
+      this.fieldEl.classList.add("mp-goal-flash");
+      setTimeout(() => this.fieldEl?.classList.remove("mp-goal-flash"), 600);
+    }
     if (!this.fxLayer) return;
-    // 球网涟漪
+    // 大块球网涟漪（比旧版更大更久）
     const net = document.createElement("div");
     net.className = `mp-goal-net ${attHome ? "top" : "bottom"}`;
     net.style.left = `${gx}%`;
     net.style.top = `${gy}%`;
     this.fxLayer.appendChild(net);
-    setTimeout(() => net.remove(), 1100);
+    setTimeout(() => net.remove(), 1200);
+    // 第二层稍大、稍晚，增强撞击层次
+    const net2 = document.createElement("div");
+    net2.className = `mp-goal-net ${attHome ? "top" : "bottom"}`;
+    net2.style.left = `${gx}%`;
+    net2.style.top = `${gy}%`;
+    net2.style.width = "68px";
+    net2.style.height = "40px";
+    net2.style.margin = "-12px 0 0 -34px";
+    net2.style.opacity = "0.85";
+    this.fxLayer.appendChild(net2);
+    setTimeout(() => net2.remove(), 1300);
     // 入网光环
     const ring = document.createElement("div");
     ring.className = "mp-goal-ring";
     ring.style.left = `${gx}%`;
     ring.style.top = `${gy}%`;
     this.fxLayer.appendChild(ring);
-    setTimeout(() => ring.remove(), 900);
+    setTimeout(() => ring.remove(), 1000);
     // 球本身闪一下
     this.ball.el?.classList.add("mp-ball-goal");
-    setTimeout(() => this.ball.el?.classList.remove("mp-ball-goal"), 800);
+    setTimeout(() => this.ball.el?.classList.remove("mp-ball-goal"), 1000);
   }
 
   _playGoalShot(ev, snap, fixture, { celebrateMs = 1600, skipReset = false } = {}) {
@@ -4588,8 +5419,20 @@ export class MatchView {
     if (goalDist < 22 || (attHome ? ballY < 28 : ballY > 72)) depth = "box";
     else if (goalDist < 40 || (attHome ? ballY < 42 : ballY > 58)) depth = "final";
 
-    this.camMode = depth === "box" ? "box" : "ball";
+    // 有助攻：回放/高光强制走出「助攻传球 → 射门」，不直接禁区终结跳过传球
+    const wantAssist =
+      !!(assister && scorer && assister !== scorer) &&
+      (isRewatch || !!ev.assistId || depth !== "box");
+    if (wantAssist && depth === "box") depth = "final";
+
+    this.camMode = depth === "box" && !wantAssist ? "box" : "ball";
     this.camBoostUntil = performance.now() + 900;
+    const assistHint =
+      assister && assister !== scorer
+        ? lang === "en"
+          ? ` · A: ${assister.name || ""}`
+          : ` · 助攻 ${assister.name || ""}`
+        : "";
     this.setBanner(
       isRewatch
         ? lang === "en"
@@ -4601,19 +5444,25 @@ export class MatchView {
       isRewatch ? "replay" : "goal"
     );
     const capLive =
-      depth === "box"
+      wantAssist
         ? lang === "en"
-          ? "Finish!"
-          : "禁区终结！"
-        : depth === "final"
+          ? "Assist…"
+          : "助攻传球…"
+        : depth === "box"
           ? lang === "en"
-            ? "Final third…"
-            : "最后一传…"
-          : lang === "en"
-            ? "Build-up…"
-            : "组织进攻…";
+            ? "Finish!"
+            : "禁区终结！"
+          : depth === "final"
+            ? lang === "en"
+              ? "Final third…"
+              : "最后一传…"
+            : lang === "en"
+              ? "Build-up…"
+              : "组织进攻…";
     this.setCaption(
-      isRewatch ? (lang === "en" ? "GOAL REPLAY" : "进球回放") : capLive,
+      isRewatch
+        ? (lang === "en" ? "GOAL REPLAY" : "进球回放") + assistHint
+        : capLive,
       isRewatch ? "replay" : "info",
       0
     );
@@ -4649,13 +5498,49 @@ export class MatchView {
         organizer = other || scorer;
       }
     }
-    // 已在禁区：射手本人持球终结，不再绕组织
-    if (depth === "box" && scorer) {
+    // 需要助攻戏：组织者优先用助攻者，绝不直接跳到禁区终结
+    if (wantAssist && assister) {
+      organizer = assister;
+    } else if (depth === "box" && scorer && !wantAssist) {
+      // 已在禁区且无助攻：射手本人持球终结
       organizer = scorer;
     }
     if (!assister && organizer && organizer !== scorer) assister = organizer;
 
-    if (organizer) {
+    // 回放/有助攻：把助攻者摆到稍身后持球位，射手前插要球（明显看出传球）
+    if (wantAssist && assister && scorer) {
+      const midX = clamp((assister.x + scorer.x) / 2, 18, 82);
+      assister.x = clamp(midX + (Math.random() - 0.5) * 6, 16, 84);
+      assister.y = clamp(
+        attHome ? Math.max(assister.y, boxY + 14) : Math.min(assister.y, boxY - 14),
+        12,
+        88
+      );
+      assister.tx = assister.x;
+      assister.ty = assister.y;
+      this._applyPlayer(assister);
+      scorer.x = clamp(midX + (Math.random() - 0.5) * 10, 18, 82);
+      scorer.y = clamp(lerp(scorer.y, boxY, 0.45), 10, 90);
+      scorer.tx = scorer.x;
+      scorer.ty = scorer.y;
+      this._applyPlayer(scorer);
+      this.ball.x = assister.x;
+      this.ball.y = assister.y;
+      this.ball.tx = assister.x;
+      this.ball.ty = assister.y;
+      this._applyBall();
+      this._setCarrier(assister, { stick: true });
+      this._setTouch(assister, 1800);
+      assister.el.classList.add("highlight");
+      this.setCaption(
+        lang === "en"
+          ? `${assister.name || "Assist"} looks up…`
+          : `${assister.name || "助攻者"} 抬头找人…`,
+        "info",
+        0
+      );
+      await wait(isRewatch ? 520 : 380);
+    } else if (organizer) {
       const dist = Math.hypot(organizer.x - this.ball.x, organizer.y - this.ball.y);
       const alreadyHeld =
         prevCarrier === organizer &&
@@ -4677,7 +5562,7 @@ export class MatchView {
 
     if (scorer) {
       scorer.el.classList.add("highlight");
-      if (depth !== "box") {
+      if (depth !== "box" || wantAssist) {
         scorer.tx = clamp(scorer.x + (Math.random() - 0.5) * 10, 14, 86);
         scorer.ty = clamp(scorer.y + dir * (8 + Math.random() * 8), 10, 90);
       } else {
@@ -4739,19 +5624,35 @@ export class MatchView {
       await wait(220);
     }
 
-    // —— 3) 直塞 / 自己带入 ——
-    if (depth !== "box" && organizer && scorer && organizer !== scorer) {
+    // —— 3) 助攻直塞 / 自己带入 ——
+    // 有助攻时强制：助攻者持球 → 传球轨迹 → 射手接球再射（回放重点）
+    if ((wantAssist || depth !== "box") && organizer && scorer && organizer !== scorer) {
       scorer.tx = clamp(scorer.x + (Math.random() - 0.5) * 6, 16, 84);
       scorer.ty = clamp(lerp(scorer.y, boxY, 0.72), 8, 92);
+      this.setCaption(
+        lang === "en"
+          ? `${organizer.name || "Player"} → ${scorer.name || "scorer"}`
+          : `${organizer.name || "助攻"} → ${scorer.name || "射手"}`,
+        "info",
+        0
+      );
+      this._setFocus([organizer, scorer], 5000);
       this._passTo(organizer, scorer, {
-        flightMs: Math.round((depth === "final" ? 380 : 460) / Math.min(speed, 1.5)),
+        flightMs: Math.round((isRewatch || wantAssist ? 780 : depth === "final" ? 560 : 720) / Math.min(speed, 1.5)),
       });
-      await wait(depth === "final" ? 480 : 560);
+      this._addTrail(organizer.x, organizer.y, scorer.tx, scorer.ty, "pass", 0.55);
+      if (assister && assister !== scorer) this._recordPass(assister, scorer);
+      await wait(isRewatch || wantAssist ? 920 : depth === "final" ? 700 : 880);
       if (this.carrier !== scorer) this._setCarrier(scorer, { stick: true });
       scorer.tx = clamp(scorer.x + (Math.random() - 0.5) * 5, 18, 82);
       scorer.ty = clamp(boxY + dir * 3, 8, 92);
       this._setTouch(scorer, 1600);
-      await wait(depth === "final" ? 320 : 420);
+      this.setCaption(
+        lang === "en" ? `${scorer.name || "Scorer"} shoots!` : `${scorer.name || "射手"} 起脚！`,
+        "chance",
+        0
+      );
+      await wait(isRewatch || wantAssist ? 480 : depth === "final" ? 320 : 420);
     } else if (scorer) {
       this._setCarrier(scorer, { stick: true });
       scorer.tx = clamp(scorer.x + (Math.random() - 0.5) * 5, 18, 82);
@@ -4761,7 +5662,7 @@ export class MatchView {
 
     // —— 4) 射门入网 ——
     this.camMode = "box";
-    this.camBoostUntil = performance.now() + 1400;
+    this.camBoostUntil = performance.now() + 1600;
     const finisher =
       (this.carrier && this.carrier.team === team ? this.carrier : null) || scorer;
     this._clearCarrier();
@@ -4771,7 +5672,7 @@ export class MatchView {
       this.ball.y = finisher.y;
       finisher.el.classList.add("scorer", "highlight");
       this.highlightId = finisher.id;
-      this.flashUntil = performance.now() + 3200;
+      this.flashUntil = performance.now() + 3600;
       this._setTouch(finisher, 2200);
       if (assister && assister !== finisher) this._recordPass(assister, finisher);
       this.lastCarrierId = finisher.id;
@@ -4782,7 +5683,7 @@ export class MatchView {
     this.setBanner("⚽", "goal");
     this.setCaption(lang === "en" ? "SHOT…" : "射门…", "chance", 0);
     this.playSfx("kick");
-    await wait(400);
+    await wait(isRewatch ? 520 : 420);
     // 等飞行接近球门再钉死入网（观感：球飞进门）
     this.ball.x = gx;
     this.ball.y = gy;
@@ -4802,16 +5703,22 @@ export class MatchView {
     this.setBanner(scoreLine, "goal");
     this.setCaption(scoreLine, "goal", 0);
     if (finisher?.player) {
+      const subAssist =
+        assister && assister !== finisher
+          ? lang === "en"
+            ? `${scoreLine} · A ${assister.name || ""}`
+            : `${scoreLine} · 助攻 ${assister.name || ""}`
+          : scoreLine;
       this.showFlashCard({
         title: lang === "en" ? "GOAL!" : "进球！",
-        sub: scoreLine,
+        sub: subAssist,
         kind: "goal",
         player: finisher.player,
         team,
-        ms: 2400,
+        ms: 2800,
       });
     }
-    await wait(1000);
+    await wait(isRewatch ? 1200 : 1100);
 
     // —— 5) 庆祝 ——
     if (finisher) {

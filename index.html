@@ -416,6 +416,13 @@
                 <span id="defensive-line-val" class="tac-slider-val">3 · 标准</span>
               </label>
               <div id="tac-summary" class="tac-summary" aria-live="polite"></div>
+              <div class="tac-core-block">
+                <h3 class="tac-core-title" data-i18n="tac.core">核心球员</h3>
+                <p class="hint" data-i18n="tac.coreHint" style="margin:0.2rem 0 0.45rem">
+                  指定一名首发为核心（梅西/C罗式进攻绝对权：更爱拿球、盘带、射门；队友更愿意传给他）。在战术板上点 ⭐ 设置/取消。
+                </p>
+                <div id="tac-core-display" class="tac-core-display muted" data-i18n="tac.coreNone">未指定</div>
+              </div>
               <p class="hint" data-i18n="tac.hint">阵型、风格、滑条与角色指令都会影响攻防、控球、犯规与体能；风格之间存在克制。</p>
               <button id="btn-auto-xi" class="btn" data-i18n="tac.autoXi">自动排出最佳十一人</button>
             </div>
@@ -916,7 +923,7 @@
     <div id="season-summary" class="season-summary hidden" role="dialog" aria-modal="true"></div>
   </div>
 
-  <script type="module" src="js/main.js?v=64"></script>
+  <script type="module" src="js/main.js?v=68"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {
@@ -924,12 +931,12 @@
           caches.keys().then(function (keys) {
             return Promise.all(
               keys
-                .filter(function (k) { return k.indexOf("vcfm-") === 0 && k !== "vcfm-v64"; })
+                .filter(function (k) { return k.indexOf("vcfm-") === 0 && k !== "vcfm-v68"; })
                 .map(function (k) { return caches.delete(k); })
             );
           }).catch(function () {});
         }
-        navigator.serviceWorker.register("./sw.js?v=64").then(function (reg) {
+        navigator.serviceWorker.register("./sw.js?v=68").then(function (reg) {
           try { reg.update(); } catch (e) {}
           if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
         }).catch(function () {});
@@ -938,8 +945,8 @@
           if (refreshing) return;
           refreshing = true;
           try {
-            if (!sessionStorage.getItem("vcfm-sw-reloaded-v64")) {
-              sessionStorage.setItem("vcfm-sw-reloaded-v64", "1");
+            if (!sessionStorage.getItem("vcfm-sw-reloaded-v68")) {
+              sessionStorage.setItem("vcfm-sw-reloaded-v68", "1");
               location.reload();
             }
           } catch (e) {
