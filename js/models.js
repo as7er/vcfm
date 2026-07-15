@@ -424,13 +424,20 @@ function hashStr(s) {
 
 function contrastText(hex) {
   if (!hex || typeof hex !== "string") return "#fff";
-  const h = hex.replace("#", "");
+  let h = hex.replace("#", "").trim();
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
   if (h.length < 6) return "#fff";
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return lum > 0.62 ? "#0f172a" : "#ffffff";
+  const r0 = parseInt(h.slice(0, 2), 16) / 255;
+  const g0 = parseInt(h.slice(2, 4), 16) / 255;
+  const b0 = parseInt(h.slice(4, 6), 16) / 255;
+  if ([r0, g0, b0].some((n) => Number.isNaN(n))) return "#fff";
+  const lin = (s) =>
+    s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  const L = 0.2126 * lin(r0) + 0.7152 * lin(g0) + 0.0722 * lin(b0);
+  // 黑/白谁对比度高用谁（粉衣必须深字）
+  const cBlack = (Math.max(L, 0) + 0.05) / (Math.min(L, 0) + 0.05);
+  const cWhite = (Math.max(L, 1) + 0.05) / (Math.min(L, 1) + 0.05);
+  return cBlack >= cWhite ? "#0f172a" : "#ffffff";
 }
 
 function shiftHex(hex, delta) {
@@ -465,7 +472,28 @@ export function ensureKit(club) {
     return club.kit;
   }
   if (club.kit && club.kit.primary && club.kit.style) {
-    if (!club.kit.numberColor) club.kit.numberColor = contrastText(club.kit.primary);
+    // 始终按主色校正号码色（修复旧存档粉衣白字）
+    const auto = contrastText(club.kit.primary);
+    const cur = club.kit.numberColor;
+    if (!cur) {
+      club.kit.numberColor = auto;
+    } else {
+      // 与底色亮度差太小 → 强制自动
+      const parseL = (hex) => {
+        let hh = String(hex || "").replace("#", "");
+        if (hh.length === 3) hh = hh[0] + hh[0] + hh[1] + hh[1] + hh[2] + hh[2];
+        if (hh.length < 6) return 0.5;
+        const r = parseInt(hh.slice(0, 2), 16) / 255;
+        const g = parseInt(hh.slice(2, 4), 16) / 255;
+        const b = parseInt(hh.slice(4, 6), 16) / 255;
+        const lin = (s) =>
+          s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+        return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+      };
+      if (Math.abs(parseL(club.kit.primary) - parseL(cur)) < 0.35) {
+        club.kit.numberColor = auto;
+      }
+    }
     return club.kit;
   }
   const primary = club.color || "#3d8bfd";

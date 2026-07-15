@@ -163,7 +163,13 @@ export function compactSimFrame(eng) {
   const b = eng.ball;
   return {
     t: eng.t,
-    ball: { x: b.x, y: b.y, owner: b.owner },
+    ball: {
+      x: b.x,
+      y: b.y,
+      // 高空球高度（米级 0..~8），直播投影阴影/缩放用
+      z: Number.isFinite(b.z) ? b.z : 0,
+      owner: b.owner,
+    },
     players: eng.agents.map((a) => ({
       id: a.id,
       team: a.team,
@@ -206,12 +212,12 @@ export function buildHighlightWindows(opts = {}) {
   const goals = opts.scaledGoals || [];
   const windows = [];
 
-  // 进球：推进→射门→庆祝
+  // 进球：更长推进窗，方便导演推镜 + 慢镜
   for (const g of goals) {
     const t = g.t != null ? g.t : (g.minute || 1) * 60;
     windows.push({
-      t0: Math.max(tStart, t - 18),
-      t1: Math.min(tEnd, t + 9),
+      t0: Math.max(tStart, t - 22),
+      t1: Math.min(tEnd, t + 12),
       priority: 100,
       label: "goal",
       at: t,
@@ -230,8 +236,8 @@ export function buildHighlightWindows(opts = {}) {
     // 均匀挑：跳过过密
     if (saveN > 0 && e.t - windows.filter((w) => w.label === "save").slice(-1)[0]?.at < 90) continue;
     windows.push({
-      t0: Math.max(tStart, e.t - 8),
-      t1: Math.min(tEnd, e.t + 5),
+      t0: Math.max(tStart, e.t - 12),
+      t1: Math.min(tEnd, e.t + 7),
       priority: 50,
       label: "save",
       at: e.t,
@@ -239,7 +245,7 @@ export function buildHighlightWindows(opts = {}) {
     saveN++;
   }
 
-  // 威胁射门：半场最多 2 次
+  // 威胁射门：半场最多 2 次（略加长推镜窗）
   const shots = raw.filter((e) => e.type === "shot").sort((a, b) => a.t - b.t);
   let shotN = 0;
   const shotStride = Math.max(1, Math.floor(shots.length / 4));
@@ -247,8 +253,8 @@ export function buildHighlightWindows(opts = {}) {
     const e = shots[i];
     if (!farFromExisting(e.t, 30)) continue;
     windows.push({
-      t0: Math.max(tStart, e.t - 10),
-      t1: Math.min(tEnd, e.t + 4),
+      t0: Math.max(tStart, e.t - 14),
+      t1: Math.min(tEnd, e.t + 5),
       priority: 30,
       label: "chance",
       at: e.t,
@@ -274,8 +280,12 @@ export function buildHighlightWindows(opts = {}) {
     const last = merged[merged.length - 1];
     if (last && w.t0 <= last.t1 + 4) {
       last.t1 = Math.max(last.t1, w.t1);
-      last.priority = Math.max(last.priority, w.priority);
-      if (w.priority >= last.priority) last.label = w.label;
+      // 高潮时刻保留更高优先级事件（进球 > 扑救 > 机会）
+      if (w.priority >= last.priority) {
+        last.priority = w.priority;
+        last.label = w.label;
+        if (w.at != null) last.at = w.at;
+      }
     } else {
       merged.push({ ...w });
     }
@@ -357,6 +367,8 @@ export function buildHighlightSegments(frames, windows, tStart, tEnd) {
         t1: b,
         frames: fr,
         label: w.label,
+        // 高潮时刻（进球/扑救/射门），导演镜头与慢镜对齐
+        at: w.at != null ? w.at : (a + b) / 2,
         fromMin: minOf(a),
         toMin: minOf(b),
       });

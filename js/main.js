@@ -254,6 +254,8 @@ const matchPlayback = {
   goals: [],
   /** 赛后回看进行中，防止连点 */
   replaying: false,
+  /** 进球后待自动 FMM 重播（高光段结束后执行） */
+  pendingGoalReplay: null,
   /** 从赛程打开旧战报（只读，不结算） */
   reviewMode: false,
 };
@@ -274,6 +276,7 @@ function resetMatchPlayback({ keepStepMode = true } = {}) {
   matchPlayback.controlsEnabled = false;
   matchPlayback.goals = [];
   matchPlayback.replaying = false;
+  matchPlayback.pendingGoalReplay = null;
   matchPlayback.reviewMode = false;
   updateMatchPlaybackUI();
 }
@@ -840,6 +843,17 @@ function bindMainOnce() {
   $("#btn-match-sfx")?.addEventListener("click", () => toggleMatchSfx());
   $("#btn-match-step")?.addEventListener("click", () => requestMatchStep());
   $("#btn-match-step-mode")?.addEventListener("click", () => toggleMatchStepMode());
+  // FMM 顶栏「跳过」重播
+  $("#btn-match-fmm-skip")?.addEventListener("click", () => {
+    if (!matchView) return;
+    matchView._fmmReplay = matchView._fmmReplay || { active: false, skip: false };
+    matchView._fmmReplay.skip = true;
+    matchView.stopSimTimeline?.();
+    matchView.setFmmReplayChrome?.(false, { lang: getLang() });
+    matchView.setFmmTicker?.("", "", 0);
+    matchPlayback.replaying = false;
+    matchPlayback.pendingGoalReplay = null;
+  });
 
   // 事件流 / 赛后报告：点进球再看回放
   $("#match-log")?.addEventListener("click", (e) => {
@@ -4187,6 +4201,11 @@ function syncMatchSpeedUI() {
     const v = Number(btn.dataset.matchSpeed);
     btn.classList.toggle("active", v === matchSpeed);
   });
+  try {
+    matchView?.setFmmSpeedLabel?.(matchSpeed);
+  } catch (_) {
+    /* ignore */
+  }
 }
 
 /**
@@ -4264,20 +4283,64 @@ function handleSimLiveEvent(ev, snap) {
     if (ev.text) appendMatchEvent(ev, { goalIndex: matchPlayback.goals.length - 1 });
     if (matchView) {
       if (snap?.sim) matchView.applySimSnapshot(snap.sim);
-      // 轻量路径也会触发入网特效；再补一次更强的撞网（直播高光里一眼能看见）
+      const lang = getLang();
+      const en = lang === "en";
+      const homeId = fixture?.home || matchView.home?.id;
+      const attHome = ev.teamId === homeId;
+      const teamShort =
+        (attHome
+          ? matchView.home?.short || matchView.home?.name
+          : matchView.away?.short || matchView.away?.name) || (attHome ? "HOME" : "AWAY");
+      const scorerName =
+        matchView.players?.find((p) => p.id === ev.playerId)?.name ||
+        ev.playerName ||
+        "";
+      // FMM 文案链：先射门感 → 入球了!!
+      if (scorerName) {
+        matchView.setFmmTicker?.(
+          en ? `${scorerName} shoots!` : `${scorerName} 射门!`,
+          "shot",
+          900
+        );
+      }
+      matchView.triggerDirectorMoment?.("goal", { ev, fixture, lang });
       matchView.onEvent(ev, snap, fixture);
+      // 主文案：入球了!!（对照 FMM）
+      setTimeout(() => {
+        matchView?.setFmmTicker?.(
+          en ? `${teamShort} scores!!` : `${teamShort} 入球了!!`,
+          "goal",
+          0
+        );
+      }, 350);
       try {
-        const homeId = fixture?.home || matchView.home?.id;
-        const attHome = ev.teamId === homeId;
-        const mouth = attHome
-          ? { gx: 50, gy: 2 }
-          : { gx: 50, gy: 98 };
+        const bx = Number(matchView.ball?.x);
+        const by = Number(matchView.ball?.y);
+        const mouth = {
+          gx: Math.max(42, Math.min(58, Number.isFinite(bx) ? bx : 50)),
+          gy: attHome
+            ? Math.min(Number.isFinite(by) ? by : 2, 4)
+            : Math.max(Number.isFinite(by) ? by : 98, 96),
+        };
         matchView._goalNetEffect?.(mouth.gx, mouth.gy, attHome);
       } catch (_) {
         /* ignore */
       }
-      // 进球停顿：让撞网动画播完
-      matchView.holdSimTimeline?.(3800 / Math.min(spd, 1.35));
+      // 庆祝 hold；自动重播挂到当前高光段结束后（见 playHighlightPlanBridge）
+      const goalHold = 2600 / Math.min(spd, 1.25);
+      matchView.holdSimTimeline?.(goalHold);
+      matchPlayback.pendingGoalReplay = {
+        lang,
+        scene,
+        frames: matchView._lastTimeline?.frames || null,
+        climaxAt: matchView._lastTimeline?.climaxAt ?? null,
+      };
+      setTimeout(() => {
+        if (!matchView?._built) return;
+        matchView.fieldEl?.classList.remove("mp-replay-slow");
+        matchView.setBanner?.("");
+        if (matchView.phase === "goal") matchView.phase = "play";
+      }, goalHold + 40);
     }
     return;
   }
@@ -4285,17 +4348,59 @@ function handleSimLiveEvent(ev, snap) {
   if (ev.text) appendMatchEvent(ev);
   if (matchView) {
     if (snap?.sim) matchView.applySimSnapshot(snap.sim);
+    const lang = getLang();
+    if (ev.type === "save" || ev.type === "chance" || ev.type === "woodwork") {
+      matchView.triggerDirectorMoment?.(ev.type, { ev, fixture, lang });
+      // FMM 底栏短句
+      if (ev.type === "save") {
+        matchView.setFmmTicker?.(
+          lang === "en" ? "Great save!" : "精彩扑救！",
+          "save",
+          1600
+        );
+      } else if (ev.type === "woodwork") {
+        matchView.setFmmTicker?.(
+          lang === "en" ? "Off the woodwork!" : "击中门框！",
+          "wood",
+          1600
+        );
+      } else {
+        const nm = matchView.players?.find((p) => p.id === ev.playerId)?.name || "";
+        matchView.setFmmTicker?.(
+          nm
+            ? lang === "en"
+              ? `${nm} shoots!`
+              : `${nm} 射门!`
+            : lang === "en"
+              ? "Chance!"
+              : "威胁射门！",
+          "shot",
+          1400
+        );
+      }
+    } else if (ev.type === "offside") {
+      matchView.setFmmTicker?.(
+        lang === "en" ? "They think it was offside!" : "他认为这粒球越位在先!",
+        "dispute",
+        2200
+      );
+    } else if (ev.text && !["tick", "sim_frame", "goal"].includes(ev.type)) {
+      // 一般事件：短时 ticker
+      const clean = String(ev.text).replace(/^\[.*?\]\s*/, "").slice(0, 48);
+      if (clean) matchView.setFmmTicker?.(clean, "info", 1800);
+    }
     matchView.onEvent(ev, snap, fixture);
     const holdMap = {
-      save: 700,
-      chance: 650,
-      woodwork: 700,
+      save: 1100,
+      chance: 850,
+      woodwork: 950,
       corner: 500,
       card: 800,
       red: 1100,
       injury: 900,
       coach: 400,
       context: 350,
+      offside: 900,
     };
     const h = holdMap[ev.type];
     if (h) matchView.holdSimTimeline?.(h / Math.min(spd, 1.5));
@@ -4381,6 +4486,10 @@ async function playHighlightPlanBridge(spec) {
         getSpeed,
         isPaused,
         rate: SIM_HIGHLIGHT_RATE, // 高光用真实动画速度
+        // FMM 导演：段落标签 + 高潮时刻（推镜/慢镜）
+        label: seg.label || null,
+        climaxAt: seg.at != null ? seg.at : null,
+        fmmWide: true,
         onSimT: (t, minute) => {
           refreshLiveHudFromState(minute);
           try {
@@ -4391,6 +4500,29 @@ async function playHighlightPlanBridge(spec) {
         },
       });
       refreshLiveHudFromState(seg.toMin);
+      // 本段若进球：段结束后 FMM 自动重播（可跳过）
+      if (matchPlayback.pendingGoalReplay && matchView?.playFmmGoalReplay) {
+        const pr = matchPlayback.pendingGoalReplay;
+        matchPlayback.pendingGoalReplay = null;
+        matchPlayback.replaying = true;
+        try {
+          await matchView.playFmmGoalReplay({
+            lang: pr.lang || getLang(),
+            scene: pr.scene,
+            frames: pr.frames || seg.frames,
+            climaxAt: pr.climaxAt != null ? pr.climaxAt : seg.at,
+            sleepFn: sleepPlayback,
+            getSpeed: () => Math.min(0.8, Math.max(0.4, getSpeed() * 0.7)),
+            isPaused: () => !!(matchPlayback.paused || matchView._fmmReplay?.skip),
+          });
+        } catch (e) {
+          console.warn(e);
+        } finally {
+          matchPlayback.replaying = false;
+          matchView.setFmmReplayChrome?.(false, { lang: pr.lang || getLang() });
+          matchView.setFmmTicker?.("", "", 0);
+        }
+      }
       continue;
     }
 
@@ -4921,6 +5053,13 @@ function updateLiveStats(snapOrReport) {
   set("#stat-poss-a", `${Math.round(a.possession ?? 50)}%`);
   set("#stat-shots-h", `${h.shots || 0} (${h.shotsOn || 0})`);
   set("#stat-shots-a", `${a.shots || 0} (${a.shotsOn || 0})`);
+  // FMM 底栏控球条
+  try {
+    matchView?.setFmmPossession?.(h.possession ?? 50, a.possession ?? 50);
+    matchView?.setFmmSpeedLabel?.(matchSpeed);
+  } catch (_) {
+    /* ignore */
+  }
 
   const xgH = Number(h.xg) || 0;
   const xgA = Number(a.xg) || 0;

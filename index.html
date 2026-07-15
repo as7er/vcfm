@@ -716,7 +716,8 @@
     <section id="screen-match" class="screen">
       <div class="match-layout fm-match fmm-match">
         <!-- 紧凑计分条 -->
-        <header class="fm-scoreboard fmm-scoreboard" id="match-header">
+        <header class="fm-scoreboard fmm-scoreboard" id="match-header" style="position:relative">
+          <button type="button" class="fmm-skip-hdr hidden" id="btn-match-fmm-skip">跳过</button>
           <div class="fmm-sb-top">
             <div class="fm-sb-side home">
               <span class="fm-sb-kit" id="match-home-kit"></span>
@@ -728,7 +729,10 @@
             </div>
             <div class="fm-sb-center">
               <div id="match-context" class="fm-sb-comp">—</div>
-              <div id="match-minute" class="fm-sb-clock">0'</div>
+              <div class="fm-sb-clock-row">
+                <span class="fmm-replay-badge hidden" id="match-fmm-replay-badge">重播</span>
+                <div id="match-minute" class="fm-sb-clock">0'</div>
+              </div>
               <div id="match-score" class="fm-sb-scoreline hidden" aria-hidden="true">0 - 0</div>
               <div class="fm-sb-live"><span class="fm-live-dot"></span> LIVE</div>
             </div>

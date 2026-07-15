@@ -38,14 +38,56 @@ function slotToPitch(slot, isHome) {
   return { x, y };
 }
 
-function contrastText(hex) {
-  const h = String(hex || "#333").replace("#", "");
-  if (h.length < 6) return "#fff";
+/** 解析 #rgb / #rrggbb → [r,g,b] */
+function parseHexRgb(hex) {
+  let h = String(hex || "").replace("#", "").trim();
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  if (h.length < 6) return null;
   const r = parseInt(h.slice(0, 2), 16);
   const g = parseInt(h.slice(2, 4), 16);
   const b = parseInt(h.slice(4, 6), 16);
-  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return lum > 0.55 ? "#111" : "#fff";
+  if ([r, g, b].some((n) => Number.isNaN(n))) return null;
+  return [r, g, b];
+}
+
+/** 相对亮度 0..1（sRGB 近似） */
+function relativeLuma(hex) {
+  const rgb = parseHexRgb(hex);
+  if (!rgb) return 0.5;
+  const [r, g, b] = rgb.map((c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** WCAG 对比度（越大越好） */
+function contrastRatioL(L1, L2) {
+  const a = Math.max(L1, L2) + 0.05;
+  const b = Math.min(L1, L2) + 0.05;
+  return a / b;
+}
+
+/**
+ * 球衣底色上的可读号码色：在黑/白之间选对比度更高的。
+ * 粉衣 #f472b6 等：旧逻辑会给白字，几乎看不清。
+ */
+function contrastText(hex) {
+  const L = relativeLuma(hex);
+  const cBlack = contrastRatioL(L, 0);
+  const cWhite = contrastRatioL(L, 1);
+  return cBlack >= cWhite ? "#0f172a" : "#ffffff";
+}
+
+/** 若 preferred 与底色对比不够，改用自动对比色 */
+function readableNumberColor(bgHex, preferred) {
+  const auto = contrastText(bgHex);
+  if (!preferred) return auto;
+  const Lb = relativeLuma(bgHex);
+  const Lf = relativeLuma(preferred);
+  // 对比度不足（约 < 3:1）则强制自动
+  if (contrastRatioL(Lb, Lf) < 3) return auto;
+  return preferred;
 }
 
 export class MatchView {
@@ -57,7 +99,9 @@ export class MatchView {
     this.home = null;
     this.away = null;
     this.players = [];
-    this.ball = { x: 50, y: 50, tx: 50, ty: 50, el: null };
+    this.ball = { x: 50, y: 50, tx: 50, ty: 50, z: 0, el: null };
+    /** 球轨迹（FM 空中/传球丝带） */
+    this._ballTrail = [];
     this.fxLayer = null;
     this.trailSvg = null;
     this.fieldEl = null;
@@ -161,6 +205,8 @@ export class MatchView {
       this.actionTimer = 999;
       this.aftermathUntil = 0;
       this.attackPhase = null;
+      this.camMode = "follow";
+      this._ballTrail = [];
       // 清轨迹/传球网，避免和 Canvas 球员叠成重影
       this.trails = [];
       if (this.trailSvg) this.trailSvg.innerHTML = "";
@@ -198,11 +244,20 @@ export class MatchView {
       if (!s) continue;
       const tx = clamp(s.x, 0, 100);
       const ty = clamp(s.y, 0, 100);
+      const ox = pl.x;
+      const oy = pl.y;
       pl.x = smooth >= 1 ? tx : pl.x + (tx - pl.x) * smooth;
       pl.y = smooth >= 1 ? ty : pl.y + (ty - pl.y) * smooth;
       pl.tx = pl.x;
       pl.ty = pl.y;
-      if (s.heading != null && Number.isFinite(s.heading)) pl.heading = s.heading;
+      // 速度用于朝向箭头 / 冲刺残影
+      pl.vx = pl.x - ox;
+      pl.vy = pl.y - oy;
+      if (s.heading != null && Number.isFinite(s.heading)) {
+        pl.heading = s.heading;
+      } else if (Math.hypot(pl.vx, pl.vy) > 0.08) {
+        pl.heading = Math.atan2(pl.vy, pl.vx);
+      }
       const has = !!s.hasBall;
       pl.el.classList.toggle("has-ball", has);
       if (has) carrier = pl;
@@ -223,14 +278,17 @@ export class MatchView {
     if (sim.ball) {
       const bx = clamp(sim.ball.x, 0, 100);
       const by = clamp(sim.ball.y, 0, 100);
+      const bz = clamp(Number(sim.ball.z) || 0, 0, 12);
       this.ball.x = smooth >= 1 ? bx : this.ball.x + (bx - this.ball.x) * smooth;
       this.ball.y = smooth >= 1 ? by : this.ball.y + (by - this.ball.y) * smooth;
+      this.ball.z = smooth >= 1 ? bz : (this.ball.z || 0) + (bz - (this.ball.z || 0)) * smooth;
       this.ball.tx = this.ball.x;
       this.ball.ty = this.ball.y;
     }
+    this._pushBallTrail();
     this._applyBall();
-    // 禁止每帧强制 ball 镜头——镜头来回抢会造成「抖得眼晕」
-    if (!this._simPlay) this.camMode = this.camMode || "wide";
+    // 直播用 soft follow（见 update）；非时间轴时默认 follow
+    if (!this._simPlay && this.simDrive) this.camMode = this.camMode === "box" ? "box" : "follow";
     return true;
   }
 
@@ -262,10 +320,13 @@ export class MatchView {
         hasBall: !!a.hasBall,
       };
     });
-    // 球 owner 用前半/后半切换一次即可
+    // 球 owner 用前半/后半切换一次即可；z 插值做空中抛物线感
+    const za = Number(fa.ball?.z) || 0;
+    const zb = Number(fb.ball?.z) || 0;
     const ball = {
       x: (fa.ball?.x ?? 50) + ((fb.ball?.x ?? 50) - (fa.ball?.x ?? 50)) * t,
       y: (fa.ball?.y ?? 50) + ((fb.ball?.y ?? 50) - (fa.ball?.y ?? 50)) * t,
+      z: za + (zb - za) * t,
       owner: fa.ball?.owner ?? null,
     };
     // 插值本身已是 60fps 平滑，不再二次 soft（双重平滑会发糊/发飘）
@@ -277,15 +338,17 @@ export class MatchView {
 
   /**
    * 连续回放密集 sim 帧 —— 严格对齐 sim-viewer：
-   *   simT += realDt * speed * rate   （×1 且 rate=1 时 = 实时动画）
-   *   在相邻录制帧之间按 alpha 插值，每显示帧只画一次
+   *   simT += realDt * speed * rate * rateMul
+   *   rateMul 由导演系统控制（射门前/进球/扑救慢镜）
    *
    * @param {Array} frames compactSimFrame[]  建议 sampleEvery=1（0.1s）
    * @param {object} [opts]
    * @param {() => number} [opts.getSpeed]
    * @param {() => boolean} [opts.isPaused]
-   * @param {number} [opts.rate] ×1 时模拟秒/墙钟秒，默认 1（= sim-viewer ×1 动画速度）
+   * @param {number} [opts.rate] ×1 时模拟秒/墙钟秒，默认 1
    * @param {(t:number, minute:number) => void} [opts.onSimT]
+   * @param {string} [opts.label] goal|save|chance|kickoff…
+   * @param {number} [opts.climaxAt] 高潮模拟时刻（秒）
    */
   playSimTimeline(frames, opts = {}) {
     return new Promise((resolve) => {
@@ -297,28 +360,48 @@ export class MatchView {
       this.setSimDrive(true);
       this.frozen = false;
       if (this.phase === "pre" || this.phase === "pause") this.phase = "play";
-      // 全场稳镜头，避免跟球狂抖
-      this.camMode = "wide";
-      this.cam.tx = 0;
-      this.cam.ty = 0;
-      this.cam.tScale = 1;
+      // FM 软跟镜：缓跟球 + 死区；高潮前由导演切 box
+      this.camMode = "follow";
+      this._ballTrail = [];
+      this._clearDirectorChrome();
 
       const t0 = frames[0].t ?? 0;
+      const tEnd0 = frames[frames.length - 1].t ?? t0;
+      const label = opts.label || null;
+      let climaxAt = Number(opts.climaxAt);
+      if (!Number.isFinite(climaxAt)) {
+        // 无显式高潮：进球/扑救段默认偏后 70%
+        if (label === "goal" || label === "save" || label === "chance") {
+          climaxAt = t0 + (tEnd0 - t0) * 0.72;
+        } else {
+          climaxAt = null;
+        }
+      }
+      // 供进球后 FMM 自动重播
+      this._lastTimeline = { frames, label, climaxAt, t0, tEnd: tEnd0 };
       const sp = {
         frames,
         i: 0,
-        // 绝对模拟时钟（与 sim-viewer 的 eng.t / simAccT 同思路）
         simT: t0,
         lastTs: 0,
         getSpeed: typeof opts.getSpeed === "function" ? opts.getSpeed : () => 1,
         isPaused: typeof opts.isPaused === "function" ? opts.isPaused : () => false,
-        // ×1 → rate 1：动画真实速度；×2/×4 只加速，不靠「跳帧」装快
         rate: Number(opts.rate) > 0 ? Number(opts.rate) : 1,
+        /** 导演慢镜倍率 0.25..1 */
+        rateMul: 1,
+        /** 事件触发的慢镜：墙钟截止时间（优先于预编排） */
+        eventSlowUntil: 0,
+        eventRateMul: 1,
         onSimT: opts.onSimT || null,
         holdUntil: 0,
         raf: 0,
         resolve,
         lastEmitT: t0 - 1,
+        label,
+        climaxAt,
+        directorPhase: "build",
+        /** FMM：默认不猛推 box，只轻跟 */
+        fmmWide: opts.fmmWide !== false,
       };
       this._simPlay = sp;
       this.applySimSnapshot(frames[0], { soft: false });
@@ -326,7 +409,6 @@ export class MatchView {
       const tick = (ts) => {
         if (this._simPlay !== sp) return;
         if (!sp.lastTs) sp.lastTs = ts;
-        // 与 sim-viewer 一样钳制，防止切后台后一帧跳太大
         const realDt = Math.min(0.05, (ts - sp.lastTs) / 1000);
         sp.lastTs = ts;
 
@@ -334,21 +416,26 @@ export class MatchView {
           sp.raf = requestAnimationFrame(tick);
           return;
         }
+
+        // 导演：预编排推镜/慢镜 + 事件慢镜衰减
+        this._tickDirector(sp, ts, realDt);
+
         if (ts < sp.holdUntil) {
-          // hold 期间仍刷新 DOM 位置（保持静止平滑），不推进 simT
+          // hold：不推进 simT，但镜头仍更新（庆祝/撞网）
+          this._updateSimCamera(realDt);
+          this._drawCanvas();
           sp.raf = requestAnimationFrame(tick);
           return;
         }
 
         const speed = Math.max(0.25, Number(sp.getSpeed()) || 1);
-        // 核心：墙钟 → 模拟时间（×1+rate1 = 画面真实速度）
-        sp.simT += realDt * speed * sp.rate;
+        const mul = clamp(sp.rateMul || 1, 0.2, 1.5);
+        sp.simT += realDt * speed * sp.rate * mul;
 
         const fr = sp.frames;
         const tEnd = fr[fr.length - 1].t ?? 0;
         if (sp.simT > tEnd) sp.simT = tEnd;
 
-        // 找到 simT 所在的 [i, i+1] 帧（不靠累加 gap 误差）
         while (sp.i < fr.length - 1 && (fr[sp.i + 1].t ?? 0) <= sp.simT) {
           sp.i++;
         }
@@ -362,7 +449,6 @@ export class MatchView {
         this.applySimSnapshotLerped(a, b, alpha);
 
         const minute = Math.max(1, Math.min(90, Math.ceil(sp.simT / 60) || 1));
-        // 事件线索约 8Hz 足够，避免每帧狂刷
         if (sp.onSimT && (sp.simT - sp.lastEmitT >= 0.12 || sp.simT >= tEnd)) {
           sp.lastEmitT = sp.simT;
           try {
@@ -373,6 +459,7 @@ export class MatchView {
         }
 
         if (sp.simT >= tEnd - 1e-6) {
+          this._clearDirectorChrome();
           this._simPlay = null;
           sp.resolve();
           return;
@@ -389,6 +476,175 @@ export class MatchView {
     if (!this._simPlay) return;
     const t = performance.now() + Math.max(0, Number(ms) || 0);
     this._simPlay.holdUntil = Math.max(this._simPlay.holdUntil || 0, t);
+  }
+
+  /**
+   * FMM 导演：关键事件触发推镜 + 慢镜
+   * @param {'goal'|'save'|'chance'|'woodwork'|'shot'} kind
+   * @param {{ ev?: object, fixture?: object, lang?: string }} [opts]
+   */
+  triggerDirectorMoment(kind, opts = {}) {
+    const now = performance.now();
+    const lang = opts.lang || (typeof document !== "undefined" && document.documentElement?.lang === "en" ? "en" : "zh");
+    const sp = this._simPlay;
+
+    if (kind === "goal") {
+      this.camMode = "follow";
+      this.camBoostUntil = now + 2800;
+      this.phase = "goal";
+      this.fieldEl?.classList.add("mp-replay-slow");
+      this.setBanner(lang === "en" ? "⚽ GOAL" : "⚽ 进球", "goal");
+      // 文案由 main 进球链写入 ticker；此处兜底
+      this.setFmmTicker?.(
+        lang === "en" ? "GOAL!!" : "入球了!!",
+        "goal",
+        0
+      );
+      // 焦点：射手
+      const scorer =
+        (opts.ev?.playerId && this.players.find((p) => p.id === opts.ev.playerId)) ||
+        this.carrier;
+      if (scorer) {
+        scorer.el.classList.add("highlight", "scorer");
+        this.highlightId = scorer.id;
+        this.flashUntil = now + 3600;
+        this._setFocus([scorer], 3200);
+      }
+      if (sp) {
+        sp.eventRateMul = 0.28;
+        sp.eventSlowUntil = now + 3200;
+        sp.rateMul = Math.min(sp.rateMul || 1, 0.28);
+        sp.directorPhase = "impact";
+      }
+      return;
+    }
+
+    if (kind === "save") {
+      this.camMode = "box";
+      this.camBoostUntil = now + 2200;
+      this.fieldEl?.classList.add("mp-replay-slow");
+      if (this.replayBadgeEl) {
+        this.replayBadgeEl.textContent = lang === "en" ? "▶ SAVE" : "▶ 扑救";
+        this.replayBadgeEl.classList.remove("hidden");
+      }
+      this.setCaption(lang === "en" ? "GREAT SAVE" : "精彩扑救", "save", 1600);
+      const gk =
+        (opts.ev?.playerId && this.players.find((p) => p.id === opts.ev.playerId)) ||
+        this.players.find((p) => p.pos === "GK" || p.role === "GK");
+      if (gk) {
+        gk.el.classList.add("highlight");
+        this.highlightId = gk.id;
+        this.flashUntil = now + 1800;
+        this._setFocus([gk], 1600);
+      }
+      if (sp) {
+        sp.eventRateMul = 0.4;
+        sp.eventSlowUntil = now + 1600;
+        sp.rateMul = Math.min(sp.rateMul || 1, 0.4);
+        sp.directorPhase = "impact";
+      }
+      this._burst?.(this.ball.x, this.ball.y, "save");
+      return;
+    }
+
+    if (kind === "chance" || kind === "woodwork" || kind === "shot") {
+      this.camMode = "box";
+      this.camBoostUntil = now + 1400;
+      if (kind === "woodwork") {
+        this.setCaption(lang === "en" ? "WOODWORK!" : "击中门框！", "wood", 1400);
+      } else {
+        this.setCaption(lang === "en" ? "CHANCE" : "威胁射门", "chance", 1200);
+      }
+      if (sp) {
+        sp.eventRateMul = 0.48;
+        sp.eventSlowUntil = now + 1000;
+        sp.rateMul = Math.min(sp.rateMul || 1, 0.48);
+        sp.directorPhase = "slow";
+      }
+    }
+  }
+
+  /** 清除慢镜/回放角标 */
+  _clearDirectorChrome() {
+    this.fieldEl?.classList.remove("mp-replay-slow");
+    // mp-replay 留给完整回放；直播导演只清 slow
+    if (this.phase !== "goal") {
+      this.fieldEl?.classList.remove("mp-replay");
+      this.replayBadgeEl?.classList.add("hidden");
+    } else if (this.replayBadgeEl && !this.fieldEl?.classList.contains("mp-replay")) {
+      this.replayBadgeEl.classList.add("hidden");
+    }
+  }
+
+  /**
+   * 每帧导演：高潮前推镜 → 临门慢镜；事件慢镜优先
+   */
+  _tickDirector(sp, nowTs, realDt) {
+    if (!sp) return;
+    const now = nowTs || performance.now();
+
+    // 1) 事件触发的慢镜（墙钟）
+    let eventMul = 1;
+    if (sp.eventSlowUntil && now < sp.eventSlowUntil) {
+      eventMul = clamp(sp.eventRateMul || 0.35, 0.22, 1);
+    } else if (sp.eventSlowUntil && now >= sp.eventSlowUntil) {
+      // 缓出慢镜
+      sp.eventRateMul = lerp(sp.eventRateMul || 1, 1, 1 - Math.pow(0.02, realDt || 0.016));
+      eventMul = sp.eventRateMul;
+      if (eventMul > 0.94) {
+        sp.eventSlowUntil = 0;
+        sp.eventRateMul = 1;
+        eventMul = 1;
+        if (this.phase === "goal") {
+          // 进球 hold 结束后再清 chrome（由 hold 结束后 phase 可能仍是 goal）
+        } else {
+          this._clearDirectorChrome();
+        }
+      }
+    }
+
+    // 2) 预编排：相对 climaxAt
+    let scriptMul = 1;
+    const climax = sp.climaxAt;
+    if (climax != null && Number.isFinite(climax)) {
+      const lead = climax - sp.simT; // >0 未到高潮
+      const after = sp.simT - climax;
+      const isBig = sp.label === "goal";
+      const isSave = sp.label === "save";
+      const isChance = sp.label === "chance";
+
+      // FMM 对齐：全程接近全场，只做轻跟 + 慢镜（不猛推 box）
+      const wide = sp.fmmWide !== false;
+      if (lead > 5.5) {
+        sp.directorPhase = "build";
+        scriptMul = 1;
+        this.camMode = "follow";
+      } else if (lead > 2.2) {
+        sp.directorPhase = "push";
+        // 轻跟，不切 box
+        this.camMode = wide ? "follow" : "box";
+        this.camBoostUntil = Math.max(this.camBoostUntil, now + 400);
+        scriptMul = isBig ? 0.82 : isSave ? 0.88 : 0.92;
+      } else if (lead > 0.05) {
+        sp.directorPhase = "slow";
+        this.camMode = wide ? "follow" : "box";
+        this.camBoostUntil = Math.max(this.camBoostUntil, now + 700);
+        scriptMul = isBig ? 0.38 : isSave ? 0.45 : isChance ? 0.5 : 0.58;
+        if (isBig || isSave) this.fieldEl?.classList.add("mp-replay-slow");
+      } else if (after < (isBig ? 2.8 : isSave ? 1.8 : 1.2)) {
+        sp.directorPhase = "impact";
+        this.camMode = wide ? "follow" : "box";
+        scriptMul = isBig ? 0.4 : isSave ? 0.52 : 0.65;
+      } else {
+        sp.directorPhase = "settle";
+        scriptMul = 0.9;
+        this.camMode = "follow";
+        if (eventMul >= 0.98) this._clearDirectorChrome();
+      }
+    }
+
+    // 取更慢者（事件优先更戏剧）
+    sp.rateMul = Math.min(scriptMul, eventMul);
   }
 
   stopSimTimeline() {
@@ -422,10 +678,10 @@ export class MatchView {
     wrap.className = "mp-wrap";
 
     wrap.innerHTML = `
-      <div class="mp-boards mp-ads" aria-hidden="true">
-        <span>VCFM</span><span>·</span><span>2D MATCH</span><span>·</span><span>LIVE</span>
-      </div>
       <div class="mp-field mp-fmm2d" id="mp-field">
+        <!-- FMM 两侧看台 -->
+        <div class="mp-stands left" aria-hidden="true"></div>
+        <div class="mp-stands right" aria-hidden="true"></div>
         <div class="mp-end-label mp-end-away" id="mp-end-away">AWAY</div>
         <div class="mp-end-label mp-end-home" id="mp-end-home">HOME</div>
         <div class="mp-camera" id="mp-camera">
@@ -436,20 +692,20 @@ export class MatchView {
           <div class="mp-form-zones" id="mp-form-zones" aria-hidden="true"></div>
           <div class="mp-attack-arrow" id="mp-attack-arrow" aria-hidden="true"></div>
           <svg class="mp-lines" viewBox="0 0 100 150" preserveAspectRatio="none" aria-hidden="true">
-            <rect x="3" y="3" width="94" height="144" fill="none" stroke="rgba(255,255,255,0.72)" stroke-width="0.65"/>
-            <line x1="3" y1="75" x2="97" y2="75" stroke="rgba(255,255,255,0.65)" stroke-width="0.55"/>
-            <circle cx="50" cy="75" r="12" fill="none" stroke="rgba(255,255,255,0.62)" stroke-width="0.55"/>
-            <circle cx="50" cy="75" r="0.85" fill="rgba(255,255,255,0.85)"/>
-            <rect x="21" y="117" width="58" height="30" fill="none" stroke="rgba(255,255,255,0.62)" stroke-width="0.55"/>
-            <rect x="33" y="131" width="34" height="16" fill="none" stroke="rgba(255,255,255,0.62)" stroke-width="0.55"/>
+            <rect x="3" y="3" width="94" height="144" fill="none" stroke="rgba(255,255,255,0.78)" stroke-width="0.7"/>
+            <line x1="3" y1="75" x2="97" y2="75" stroke="rgba(255,255,255,0.7)" stroke-width="0.55"/>
+            <circle cx="50" cy="75" r="12" fill="none" stroke="rgba(255,255,255,0.68)" stroke-width="0.55"/>
+            <circle cx="50" cy="75" r="0.85" fill="rgba(255,255,255,0.9)"/>
+            <rect x="21" y="117" width="58" height="30" fill="none" stroke="rgba(255,255,255,0.68)" stroke-width="0.55"/>
+            <rect x="33" y="131" width="34" height="16" fill="none" stroke="rgba(255,255,255,0.68)" stroke-width="0.55"/>
             <path d="M 37 117 A 13 13 0 0 1 63 117" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="0.5"/>
-            <circle cx="50" cy="127" r="0.6" fill="rgba(255,255,255,0.7)"/>
-            <rect x="43" y="144.2" width="14" height="2.8" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="0.5"/>
-            <rect x="21" y="3" width="58" height="30" fill="none" stroke="rgba(255,255,255,0.62)" stroke-width="0.55"/>
-            <rect x="33" y="3" width="34" height="16" fill="none" stroke="rgba(255,255,255,0.62)" stroke-width="0.55"/>
+            <circle cx="50" cy="127" r="0.6" fill="rgba(255,255,255,0.75)"/>
+            <rect x="43" y="144.2" width="14" height="2.8" fill="none" stroke="rgba(255,255,255,0.75)" stroke-width="0.5"/>
+            <rect x="21" y="3" width="58" height="30" fill="none" stroke="rgba(255,255,255,0.68)" stroke-width="0.55"/>
+            <rect x="33" y="3" width="34" height="16" fill="none" stroke="rgba(255,255,255,0.68)" stroke-width="0.55"/>
             <path d="M 37 33 A 13 13 0 0 0 63 33" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="0.5"/>
-            <circle cx="50" cy="23" r="0.6" fill="rgba(255,255,255,0.7)"/>
-            <rect x="43" y="3" width="14" height="2.8" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="0.5"/>
+            <circle cx="50" cy="23" r="0.6" fill="rgba(255,255,255,0.75)"/>
+            <rect x="43" y="3" width="14" height="2.8" fill="none" stroke="rgba(255,255,255,0.75)" stroke-width="0.5"/>
             <path d="M 3 7.2 A 4.2 4.2 0 0 0 7.2 3" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.5"/>
             <path d="M 92.8 3 A 4.2 4.2 0 0 0 97 7.2" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.5"/>
             <path d="M 3 142.8 A 4.2 4.2 0 0 1 7.2 147" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.5"/>
@@ -465,13 +721,26 @@ export class MatchView {
           <div class="mp-actors" id="mp-actors"></div>
           <div class="mp-fx" id="mp-fx"></div>
         </div>
-        <div class="mp-replay-badge hidden" id="mp-replay-badge">▶ REPLAY</div>
+        <div class="mp-replay-badge hidden" id="mp-replay-badge">重播</div>
         <div class="mp-rec-badge hidden" id="mp-rec-badge">● REC</div>
         <div class="mp-banner hidden" id="mp-banner"></div>
         <div class="mp-caption hidden" id="mp-caption" aria-live="polite"></div>
         <div class="mp-flash-card hidden" id="mp-flash-card" aria-live="polite"></div>
-        <div class="mp-tip" id="mp-tip">点击球员查看 · FMM 2D</div>
+        <div class="mp-tip hidden" id="mp-tip"></div>
         <div class="mp-card hidden" id="mp-card"></div>
+      </div>
+      <!-- FMM 底栏：解说文案 ↔ 控球条（互斥） -->
+      <div class="mp-fmm-dock" id="mp-fmm-dock">
+        <div class="mp-fmm-ticker" id="mp-fmm-ticker" aria-live="polite"></div>
+        <div class="mp-fmm-poss show" id="mp-fmm-poss" aria-hidden="false">
+          <span class="mp-fmm-poss-val" id="mp-fmm-poss-h">50%</span>
+          <div class="mp-fmm-poss-bar"><i id="mp-fmm-poss-fill" style="width:50%"></i></div>
+          <span class="mp-fmm-poss-val" id="mp-fmm-poss-a">50%</span>
+        </div>
+        <div class="mp-fmm-dock-meta">
+          <span class="mp-fmm-speed" id="mp-fmm-speed">×1</span>
+          <button type="button" class="mp-fmm-skip hidden" id="mp-fmm-skip">跳过</button>
+        </div>
       </div>
       <div class="mp-live-strip" id="mp-live-strip" aria-hidden="true">
         <div class="mp-strip-row">
@@ -494,7 +763,7 @@ export class MatchView {
           <span class="mp-strip-val" id="mp-strip-xg-a">0.00</span>
         </div>
       </div>
-      <div class="mp-legend">
+      <div class="mp-legend hidden">
         <span class="mp-leg home"><i></i><em id="mp-leg-home"></em></span>
         <div class="mp-net-controls">
           <button type="button" class="mp-net-btn active" id="mp-net-toggle" title="Pass network">网</button>
@@ -528,7 +797,26 @@ export class MatchView {
     this.benchAwayEl = wrap.querySelector("#mp-bench-away");
     this.canvas = wrap.querySelector("#mp-canvas");
     this.recBadgeEl = wrap.querySelector("#mp-rec-badge");
+    // FMM 底栏
+    this.fmmDockEl = wrap.querySelector("#mp-fmm-dock");
+    this.fmmTickerEl = wrap.querySelector("#mp-fmm-ticker");
+    this.fmmPossEl = wrap.querySelector("#mp-fmm-poss");
+    this.fmmPossFillEl = wrap.querySelector("#mp-fmm-poss-fill");
+    this.fmmPossHEl = wrap.querySelector("#mp-fmm-poss-h");
+    this.fmmPossAEl = wrap.querySelector("#mp-fmm-poss-a");
+    this.fmmSpeedEl = wrap.querySelector("#mp-fmm-speed");
+    this.fmmSkipEl = wrap.querySelector("#mp-fmm-skip");
+    this._fmmTickerToken = 0;
+    this._fmmReplay = { active: false, skip: false };
+    this._lastTimeline = null;
     this._canvasEnabled = true;
+    if (this.fmmSkipEl) {
+      this.fmmSkipEl.addEventListener("click", () => {
+        this._fmmReplay.skip = true;
+        this.stopSimTimeline?.();
+        this.setFmmReplayChrome(false);
+      });
+    }
     this._rec = { active: false, frames: [], t0: 0, lastPush: 0 };
     this._initCanvas();
     this.focusIds = new Set();
@@ -594,16 +882,15 @@ export class MatchView {
     if (endA) endA.textContent = (away.short || away.name || "AWAY").slice(0, 10);
 
     this.players = [];
-    this._spawnTeam(
-      actors,
-      home,
-      true,
-      homeKit.primary,
-      homeKit.numberColor || contrastText(homeKit.primary)
-    );
-    this._spawnTeam(actors, away, false, awayPrimary, contrastText(awayPrimary));
-    this._spawnBench(home, true, homeKit.primary, homeKit.numberColor || contrastText(homeKit.primary));
-    this._spawnBench(away, false, awayPrimary, contrastText(awayPrimary));
+    const homeNum = readableNumberColor(homeKit.primary, homeKit.numberColor);
+    const awayNum = readableNumberColor(awayPrimary, awayKit.numberColor);
+    // 写回 kit，避免存档里错误的白字粉衣继续沿用
+    if (homeKit) homeKit.numberColor = homeNum;
+    if (awayKit) awayKit.numberColor = awayNum;
+    this._spawnTeam(actors, home, true, homeKit.primary, homeNum);
+    this._spawnTeam(actors, away, false, awayPrimary, awayNum);
+    this._spawnBench(home, true, homeKit.primary, homeNum);
+    this._spawnBench(away, false, awayPrimary, awayNum);
     this._buildFormationZones();
 
     const ballEl = document.createElement("div");
@@ -1678,7 +1965,10 @@ export class MatchView {
       const rolePos = slot.pos || p?.pos || "MID";
       const isGk = rolePos === "GK";
       const dotBg = isGk ? (isHome ? "#eab308" : "#a3e635") : color;
-      const dotFg = isGk ? "#0f172a" : numColor;
+      // 号码必须相对球衣底色可读（粉衣绝不能白字）
+      const dotFg = isGk
+        ? "#0f172a"
+        : readableNumberColor(dotBg, numColor);
       el.innerHTML = `
         <div class="mp-shadow" aria-hidden="true"></div>
         <div class="mp-dot${isGk ? " mp-dot-gk" : ""}" style="background:${dotBg};color:${dotFg}">
@@ -1722,6 +2012,8 @@ export class MatchView {
         baseY,
         num,
         name,
+        numColor: dotFg,
+        kitColor: dotBg,
         pos: rolePos,
         zoneR,
         fsm: "home", // home | support | press | cover | carry
@@ -1888,6 +2180,53 @@ export class MatchView {
     this.fieldEl.classList.add("mp-canvas-mode");
   }
 
+  /** 球轨迹采样（空中/传球丝带） */
+  _pushBallTrail() {
+    if (!this._ballTrail) this._ballTrail = [];
+    const x = this.ball.x;
+    const y = this.ball.y;
+    const z = this.ball.z || 0;
+    const last = this._ballTrail[this._ballTrail.length - 1];
+    if (last && Math.hypot(last.x - x, last.y - y) < 0.35 && Math.abs((last.z || 0) - z) < 0.15) {
+      return;
+    }
+    this._ballTrail.push({ x, y, z });
+    // 持球时轨迹短，飞行时长
+    const max = !this.carrier || z > 0.6 ? 22 : 8;
+    while (this._ballTrail.length > max) this._ballTrail.shift();
+  }
+
+  /**
+   * FM 2D 软跟镜：缓跟球 + 死区 + 禁区微推近
+   * 避免旧「每帧 ball 镜头」的眼晕，也不锁死全景。
+   */
+  _updateSimCamera(d) {
+    // FMM：几乎全场，仅轻微跟球（对照 rec 录屏）
+    const ox = (this.ball.x - 50) / 50;
+    const oy = (this.ball.y - 50) / 50;
+    const deep = this.ball.y < 22 || this.ball.y > 78;
+    const tight = this.camMode === "box" || this.phase === "goal";
+    if (tight) {
+      this.cam.tx = clamp(-ox * 1.6, -2.4, 2.4);
+      this.cam.ty = clamp(-oy * 1.8, -2.8, 2.8);
+      this.cam.tScale = performance.now() < this.camBoostUntil ? 1.04 : 1.02;
+    } else {
+      const wantX = clamp(-ox * (deep ? 0.9 : 0.45), -1.4, 1.4);
+      const wantY = clamp(-oy * (deep ? 1.0 : 0.4), -1.5, 1.5);
+      if (Math.hypot(wantX - this.cam.tx, wantY - this.cam.ty) > 0.28) {
+        this.cam.tx = wantX;
+        this.cam.ty = wantY;
+      }
+      this.cam.tScale = deep ? 1.02 : 1.0;
+    }
+    const kPan = 1 - Math.pow(0.05, d);
+    const kZoom = 1 - Math.pow(0.08, d);
+    this.cam.x = lerp(this.cam.x, this.cam.tx, kPan);
+    this.cam.y = lerp(this.cam.y, this.cam.ty, kPan);
+    this.cam.scale = lerp(this.cam.scale, this.cam.tScale, kZoom);
+    this._applyCamera();
+  }
+
   _drawCanvas() {
     // 每帧检查：布局若已变化则重绑缓冲（不用再手动缩放页面）
     if (this.fieldEl) {
@@ -1910,6 +2249,9 @@ export class MatchView {
     ctx.clearRect(0, 0, w, h);
     const px = (x) => (x / 100) * w;
     const py = (y) => (y / 100) * h;
+    const minDim = Math.min(w, h);
+    const focusOn =
+      this.focusIds?.size > 0 && performance.now() < (this.focusUntil || 0);
 
     // 阵型色块（轻）
     if (this.formZonesEl) {
@@ -1935,29 +2277,79 @@ export class MatchView {
       }
     }
 
-    // 球员
-    for (const pl of this.players) {
-      if (pl.el.classList.contains("sent-off")) continue;
+    // 球轨迹丝带（地面投影）
+    const trail = this._ballTrail || [];
+    if (trail.length >= 2) {
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      for (let i = 1; i < trail.length; i++) {
+        const a = trail[i - 1];
+        const b = trail[i];
+        const t = i / trail.length;
+        const elev = Math.max(a.z || 0, b.z || 0);
+        ctx.beginPath();
+        ctx.moveTo(px(a.x), py(a.y));
+        ctx.lineTo(px(b.x), py(b.y));
+        ctx.strokeStyle =
+          elev > 0.8
+            ? `rgba(253, 224, 71, ${0.12 + t * 0.55})`
+            : `rgba(248, 250, 252, ${0.08 + t * 0.42})`;
+        ctx.lineWidth = (1.2 + t * 2.8 + elev * 0.35) * (minDim / 420);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    // 球员：先阴影再本体，持球者最后画一层环
+    const drawList = this.players.filter((p) => !p.el.classList.contains("sent-off"));
+    for (const pl of drawList) {
       const x = px(pl.x);
       const y = py(pl.y);
-      const r = Math.max(9, Math.min(w, h) * 0.028);
-      // 阴影
-      ctx.fillStyle = "rgba(0,0,0,0.28)";
+      const r = Math.max(9, minDim * 0.028);
+      const spd = Math.hypot(pl.vx || 0, pl.vy || 0);
+      const dim =
+        focusOn && !this.focusIds.has(pl.id) && !pl.el.classList.contains("has-ball");
+      ctx.globalAlpha = dim ? 0.38 : 1;
+
+      // 冲刺残影
+      if (spd > 0.55 && pl.heading != null) {
+        const hx = Math.cos(pl.heading);
+        const hy = Math.sin(pl.heading);
+        ctx.fillStyle = "rgba(255,255,255,0.08)";
+        for (let k = 1; k <= 2; k++) {
+          ctx.beginPath();
+          ctx.arc(x - hx * r * k * 0.55, y - hy * r * k * 0.55, r * (1 - k * 0.12), 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // 地面阴影
+      ctx.fillStyle = "rgba(0,0,0,0.30)";
       ctx.beginPath();
-      ctx.ellipse(x, y + r * 0.55, r * 0.7, r * 0.28, 0, 0, Math.PI * 2);
+      ctx.ellipse(x, y + r * 0.55, r * 0.72, r * 0.28, 0, 0, Math.PI * 2);
       ctx.fill();
-      // 圆点（门将固定金/亮绿，不跟场上队服混）
-      const isGk = pl.pos === "GK";
+
+      // 队服圆点
+      const isGk = pl.pos === "GK" || pl.role === "GK";
       const bg = isGk
         ? pl.team === "home"
           ? "#eab308"
           : "#a3e635"
-        : pl.el.querySelector(".mp-dot")?.style?.background || "#3d8bfd";
+        : pl.el.querySelector(".mp-dot")?.style?.background ||
+          (pl.team === "home" ? "#3d8bfd" : "#ef4444");
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.fillStyle = bg;
       ctx.fill();
-      ctx.lineWidth = isGk ? 2.5 : pl.team === "home" ? 2 : 1.5;
+
+      // 队服高光条（轻微 3D）
+      ctx.beginPath();
+      ctx.arc(x - r * 0.22, y - r * 0.28, r * 0.55, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(255,255,255,0.14)";
+      ctx.fill();
+
+      ctx.lineWidth = isGk ? 2.5 : pl.team === "home" ? 2 : 1.6;
       ctx.strokeStyle = isGk
         ? "rgba(15,23,42,0.9)"
         : pl.team === "home"
@@ -1965,21 +2357,36 @@ export class MatchView {
           : "rgba(15,23,42,0.75)";
       if (pl.el.classList.contains("has-ball")) {
         ctx.strokeStyle = "#fde68a";
-        ctx.lineWidth = 2.5;
+        ctx.lineWidth = 2.8;
       } else if (pl.fsm === "press") {
         ctx.strokeStyle = "rgba(248,113,113,0.9)";
       } else if (pl.fsm === "support") {
         ctx.strokeStyle = "rgba(96,165,250,0.85)";
       }
       ctx.stroke();
-      // 朝向：沿速度方向在圆点边缘画一个小箭头（跑动时才显示）
-      if (pl.heading !== undefined && Math.hypot(pl.vx || 0, pl.vy || 0) > 1.2) {
+
+      // 持球光环（FM 选中/持球感）
+      if (pl.el.classList.contains("has-ball")) {
+        ctx.beginPath();
+        ctx.arc(x, y, r + 4, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(253, 224, 71, 0.55)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(x, y, r + 7.5, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(253, 224, 71, 0.22)";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+
+      // 朝向箭头
+      if (pl.heading !== undefined && spd > 0.35) {
         const hx = Math.cos(pl.heading);
         const hy = Math.sin(pl.heading);
         const tipX = x + hx * r * 1.35;
         const tipY = y + hy * r * 1.35;
-        // 垂直于朝向的两个底角
-        const nx = -hy, ny = hx;
+        const nx = -hy;
+        const ny = hx;
         const baseX = x + hx * r * 0.55;
         const baseY = y + hy * r * 0.55;
         ctx.beginPath();
@@ -1990,37 +2397,93 @@ export class MatchView {
         ctx.fillStyle = pl.team === "home" ? "rgba(255,255,255,0.9)" : "rgba(15,23,42,0.8)";
         ctx.fill();
       }
-      // 号码
-      ctx.fillStyle = pl.el.querySelector(".mp-dot")?.style?.color || "#fff";
-      ctx.font = `900 ${Math.max(9, r * 0.95)}px system-ui,sans-serif`;
+
+      // 号码：描边 + 高对比填充（粉衣/浅色球衣可辨）
+      const numStr = String(pl.num ?? "");
+      const numCol =
+        pl.numColor ||
+        pl.el.querySelector(".mp-dot")?.style?.color ||
+        contrastText(bg);
+      ctx.font = `900 ${Math.max(10, r * 1.05)}px system-ui,"Segoe UI",sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(String(pl.num ?? ""), x, y + 0.5);
-      // 姓名
-      if (pl.el.classList.contains("show-name") || pl.el.classList.contains("has-ball")) {
+      // 与字色相反的描边，保证绿茵上任何球衣都清楚
+      const numL = relativeLuma(numCol);
+      ctx.lineJoin = "round";
+      ctx.miterLimit = 2;
+      ctx.lineWidth = Math.max(2.8, r * 0.28);
+      ctx.strokeStyle =
+        numL > 0.55 ? "rgba(15,23,42,0.82)" : "rgba(255,255,255,0.88)";
+      ctx.strokeText(numStr, x, y + 0.5);
+      ctx.fillStyle = numCol;
+      ctx.fillText(numStr, x, y + 0.5);
+
+      // 姓名：持球 / 焦点 / highlight
+      if (
+        pl.el.classList.contains("show-name") ||
+        pl.el.classList.contains("has-ball") ||
+        pl.el.classList.contains("highlight") ||
+        pl.el.classList.contains("scorer") ||
+        (focusOn && this.focusIds.has(pl.id))
+      ) {
         ctx.font = `800 ${Math.max(8, r * 0.55)}px system-ui,sans-serif`;
         ctx.fillStyle = "#f8fafc";
-        ctx.strokeStyle = "rgba(0,0,0,0.75)";
+        ctx.strokeStyle = "rgba(0,0,0,0.78)";
         ctx.lineWidth = 3;
         ctx.strokeText(pl.name || "", x, y + r + 8);
         ctx.fillText(pl.name || "", x, y + r + 8);
       }
+      ctx.globalAlpha = 1;
     }
 
-    // 球
+    // 球：z 影响阴影偏移 + 球体放大（FM 空中球）
+    const bz = clamp(this.ball.z || 0, 0, 12);
+    const elev = bz / 6; // 0..2
     const bx = px(this.ball.x);
     const by = py(this.ball.y);
-    const br = Math.max(4, Math.min(w, h) * 0.012);
+    const br = Math.max(4, minDim * 0.012) * (1 + elev * 0.35);
+    // 地面落点阴影
+    const shOff = elev * minDim * 0.018;
+    ctx.fillStyle = `rgba(0,0,0,${0.22 + elev * 0.18})`;
     ctx.beginPath();
-    ctx.arc(bx, by, br, 0, Math.PI * 2);
-    const grad = ctx.createRadialGradient(bx - br * 0.3, by - br * 0.3, 0, bx, by, br);
+    ctx.ellipse(bx + shOff * 0.35, by + br * 0.7 + shOff * 0.2, br * (1.1 + elev * 0.5), br * (0.45 + elev * 0.15), 0, 0, Math.PI * 2);
+    ctx.fill();
+    // 球体略上移模拟高度
+    const drawY = by - elev * minDim * 0.012;
+    ctx.beginPath();
+    ctx.arc(bx, drawY, br, 0, Math.PI * 2);
+    const grad = ctx.createRadialGradient(
+      bx - br * 0.35,
+      drawY - br * 0.4,
+      0,
+      bx,
+      drawY,
+      br
+    );
     grad.addColorStop(0, "#fff");
-    grad.addColorStop(1, "#cbd5e1");
+    grad.addColorStop(0.55, "#e2e8f0");
+    grad.addColorStop(1, "#94a3b8");
     ctx.fillStyle = grad;
     ctx.fill();
-    ctx.strokeStyle = "rgba(15,23,42,0.65)";
+    ctx.strokeStyle = "rgba(15,23,42,0.7)";
     ctx.lineWidth = 1.2;
     ctx.stroke();
+    // 高空时画落点十字（FMM 传球落点感）
+    if (bz > 1.0) {
+      ctx.strokeStyle = "rgba(253, 224, 71, 0.55)";
+      ctx.lineWidth = 1.2;
+      const mark = br * 1.6;
+      ctx.beginPath();
+      ctx.moveTo(bx - mark, by);
+      ctx.lineTo(bx + mark, by);
+      ctx.moveTo(bx, by - mark * 0.7);
+      ctx.lineTo(bx, by + mark * 0.7);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(bx, by, mark * 0.85, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(253, 224, 71, 0.3)";
+      ctx.stroke();
+    }
   }
 
   /** 开始/停止录制 JSON 帧（表现层回放用） */
@@ -2048,7 +2511,11 @@ export class MatchView {
     this._rec.lastPush = ts;
     this._rec.frames.push({
       t: Math.round(ts - this._rec.t0),
-      ball: { x: +this.ball.x.toFixed(2), y: +this.ball.y.toFixed(2) },
+      ball: {
+        x: +this.ball.x.toFixed(2),
+        y: +this.ball.y.toFixed(2),
+        z: +((this.ball.z || 0).toFixed(2)),
+      },
       poss: this.possession,
       players: this.players.map((p) => ({
         id: p.id,
@@ -3815,6 +4282,10 @@ export class MatchView {
     if (!this.ball.el) return;
     this.ball.el.style.left = `${this.ball.x}%`;
     this.ball.el.style.top = `${this.ball.y}%`;
+    // DOM 回退路径：用 CSS 变量表达高度（canvas 模式仍会隐藏球）
+    const z = clamp(this.ball.z || 0, 0, 12);
+    this.ball.el.style.setProperty("--ball-z", String(z));
+    this.ball.el.classList.toggle("mp-ball-air", z > 0.8);
   }
 
   /**
@@ -3851,18 +4322,24 @@ export class MatchView {
     }
   }
 
-  /** 场内短字幕（FMM 风格事件条） */
+  /** 场内短字幕（FMM 风格事件条）——同步到底栏 ticker */
   setCaption(text, kind = "", ms = 1600) {
-    if (!this.captionEl) return;
+    if (!this.captionEl) {
+      this.setFmmTicker(text, kind, ms);
+      return;
+    }
     if (!text) {
       this.captionEl.classList.add("hidden");
       this.captionEl.textContent = "";
       this.captionEl.className = "mp-caption hidden";
+      // 空字幕 → 显示控球条
+      this.setFmmTicker("", "", 0);
       return;
     }
     this.captionEl.textContent = text;
     this.captionEl.className = `mp-caption ${kind}`;
     this.captionEl.classList.remove("hidden");
+    this.setFmmTicker(text, kind, ms);
     const token = (this._captionToken = (this._captionToken || 0) + 1);
     if (ms > 0) {
       setTimeout(() => {
@@ -3870,6 +4347,151 @@ export class MatchView {
         this.setCaption("");
       }, ms);
     }
+  }
+
+  /**
+   * FMM 底栏解说文案（与控球条互斥）
+   * @param {string} text
+   * @param {string} [kind] info|goal|shot|save|dispute|warn|chance|wood|replay
+   * @param {number} [ms] 0=常驻直到下次；>0 超时后切回控球条
+   */
+  setFmmTicker(text, kind = "info", ms = 2200) {
+    if (!this.fmmTickerEl) return;
+    const token = (this._fmmTickerToken = (this._fmmTickerToken || 0) + 1);
+    if (!text) {
+      this.fmmTickerEl.textContent = "";
+      this.fmmTickerEl.className = "mp-fmm-ticker";
+      this.fmmTickerEl.classList.remove("show", "dispute", "goal", "shot", "save", "warn", "chance", "wood", "replay");
+      this.fmmPossEl?.classList.add("show");
+      return;
+    }
+    this.fmmTickerEl.textContent = text;
+    this.fmmTickerEl.className = `mp-fmm-ticker show ${kind || "info"}`;
+    this.fmmPossEl?.classList.remove("show");
+    if (ms > 0) {
+      setTimeout(() => {
+        if (this._fmmTickerToken !== token) return;
+        this.setFmmTicker("", "", 0);
+      }, ms);
+    }
+  }
+
+  /** 更新 FMM 底栏控球条 */
+  setFmmPossession(homePct, awayPct) {
+    const h = clamp(Math.round(Number(homePct) || 50), 0, 100);
+    const a = clamp(Math.round(Number(awayPct) != null ? awayPct : 100 - h), 0, 100);
+    if (this.fmmPossHEl) this.fmmPossHEl.textContent = `${h}%`;
+    if (this.fmmPossAEl) this.fmmPossAEl.textContent = `${a}%`;
+    if (this.fmmPossFillEl) this.fmmPossFillEl.style.width = `${h}%`;
+  }
+
+  /** 倍速显示 */
+  setFmmSpeedLabel(speed) {
+    if (this.fmmSpeedEl) {
+      const s = Number(speed) || 1;
+      this.fmmSpeedEl.textContent = s === 1 ? "×1" : `×${s}`;
+    }
+  }
+
+  /**
+   * 重播 chrome：顶栏「重播」+ 底栏「跳过」
+   * @param {boolean} on
+   * @param {{ lang?: string }} [opts]
+   */
+  setFmmReplayChrome(on, opts = {}) {
+    const en = opts.lang === "en";
+    this._fmmReplay = this._fmmReplay || { active: false, skip: false };
+    this._fmmReplay.active = !!on;
+    if (!on) this._fmmReplay.skip = false;
+    this.fieldEl?.classList.toggle("mp-fmm-replay", !!on);
+    if (this.replayBadgeEl) {
+      this.replayBadgeEl.textContent = en ? "REPLAY" : "重播";
+      this.replayBadgeEl.classList.toggle("hidden", !on);
+    }
+    if (this.fmmSkipEl) {
+      this.fmmSkipEl.textContent = en ? "Skip" : "跳过";
+      this.fmmSkipEl.classList.toggle("hidden", !on);
+    }
+    // 同步页面顶栏（若存在）
+    try {
+      document.getElementById("match-fmm-replay-badge")?.classList.toggle("hidden", !on);
+      const skipHdr = document.getElementById("btn-match-fmm-skip");
+      if (skipHdr) {
+        skipHdr.classList.toggle("hidden", !on);
+        skipHdr.textContent = en ? "Skip" : "跳过";
+      }
+      document.querySelector(".fm-sb-live")?.classList.toggle("is-replay", !!on);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  /**
+   * 进球后 FMM 自动重播：用最近高光段帧再播一遍（全场镜头 + 可跳过）
+   * @param {object} [opts]
+   */
+  async playFmmGoalReplay(opts = {}) {
+    const lang = opts.lang || "zh";
+    const en = lang === "en";
+    const frames = opts.frames || this._lastTimeline?.frames;
+    if (!frames?.length || frames.length < 4) {
+      // 无帧：用场景快照轻回放
+      if (opts.scene && this.restoreSceneSnapshot) {
+        this.setFmmReplayChrome(true, { lang });
+        this.setFmmTicker(en ? "▶ Goal replay" : "▶ 进球重播", "replay", 0);
+        this.restoreSceneSnapshot(opts.scene);
+        this.camMode = "follow";
+        this.cam.tx = 0;
+        this.cam.ty = 0;
+        this.cam.tScale = 1;
+        this._drawCanvas?.();
+        const sleepFn = opts.sleepFn || ((ms) => new Promise((r) => setTimeout(r, ms)));
+        const isSkip = () => !!(this._fmmReplay?.skip || opts.isSkip?.());
+        for (let i = 0; i < 12 && !isSkip(); i++) await sleepFn(120);
+        this.setFmmReplayChrome(false, { lang });
+        this.setFmmTicker("", "", 0);
+      }
+      return;
+    }
+    this.setFmmReplayChrome(true, { lang });
+    this.setFmmTicker(en ? "▶ Goal replay" : "▶ 进球重播", "replay", 0);
+    this._fmmReplay.skip = false;
+    // 从高潮前截一段，全场跟镜
+    const climax = opts.climaxAt ?? this._lastTimeline?.climaxAt;
+    let slice = frames;
+    if (climax != null) {
+      const t0 = climax - 14;
+      const t1 = climax + 6;
+      slice = frames.filter((f) => {
+        const t = f.t ?? 0;
+        return t >= t0 && t <= t1;
+      });
+      if (slice.length < 4) slice = frames;
+    }
+    const getSpeed = opts.getSpeed || (() => 0.7);
+    const isPaused = () => {
+      if (this._fmmReplay?.skip) {
+        this.stopSimTimeline();
+        return true;
+      }
+      return !!(opts.isPaused?.());
+    };
+    try {
+      await this.playSimTimeline(slice, {
+        getSpeed,
+        isPaused,
+        rate: 0.85,
+        label: "goal",
+        climaxAt: climax,
+        fmmWide: true,
+        onSimT: opts.onSimT || null,
+      });
+    } catch (_) {
+      /* ignore */
+    }
+    this.setFmmReplayChrome(false, { lang });
+    this.setFmmTicker("", "", 0);
+    if (this.phase === "goal") this.phase = "play";
   }
 
   /**
@@ -4076,22 +4698,14 @@ export class MatchView {
     // scriptLock：关键事件预演，只朝脚本目标跑，不跑自由 AI
     // pre / idle / pause：钉阵型；UI frozen：冻结当前帧
 
-    // —— 真空间投影：位置由 playSimTimeline 写入，这里只稳镜头+绘制 ——
-    // 禁止每帧切 ball 镜头（跟球狂抖是「眼晕」主因）
+    // —— 真空间投影：位置由 playSimTimeline 写入；软跟镜 + Canvas ——
     if (this.simDrive && (livePlay || staged) && !this.frozen) {
       for (const pl of this.players) {
         if (pl.el.classList.contains("sent-off")) continue;
         this._applyPlayer(pl);
       }
       this._applyBall();
-      this.camMode = "wide";
-      this.cam.tx = 0;
-      this.cam.ty = 0;
-      this.cam.tScale = 1;
-      this.cam.x = lerp(this.cam.x, 0, 1 - Math.pow(0.02, d));
-      this.cam.y = lerp(this.cam.y, 0, 1 - Math.pow(0.02, d));
-      this.cam.scale = lerp(this.cam.scale, 1, 1 - Math.pow(0.04, d));
-      this._applyCamera();
+      this._updateSimCamera(d);
       this._drawCanvas();
       this._updateTouchClasses(ts);
       return;
@@ -4683,6 +5297,13 @@ export class MatchView {
         break;
 
       case "goal": {
+        // 空间投影：不编舞瞬移，走导演慢镜 + 撞网（位置已由 sim 帧决定）
+        if (this.simDrive) {
+          this.triggerDirectorMoment("goal", { ev, fixture });
+          this.playSfx("goal");
+          this.playSfx("cheer");
+          break;
+        }
         // 无 await 场景的轻量进球（真正高光请用 playGoalHighlight）
         this._playGoalShot(ev, snap, fixture, { celebrateMs: 1600 });
         this.playSfx("goal");
@@ -4692,6 +5313,14 @@ export class MatchView {
 
       case "chance":
       case "woodwork": {
+        if (this.simDrive) {
+          this.triggerDirectorMoment(ev.type === "woodwork" ? "woodwork" : "chance", {
+            ev,
+            fixture,
+          });
+          this.playSfx("kick");
+          break;
+        }
         const attHome = ev.teamId ? isHomeTeam(ev.teamId) : this.possession === "home";
         const side = attHome ? "home" : "away";
         this.possession = side;
@@ -4741,6 +5370,29 @@ export class MatchView {
       }
 
       case "save": {
+        if (this.simDrive) {
+          this.triggerDirectorMoment("save", { ev, fixture });
+          this.playSfx("save");
+          // 扑救方门将焦点（若事件带了 id）
+          const saveHome = isHomeTeam(ev.teamId);
+          const gk = this.players.find(
+            (p) =>
+              (p.pos === "GK" || p.role === "GK") &&
+              p.team === (saveHome ? "home" : "away")
+          );
+          if (gk) {
+            this._setFocus([gk], 1600);
+            this.showFlashCard?.({
+              title: document.documentElement?.lang === "en" ? "SAVE" : "扑救",
+              sub: "SAVE",
+              kind: "save",
+              player: gk.player,
+              team: saveHome ? "home" : "away",
+              ms: 1600,
+            });
+          }
+          break;
+        }
         const saveHome = isHomeTeam(ev.teamId);
         const atk = saveHome ? "away" : "home";
         this.possession = atk;
