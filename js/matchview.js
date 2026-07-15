@@ -421,7 +421,8 @@ export class MatchView {
         this._tickDirector(sp, ts, realDt);
 
         if (ts < sp.holdUntil) {
-          // hold：不推进 simT，但镜头仍更新（庆祝/撞网）
+          // hold：不推进 simT；进球时仍做庆祝聚拢动画
+          if (this.phase === "goal") this._tickVisualCelebrate(realDt);
           this._updateSimCamera(realDt);
           this._drawCanvas();
           sp.raf = requestAnimationFrame(tick);
@@ -490,7 +491,7 @@ export class MatchView {
 
     if (kind === "goal") {
       this.camMode = "follow";
-      this.camBoostUntil = now + 2800;
+      this.camBoostUntil = now + 4200;
       this.phase = "goal";
       this.fieldEl?.classList.add("mp-replay-slow");
       this.setBanner(lang === "en" ? "⚽ GOAL" : "⚽ 进球", "goal");
@@ -500,20 +501,21 @@ export class MatchView {
         "goal",
         0
       );
-      // 焦点：射手
+      // 焦点：射手 + 启动庆祝聚拢
       const scorer =
         (opts.ev?.playerId && this.players.find((p) => p.id === opts.ev.playerId)) ||
         this.carrier;
       if (scorer) {
         scorer.el.classList.add("highlight", "scorer");
         this.highlightId = scorer.id;
-        this.flashUntil = now + 3600;
-        this._setFocus([scorer], 3200);
+        this.flashUntil = now + 5200;
+        this._setFocus([scorer], 4800);
+        this._beginVisualCelebrate(scorer, opts.ev);
       }
       if (sp) {
-        sp.eventRateMul = 0.28;
-        sp.eventSlowUntil = now + 3200;
-        sp.rateMul = Math.min(sp.rateMul || 1, 0.28);
+        sp.eventRateMul = 0.32;
+        sp.eventSlowUntil = now + 2800;
+        sp.rateMul = Math.min(sp.rateMul || 1, 0.32);
         sp.directorPhase = "impact";
       }
       return;
@@ -700,12 +702,20 @@ export class MatchView {
             <rect x="33" y="131" width="34" height="16" fill="none" stroke="rgba(255,255,255,0.68)" stroke-width="0.55"/>
             <path d="M 37 117 A 13 13 0 0 1 63 117" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="0.5"/>
             <circle cx="50" cy="127" r="0.6" fill="rgba(255,255,255,0.75)"/>
-            <rect x="43" y="144.2" width="14" height="2.8" fill="none" stroke="rgba(255,255,255,0.75)" stroke-width="0.5"/>
+            <!-- 底端球门：门架在底线外侧（场外），不画进场内 -->
+            <rect x="43.2" y="147" width="13.6" height="2.6" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.88)" stroke-width="0.65"/>
+            <line x1="43.2" y1="147" x2="43.2" y2="149.6" stroke="rgba(255,255,255,0.92)" stroke-width="0.9"/>
+            <line x1="56.8" y1="147" x2="56.8" y2="149.6" stroke="rgba(255,255,255,0.92)" stroke-width="0.9"/>
+            <line x1="43.2" y1="149.6" x2="56.8" y2="149.6" stroke="rgba(255,255,255,0.92)" stroke-width="0.85"/>
             <rect x="21" y="3" width="58" height="30" fill="none" stroke="rgba(255,255,255,0.68)" stroke-width="0.55"/>
             <rect x="33" y="3" width="34" height="16" fill="none" stroke="rgba(255,255,255,0.68)" stroke-width="0.55"/>
             <path d="M 37 33 A 13 13 0 0 0 63 33" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="0.5"/>
             <circle cx="50" cy="23" r="0.6" fill="rgba(255,255,255,0.75)"/>
-            <rect x="43" y="3" width="14" height="2.8" fill="none" stroke="rgba(255,255,255,0.75)" stroke-width="0.5"/>
+            <!-- 顶端球门：门架在顶线外侧（场外） -->
+            <rect x="43.2" y="0.4" width="13.6" height="2.6" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.88)" stroke-width="0.65"/>
+            <line x1="43.2" y1="3" x2="43.2" y2="0.4" stroke="rgba(255,255,255,0.92)" stroke-width="0.9"/>
+            <line x1="56.8" y1="3" x2="56.8" y2="0.4" stroke="rgba(255,255,255,0.92)" stroke-width="0.9"/>
+            <line x1="43.2" y1="0.4" x2="56.8" y2="0.4" stroke="rgba(255,255,255,0.92)" stroke-width="0.85"/>
             <path d="M 3 7.2 A 4.2 4.2 0 0 0 7.2 3" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.5"/>
             <path d="M 92.8 3 A 4.2 4.2 0 0 0 97 7.2" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.5"/>
             <path d="M 3 142.8 A 4.2 4.2 0 0 1 7.2 147" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.5"/>
@@ -5756,11 +5766,126 @@ export class MatchView {
     });
   }
 
+  /**
+   * 进球庆祝：表现层聚拢（hold 冻结时间轴时也跑；与 sim 庆祝帧叠加更热闹）
+   * @param {object} scorer
+   * @param {object} [ev]
+   */
+  _beginVisualCelebrate(scorer, ev = null) {
+    if (!scorer || !this._built) return;
+    const team = scorer.team;
+    const attHome = team === "home";
+    const cornerX = (scorer.x ?? 50) < 50 ? 10 : 90;
+    this._celebrate = {
+      until: performance.now() + 4800,
+      team,
+      scorerId: scorer.id,
+      cornerX,
+      attHome,
+    };
+    scorer.tx = cornerX;
+    scorer.ty = attHome ? 8 : 92;
+    // 近端队友优先围拢
+    const mates = this.players
+      .filter(
+        (p) =>
+          p.team === team &&
+          p !== scorer &&
+          p.pos !== "GK" &&
+          !p.el.classList.contains("sent-off")
+      )
+      .sort(
+        (a, b) =>
+          Math.hypot(a.x - scorer.x, a.y - scorer.y) -
+          Math.hypot(b.x - scorer.x, b.y - scorer.y)
+      );
+    mates.forEach((pl, i) => {
+      if (i < 7) {
+        const ang = (i / 7) * Math.PI * 2;
+        pl.tx = clamp(scorer.x + Math.cos(ang) * (4 + (i % 3)) + (cornerX - 50) * 0.15, 6, 94);
+        pl.ty = clamp(scorer.y + Math.sin(ang) * (3 + (i % 2)) + (attHome ? -4 : 4), 5, 95);
+        pl.el.classList.add("highlight");
+      } else {
+        pl.tx = clamp(lerp(pl.x, scorer.x, 0.35), 8, 92);
+        pl.ty = clamp(lerp(pl.y, scorer.y, 0.35), 8, 92);
+      }
+    });
+    // 失球方缓缓后撤
+    for (const pl of this.players) {
+      if (pl.team === team || pl.pos === "GK") continue;
+      pl.tx = clamp(pl.baseX * 0.55 + 50 * 0.45, 10, 90);
+      pl.ty = clamp(pl.baseY * 0.65 + 50 * 0.35, 12, 88);
+    }
+    const nm = scorer.name || scorer.player?.name || "";
+    if (nm) {
+      const en =
+        (typeof document !== "undefined" && document.documentElement?.lang === "en") ||
+        false;
+      this.setCaption?.(
+        en ? `${nm} celebrates!` : `${nm} 庆祝进球！`,
+        "goal",
+        0
+      );
+    }
+  }
+
+  /** hold / 本地 tick：把球员朝庆祝目标挪过去 */
+  _tickVisualCelebrate(dt) {
+    const c = this._celebrate;
+    if (!c || performance.now() > c.until) {
+      this._celebrate = null;
+      return;
+    }
+    const scorer = this.players.find((p) => p.id === c.scorerId);
+    const k = 1 - Math.pow(0.08, Math.max(0.016, dt));
+    for (const pl of this.players) {
+      if (pl.el.classList.contains("sent-off")) continue;
+      const tx = pl.tx ?? pl.x;
+      const ty = pl.ty ?? pl.y;
+      // 射手略快，队友中速，对方慢
+      const speed =
+        scorer && pl.id === scorer.id
+          ? k * 1.35
+          : pl.team === c.team
+            ? k
+            : k * 0.55;
+      pl.x = lerp(pl.x, tx, clamp(speed, 0, 1));
+      pl.y = lerp(pl.y, ty, clamp(speed, 0, 1));
+      if (Math.hypot(tx - pl.x, ty - pl.y) > 0.4) {
+        pl.heading = Math.atan2(ty - pl.y, tx - pl.x);
+      }
+      this._applyPlayer(pl);
+    }
+    // 球保持在门附近（若还在禁区）
+    if (scorer && (this.ball.y < 18 || this.ball.y > 82)) {
+      /* keep net ball */
+    } else if (scorer) {
+      // 中场误触发时不硬拽
+    }
+    // 射手目标随时间微调（角旗晃动感）
+    if (scorer) {
+      scorer.tx = c.cornerX + Math.sin(performance.now() / 220) * 2;
+      scorer.ty = (c.attHome ? 7 : 93) + Math.cos(performance.now() / 280) * 1.2;
+      // 近端队友持续追射手
+      for (const pl of this.players) {
+        if (pl.team !== c.team || pl === scorer || pl.pos === "GK") continue;
+        if (!pl.el.classList.contains("highlight")) continue;
+        const ang = (String(pl.id || "").length % 8) * 0.7;
+        pl.tx = clamp(scorer.x + Math.cos(ang) * 5, 6, 94);
+        pl.ty = clamp(scorer.y + Math.sin(ang) * 4, 5, 95);
+      }
+    }
+  }
+
   /** 进球后中圈开球：失球方门将拿球再轻传，少硬切 */
   async _restartAfterGoal(attHome, { wait, lang = "zh" } = {}) {
     this.fieldEl?.classList.remove("mp-replay", "mp-replay-slow");
     this.replayBadgeEl?.classList.add("hidden");
     this.phase = "play";
+    this._celebrate = null;
+    for (const pl of this.players) {
+      pl.el.classList.remove("scorer", "highlight");
+    }
     this.camMode = "wide";
     this.camBoostUntil = performance.now() + 600;
     this._clearFocus();
@@ -5888,7 +6013,7 @@ export class MatchView {
     setTimeout(() => this.ball.el?.classList.remove("mp-ball-goal"), 1000);
   }
 
-  _playGoalShot(ev, snap, fixture, { celebrateMs = 1600, skipReset = false } = {}) {
+  _playGoalShot(ev, snap, fixture, { celebrateMs = 2800, skipReset = false } = {}) {
     const homeId = fixture?.home || this.home?.id;
     const attHome = ev.teamId === homeId;
     const team = attHome ? "home" : "away";
@@ -5928,12 +6053,7 @@ export class MatchView {
     this.ball.tx = gx;
     this.ball.ty = gy;
     this._markHeat(gx, gy, team, 4);
-    for (const pl of this.players.filter((p) => p.team === team && p !== scorer && p.pos !== "GK")) {
-      if (Math.random() < 0.4) {
-        pl.tx = clamp((scorer?.x || 50) + (Math.random() - 0.5) * 12, 8, 92);
-        pl.ty = clamp((scorer?.y || 50) + (Math.random() - 0.5) * 8, 8, 92);
-      }
-    }
+    if (scorer) this._beginVisualCelebrate(scorer, ev);
     setTimeout(() => {
       if (!this._built) return;
       this.ball.x = gx;
@@ -5952,9 +6072,21 @@ export class MatchView {
     this.setCaption?.(scoreLine, "goal", 1800);
     this._syncClickable();
 
+    // 庆祝段：插值跑几帧再复位
     if (!skipReset) {
+      const t0 = performance.now();
+      const celeIv = setInterval(() => {
+        if (!this._built || performance.now() - t0 > celebrateMs - 200) {
+          clearInterval(celeIv);
+          return;
+        }
+        this._tickVisualCelebrate(0.08);
+        this._drawCanvas?.();
+      }, 80);
       setTimeout(() => {
+        clearInterval(celeIv);
         if (!this._built) return;
+        this._celebrate = null;
         this.phase = "play";
         this._resetShape();
         this.ball.tx = 50;
@@ -6372,18 +6504,9 @@ export class MatchView {
     }
     await wait(isRewatch ? 1200 : 1100);
 
-    // —— 5) 庆祝 ——
+    // —— 5) 庆祝：射手冲角旗，队友聚拢 ——
     if (finisher) {
-      finisher.tx = clamp(gx + (Math.random() - 0.5) * 10, 18, 82);
-      finisher.ty = clamp(attHome ? 12 : 88, 8, 92);
-    }
-    for (const pl of this.players.filter(
-      (p) => p.team === team && p !== finisher && p.pos !== "GK"
-    )) {
-      if (Math.random() < 0.55) {
-        pl.tx = clamp((finisher?.tx || 50) + (Math.random() - 0.5) * 14, 8, 92);
-        pl.ty = clamp((finisher?.ty || 50) + (Math.random() - 0.5) * 10, 8, 92);
-      }
+      this._beginVisualCelebrate(finisher, ev);
     }
     const scorerName = finisher?.name || finisher?.player?.name || scorer?.name || "";
     const assistName = assister?.name || assister?.player?.name || "";
@@ -6396,10 +6519,21 @@ export class MatchView {
           ? `进球！${scorerName}（助攻 ${assistName}）`
           : `进球！${scorerName}`;
     this.setBanner(cele, "goal");
-    this.setCaption(cele, "goal", 0);
-    await wait(isRewatch ? 1100 : 1300);
+    this.setCaption(
+      lang === "en" ? `${scorerName} and teammates celebrate!` : `${scorerName} 与队友庆祝！`,
+      "goal",
+      0
+    );
+    // 多帧插值庆祝（约 2.6s）
+    const celeSteps = isRewatch ? 14 : 18;
+    for (let i = 0; i < celeSteps; i++) {
+      this._tickVisualCelebrate(0.12);
+      this._drawCanvas?.();
+      await wait(isRewatch ? 110 : 140);
+    }
 
     // —— 6) 开球（回看也复位，方便连点下一球） ——
+    this._celebrate = null;
     await this._restartAfterGoal(attHome, { wait, lang });
   }
 

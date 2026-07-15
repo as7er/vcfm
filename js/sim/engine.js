@@ -136,6 +136,12 @@ export class SimEngine {
     };
     // 死球恢复窗口：开球/重开后此刻前，持球方不被逼抢、不立刻起脚
     this.deadBallUntil = 0;
+    // 进球庆祝（秒）：期间不立刻回中圈，队友聚拢后再开球
+    this.celebrateUntil = 0;
+    this.celebrateTeam = null;
+    this.kickoffTeam = null;
+    this.celebrateScorerId = null;
+    this.celebrateCornerX = 50;
     // 正式开球（不靠"巧合触球"）
     this._kickoff("home");
   }
@@ -298,6 +304,20 @@ export class SimEngine {
   // 推进一步（dt 秒）
   // ——————————————————————————————————————————————
   step(dt = SIM.DT) {
+    // 进球庆祝段：球钉在网里，队友聚拢，结束后再中圈开球
+    if (this.celebrateUntil && this.t < this.celebrateUntil) {
+      this._tickCelebrate(dt);
+      this.t += dt;
+      if (this.t >= this.celebrateUntil - 1e-9) {
+        this.celebrateUntil = 0;
+        const side = this.kickoffTeam || "home";
+        this.celebrateTeam = null;
+        this.celebrateScorerId = null;
+        this._kickoff(side);
+      }
+      return;
+    }
+
     // 1) 各 agent 决策 → 设定运动目标 / 触发传射
     const owner = this.ball.owner ? this.agentById(this.ball.owner) : null;
     this.possession = owner ? owner.team : this.possession;
@@ -1747,13 +1767,148 @@ export class SimEngine {
     this._emit(type, taker);
   }
 
-  /** 进球：记分、发事件、中圈重新开球（对方开） */
+  /**
+   * 进球：记分、发事件 → 庆祝聚拢（约 5.5s）→ 再中圈开球（对方开）
+   * 避免「入网瞬间整队瞬移回中圈」的观感断层。
+   */
   _goal(scoringTeam) {
     const b = this.ball;
     this.score[scoringTeam]++;
     const scorer = b.lastKicker ? this.agentById(b.lastKicker) : null;
     this._emit("goal", scorer, { team: scoringTeam, score: { ...this.score } });
-    this._kickoff(scoringTeam === "home" ? "away" : "home");
+
+    // 球钉在球门线外/网口（主队进客门 y≈0，客队进主门 y≈100）
+    const inTopNet = scoringTeam === "home";
+    b.x = clamp(b.x, SIM.GOAL_X0 + 1.2, SIM.GOAL_X1 - 1.2);
+    b.y = inTopNet ? 0.8 : 99.2;
+    b.vx = 0;
+    b.vy = 0;
+    b.vz = 0;
+    b.z = 0;
+    b.owner = null;
+    b.state = "dead";
+
+    // 射手往最近角旗方向冲，队友围拢
+    const cornerX = (scorer?.x ?? b.x) < 50 ? 8 : 92;
+    this.celebrateCornerX = cornerX;
+    this.celebrateTeam = scoringTeam;
+    this.celebrateScorerId = scorer?.id || null;
+    this.kickoffTeam = scoringTeam === "home" ? "away" : "home";
+    // ~6.2s 庆祝；高光窗 t+16 能完整盖住庆祝+开球过渡
+    this.celebrateUntil = this.t + 6.2;
+    this.deadBallUntil = this.celebrateUntil + 1.2;
+    this.possession = scoringTeam;
+
+    for (const a of this.agents) {
+      a.vx = 0;
+      a.vy = 0;
+      a.intent = null;
+      a.decisionUntil = this.t + 9;
+      if (a.role === "GK") {
+        a.tx = a.baseX;
+        a.ty = a.baseY;
+        a.fsm = "home";
+        continue;
+      }
+      if (a.team === scoringTeam) {
+        a.fsm = "support";
+        if (scorer && a.id === scorer.id) {
+          a.tx = cornerX;
+          a.ty = inTopNet ? 5 : 95;
+        } else {
+          // 先半拉近射手（后场的人否则 5 秒跑不拢），再朝角旗围拢
+          const ox = (Math.random() - 0.5) * 12;
+          const oy = (Math.random() - 0.5) * 9;
+          const sx = scorer?.x ?? b.x;
+          const sy = scorer?.y ?? (inTopNet ? 12 : 88);
+          const pull = a.role === "DEF" ? 0.72 : 0.55;
+          a.x = clamp(a.x * (1 - pull) + sx * pull + ox * 0.3, 4, 96);
+          a.y = clamp(a.y * (1 - pull) + sy * pull + oy * 0.3, 3, 97);
+          a.tx = clamp(sx * 0.4 + cornerX * 0.6 + ox, 6, 94);
+          a.ty = clamp(sy * 0.4 + (inTopNet ? 7 : 93) * 0.6 + oy, 4, 96);
+        }
+      } else {
+        // 失球方：垂头丧气往中场/本半场走
+        a.fsm = "home";
+        a.tx = clamp(a.baseX * 0.55 + 50 * 0.45 + (Math.random() - 0.5) * 8, 8, 92);
+        a.ty = clamp(a.baseY * 0.65 + 50 * 0.35 + (Math.random() - 0.5) * 6, 10, 90);
+      }
+    }
+  }
+
+  /** 庆祝帧：慢速跑向聚拢点，球保持在网内 */
+  _tickCelebrate(dt) {
+    const team = this.celebrateTeam;
+    const scorer = this.celebrateScorerId
+      ? this.agentById(this.celebrateScorerId)
+      : null;
+    const b = this.ball;
+    b.vx = 0;
+    b.vy = 0;
+    b.vz = 0;
+    b.z = 0;
+    b.owner = null;
+
+    const elapsed = Math.max(0, this.celebrateUntil - this.t);
+    // 后 1.2s 开始往本方半场回落，衔接下一个开球
+    const windDown = elapsed < 1.2;
+
+    for (const a of this.agents) {
+      let tx = a.tx ?? a.x;
+      let ty = a.ty ?? a.y;
+      let spd = 2.2;
+
+      if (a.role === "GK") {
+        tx = a.baseX;
+        ty = a.baseY;
+        spd = 1.6;
+      } else if (team && a.team === team) {
+        if (scorer && a.id === scorer.id) {
+          // 射手：先冲角旗，再在角区小范围晃
+          const cx = this.celebrateCornerX || 8;
+          const inTop = team === "home";
+          if (windDown) {
+            tx = clamp(cx * 0.4 + 50 * 0.6, 12, 88);
+            ty = inTop ? 22 : 78;
+            spd = 3.2;
+          } else {
+            tx = cx + Math.sin(this.t * 3.1) * 2.5;
+            ty = (inTop ? 6 : 94) + Math.cos(this.t * 2.4) * 1.5;
+            spd = 5.2;
+          }
+        } else if (scorer) {
+          // 队友全力围拢射手（更激进，保证画面能看到「一堆人」）
+          const ox = ((a.num || 1) % 7) - 3;
+          const oy = ((a.num || 1) % 5) - 2;
+          tx = clamp(scorer.x + ox * 1.8, 5, 95);
+          ty = clamp(scorer.y + oy * 1.5, 4, 96);
+          const d = dist(a.x, a.y, scorer.x, scorer.y);
+          spd = d > 22 ? 6.8 : d > 10 ? 5.2 : d > 4 ? 3.2 : 1.4;
+          if (windDown) {
+            tx = clamp(a.baseX * 0.35 + 50 * 0.65, 10, 90);
+            ty = clamp(a.baseY * 0.4 + 50 * 0.6, 12, 88);
+            spd = 3.0;
+          }
+        }
+      } else {
+        // 对方：缓缓回落
+        tx = clamp(a.baseX * 0.6 + 50 * 0.4, 8, 92);
+        ty = clamp(a.baseY * 0.7 + 50 * 0.3, 12, 88);
+        spd = windDown ? 2.8 : 1.8;
+      }
+
+      const dx = tx - a.x;
+      const dy = ty - a.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const step = Math.min(d, spd * dt);
+      a.x = clamp(a.x + (dx / d) * step, 2, 98);
+      a.y = clamp(a.y + (dy / d) * step, 1, 99);
+      a.vx = (dx / d) * step;
+      a.vy = (dy / d) * step;
+      if (d > 0.4) a.heading = Math.atan2(dy, dx);
+      a.tx = tx;
+      a.ty = ty;
+    }
   }
 
   /** 开球：所有人回基准位，球给指定方中圈球员 */
@@ -1771,6 +1926,8 @@ export class SimEngine {
     this.ball.y = 50;
     this.ball.vx = 0;
     this.ball.vy = 0;
+    this.ball.vz = 0;
+    this.ball.z = 0;
     this.ball.state = "held";
     this.ball.lastKicker = null;
     // 把中圈球员拉来开球

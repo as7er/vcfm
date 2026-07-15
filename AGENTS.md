@@ -2,7 +2,7 @@
 
 > 仓库：https://github.com/as7er/vcfm.git · `master`  
 > 预览：`python -m http.server 8765 --bind 127.0.0.1`  
-> 缓存：**vcfm-v90**（门将扑救合理化 + 禁区球权乒乓修复 + FMM UI 收敛）
+> 缓存：**vcfm-v92**（门架场外 + 进球庆祝聚拢 + 门将/FMM UI）
 
 ## 已完成路线
 
@@ -31,11 +31,13 @@
 - **直播**：半场录帧 → 每分钟抽 ~12 帧 `sim_frame` 真投影；进球只横幅不编舞
 - AI 场：仍 `tryAttack` 概率，保证推进日不卡
 - 预览手感：`sim-viewer.html`（raw，非 scaled）
-- 缓存 **vcfm-v90**
+- 缓存 **vcfm-v92**
 - 战术涌现：前锋回撤、边锋内切、边卫套边、核心绝对权（`ensureCorePlayer` 主客都有）
 - 表现层：`compactSimFrame.ball.z` → 空中球阴影/缩放；simDrive **软跟镜**；球轨迹丝带 + 持球光环
 - 导演：高光慢镜；**FMM 全场稳镜**（不猛推 box）
 - FMM UI：横条棋盘草坪 + 两侧看台；底栏 **解说 ticker ↔ 控球条**；进球文案链；自动重播+跳过
+- 门架：SVG/网口画在端线**外侧**，不伸进场内
+- 进球：sim 先庆祝聚拢 ~5.5s 再中圈开球；表现层 `_beginVisualCelebrate` 队友围射手
 - 门将：轨迹线段扑救（非全图吸球）；空门大幅降扑救率；小禁区优先门将拿球防乒乓
 
 ## 关键 API

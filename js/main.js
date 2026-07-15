@@ -4326,8 +4326,8 @@ function handleSimLiveEvent(ev, snap) {
       } catch (_) {
         /* ignore */
       }
-      // 庆祝 hold；自动重播挂到当前高光段结束后（见 playHighlightPlanBridge）
-      const goalHold = 2600 / Math.min(spd, 1.25);
+      // 短 hold 撞网+文案，随后时间轴继续播 sim 庆祝聚拢（勿冻太久否则像「直接回中圈」）
+      const goalHold = 1200 / Math.min(spd, 1.25);
       matchView.holdSimTimeline?.(goalHold);
       matchPlayback.pendingGoalReplay = {
         lang,
@@ -4338,9 +4338,21 @@ function handleSimLiveEvent(ev, snap) {
       setTimeout(() => {
         if (!matchView?._built) return;
         matchView.fieldEl?.classList.remove("mp-replay-slow");
+        // phase=goal 保持到庆祝窗结束，避免 AI/脚本抢控
+        matchView.setCaption?.(
+          en
+            ? "Teammates celebrate…"
+            : "队友围上来庆祝…",
+          "goal",
+          2200
+        );
+      }, goalHold + 40);
+      setTimeout(() => {
+        if (!matchView?._built) return;
         matchView.setBanner?.("");
         if (matchView.phase === "goal") matchView.phase = "play";
-      }, goalHold + 40);
+        matchView._celebrate = null;
+      }, goalHold + 4200 / Math.min(spd, 1.25));
     }
     return;
   }

@@ -212,12 +212,12 @@ export function buildHighlightWindows(opts = {}) {
   const goals = opts.scaledGoals || [];
   const windows = [];
 
-  // 进球：更长推进窗，方便导演推镜 + 慢镜
+  // 进球：更长推进窗（含庆祝聚拢 ~5.5s + 中圈开球过渡）
   for (const g of goals) {
     const t = g.t != null ? g.t : (g.minute || 1) * 60;
     windows.push({
       t0: Math.max(tStart, t - 22),
-      t1: Math.min(tEnd, t + 12),
+      t1: Math.min(tEnd, t + 16),
       priority: 100,
       label: "goal",
       at: t,

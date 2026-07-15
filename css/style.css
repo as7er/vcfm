@@ -2559,30 +2559,41 @@ html[data-theme="dark"] .mp-fmm-dock {
 .fmm-match .mp-attack-arrow {
   opacity: 0.35 !important;
 }
-/* 球门网口（上下两端） */
+/* 球门网口：贴在端线外侧（与 SVG 门架一致），不伸进场内 */
 .mp-goal-mouth {
   position: absolute;
   left: 43%;
   width: 14%;
-  height: 2.2%;
+  height: 1.7%;
   z-index: 2;
   pointer-events: none;
   background:
     repeating-linear-gradient(
       90deg,
-      rgba(255, 255, 255, 0.22) 0 1px,
-      transparent 1px 4px
+      rgba(255, 255, 255, 0.28) 0 1px,
+      transparent 1px 3.5px
     ),
     repeating-linear-gradient(
       0deg,
-      rgba(255, 255, 255, 0.15) 0 1px,
-      transparent 1px 3px
+      rgba(255, 255, 255, 0.18) 0 1px,
+      transparent 1px 2.5px
     );
-  border: 1px solid rgba(255, 255, 255, 0.35);
-  box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.25);
+  border: 1.5px solid rgba(255, 255, 255, 0.55);
+  box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.3);
 }
-.mp-goal-mouth.top { top: 1.6%; border-radius: 0 0 3px 3px; transform-origin: 50% 0%; }
-.mp-goal-mouth.bot { bottom: 1.6%; border-radius: 3px 3px 0 0; transform-origin: 50% 100%; }
+/* 顶线外侧：略伸出 0，避免画进禁区 */
+.mp-goal-mouth.top {
+  top: 0;
+  border-radius: 0 0 2px 2px;
+  transform-origin: 50% 0%;
+  border-top: none;
+}
+.mp-goal-mouth.bot {
+  bottom: 0;
+  border-radius: 2px 2px 0 0;
+  transform-origin: 50% 100%;
+  border-bottom: none;
+}
 /* 进球：永久球门网被“撞凹”再回弹 */
 .mp-goal-mouth.mp-goal-mouth-hit {
   animation: mp-mouth-bulge 0.95s cubic-bezier(0.2, 0.9, 0.3, 1) forwards;
