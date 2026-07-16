@@ -4295,39 +4295,47 @@ function handleSimLiveEvent(ev, snap) {
         matchView.players?.find((p) => p.id === ev.playerId)?.name ||
         ev.playerName ||
         "";
-      // FMM 文案链：先射门感 → 入球了!!
-      if (scorerName) {
+      // FMM 文案链：助攻 → 射门 → 入球了!!
+      const assisterName =
+        (ev.assistId &&
+          matchView.players?.find((p) => p.id === ev.assistId)?.name) ||
+        "";
+      if (assisterName && scorerName) {
+        matchView.setFmmTicker?.(
+          en
+            ? `${assisterName} to ${scorerName}…`
+            : `${assisterName} 直塞 ${scorerName}…`,
+          "shot",
+          900
+        );
+        setTimeout(() => {
+          if (!matchView?._built) return;
+          matchView.setFmmTicker?.(
+            en ? `${scorerName} shoots!` : `${scorerName} 射门!`,
+            "shot",
+            800
+          );
+        }, 700);
+      } else if (scorerName) {
         matchView.setFmmTicker?.(
           en ? `${scorerName} shoots!` : `${scorerName} 射门!`,
           "shot",
           900
         );
       }
-      matchView.triggerDirectorMoment?.("goal", { ev, fixture, lang });
+      // 导演：内含 3s 助攻→射门→入网叙事 + 庆祝（勿在外面再提前撞网）
+      matchView.triggerDirectorMoment?.("goal", { ev, fixture, lang, attHome });
       matchView.onEvent(ev, snap, fixture);
-      // 主文案：入球了!!（对照 FMM）
+      // 主文案：入球了!!（对照 FMM）—— 对齐叙事入网站点
       setTimeout(() => {
         matchView?.setFmmTicker?.(
           en ? `${teamShort} scores!!` : `${teamShort} 入球了!!`,
           "goal",
           0
         );
-      }, 350);
-      try {
-        const bx = Number(matchView.ball?.x);
-        const by = Number(matchView.ball?.y);
-        const mouth = {
-          gx: Math.max(42, Math.min(58, Number.isFinite(bx) ? bx : 50)),
-          gy: attHome
-            ? Math.min(Number.isFinite(by) ? by : 2, 4)
-            : Math.max(Number.isFinite(by) ? by : 98, 96),
-        };
-        matchView._goalNetEffect?.(mouth.gx, mouth.gy, attHome);
-      } catch (_) {
-        /* ignore */
-      }
-      // 短 hold 撞网+文案，随后时间轴继续播 sim 庆祝聚拢（勿冻太久否则像「直接回中圈」）
-      const goalHold = 1200 / Math.min(spd, 1.25);
+      }, 2200);
+      // hold 盖住整段叙事(~2.6s) + 庆祝起步
+      const goalHold = 3400 / Math.min(spd, 1.25);
       matchView.holdSimTimeline?.(goalHold);
       matchPlayback.pendingGoalReplay = {
         lang,
@@ -4338,11 +4346,8 @@ function handleSimLiveEvent(ev, snap) {
       setTimeout(() => {
         if (!matchView?._built) return;
         matchView.fieldEl?.classList.remove("mp-replay-slow");
-        // phase=goal 保持到庆祝窗结束，避免 AI/脚本抢控
         matchView.setCaption?.(
-          en
-            ? "Teammates celebrate…"
-            : "队友围上来庆祝…",
+          en ? "Teammates celebrate…" : "队友围上来庆祝…",
           "goal",
           2200
         );
@@ -4352,7 +4357,8 @@ function handleSimLiveEvent(ev, snap) {
         matchView.setBanner?.("");
         if (matchView.phase === "goal") matchView.phase = "play";
         matchView._celebrate = null;
-      }, goalHold + 4200 / Math.min(spd, 1.25));
+        matchView._goalBeat = null;
+      }, goalHold + 4800 / Math.min(spd, 1.25));
     }
     return;
   }
@@ -4390,6 +4396,17 @@ function handleSimLiveEvent(ev, snap) {
           1400
         );
       }
+    } else if (ev.type === "corner") {
+      // 角球：摆位 + 角旗球 + 徽章，hold 够长让人看清
+      matchView._stageCornerSetPiece?.(ev, fixture);
+      matchView.triggerDirectorMoment?.("chance", { ev, fixture, lang });
+      matchView.setFmmTicker?.(
+        lang === "en" ? "Corner kick!" : "角球！",
+        "info",
+        2000
+      );
+      matchView.setBanner?.(lang === "en" ? "🚩 CORNER" : "🚩 角球", "info");
+      setTimeout(() => matchView?.setBanner?.(""), 1600);
     } else if (ev.type === "offside") {
       matchView.setFmmTicker?.(
         lang === "en" ? "They think it was offside!" : "他认为这粒球越位在先!",
@@ -4406,7 +4423,7 @@ function handleSimLiveEvent(ev, snap) {
       save: 1100,
       chance: 850,
       woodwork: 950,
-      corner: 500,
+      corner: 2200,
       card: 800,
       red: 1100,
       injury: 900,
@@ -4502,6 +4519,9 @@ async function playHighlightPlanBridge(spec) {
         label: seg.label || null,
         climaxAt: seg.at != null ? seg.at : null,
         fmmWide: true,
+        // 进球窗可挂助攻/射手，便于导演先跟传球再跟终结
+        assistId: seg.assistId || null,
+        scorerId: seg.scorerId || null,
         onSimT: (t, minute) => {
           refreshLiveHudFromState(minute);
           try {

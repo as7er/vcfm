@@ -687,7 +687,7 @@ function addGoal(state, minute, club, xi, { penalty = false } = {}) {
  * SimEngine 适配：记一粒已知射手的进球（不再随机抽人）。
  * 射门/xG 已在时段统计里加过，这里只改比分与射手数据。
  */
-function addSimGoal(state, minute, team, scorerId) {
+function addSimGoal(state, minute, team, scorerId, assistId = null) {
   const club = team === "home" ? state.home : state.away;
   const sk = team;
   const xi = activeXi(state, club);
@@ -696,7 +696,14 @@ function addSimGoal(state, minute, team, scorerId) {
     (scorerId && club.players.find((p) => p.id === scorerId)) ||
     pickScorer(xi, state, club);
   if (!scorer) return null;
-  const assister = pickAssister(xi, scorer, state, club);
+  // 优先用空间模拟里挂的真实助攻，找不到再回退随机
+  let assister =
+    (assistId &&
+      assistId !== scorer.id &&
+      (xi.find((p) => p.id === assistId) ||
+        club.players.find((p) => p.id === assistId))) ||
+    null;
+  if (!assister) assister = pickAssister(xi, scorer, state, club);
   if (sk === "home") state.hg++;
   else state.ag++;
   if (!state.isCup) {
@@ -777,7 +784,14 @@ async function simulatePeriodWithSim(state, fromMin, toMin, { onEvent, playHighl
     let minute = Math.max(lo, Math.min(hi, g.minute));
     if (minute < fromMin || minute > toMin) continue;
     const t = g.t != null ? g.t : minute * 60;
-    cues.push({ t, minute, kind: "goal", team: g.team, scorerId: g.scorerId });
+    cues.push({
+      t,
+      minute,
+      kind: "goal",
+      team: g.team,
+      scorerId: g.scorerId,
+      assistId: g.assistId || null,
+    });
   }
   for (const f of flavor) {
     const minute = Math.max(fromMin, Math.min(toMin, f.minute));
@@ -851,7 +865,8 @@ async function simulatePeriodWithSim(state, fromMin, toMin, { onEvent, playHighl
       while (cueIdx < cues.length && cues[cueIdx].t <= t + 0.05) {
         const c = cues[cueIdx++];
         const mark = state.events.length;
-        if (c.kind === "goal") addSimGoal(state, c.minute, c.team, c.scorerId);
+        if (c.kind === "goal")
+          addSimGoal(state, c.minute, c.team, c.scorerId, c.assistId || null);
         else if (c.kind === "flavor") pushSimFlavor(state, c.item);
         if (show && onEvent) {
           const snap = liveSnap(state, c.minute, null);
@@ -897,7 +912,8 @@ async function simulatePeriodWithSim(state, fromMin, toMin, { onEvent, playHighl
 
     for (; cueIdx < cues.length; cueIdx++) {
       const c = cues[cueIdx];
-      if (c.kind === "goal") addSimGoal(state, c.minute, c.team, c.scorerId);
+      if (c.kind === "goal")
+        addSimGoal(state, c.minute, c.team, c.scorerId, c.assistId || null);
       else pushSimFlavor(state, c.item);
     }
     for (let m = fromMin; m <= toMin; m++) finishMinuteSideEffects(m, { silent: true });
@@ -917,7 +933,8 @@ async function simulatePeriodWithSim(state, fromMin, toMin, { onEvent, playHighl
     const mark = state.events.length;
 
     for (const c of byMin[minute] || []) {
-      if (c.kind === "goal") addSimGoal(state, minute, c.team, c.scorerId);
+      if (c.kind === "goal")
+        addSimGoal(state, minute, c.team, c.scorerId, c.assistId || null);
       else if (c.kind === "flavor") pushSimFlavor(state, c.item);
     }
 
@@ -981,7 +998,12 @@ function simulatePeriodWithSimSync(state, fromMin, toMin) {
   for (const g of scaled.goals) {
     const minute = Math.max(lo, Math.min(hi, g.minute));
     if (minute < fromMin || minute > toMin) continue;
-    byMin[minute].push({ kind: "goal", team: g.team, scorerId: g.scorerId });
+    byMin[minute].push({
+      kind: "goal",
+      team: g.team,
+      scorerId: g.scorerId,
+      assistId: g.assistId || null,
+    });
   }
   for (const f of flavor) {
     const minute = Math.max(fromMin, Math.min(toMin, f.minute));
@@ -1000,7 +1022,8 @@ function simulatePeriodWithSimSync(state, fromMin, toMin) {
   for (let minute = fromMin; minute <= toMin; minute++) {
     state.minute = minute;
     for (const item of byMin[minute] || []) {
-      if (item.kind === "goal") addSimGoal(state, minute, item.team, item.scorerId);
+      if (item.kind === "goal")
+        addSimGoal(state, minute, item.team, item.scorerId, item.assistId || null);
       else pushSimFlavor(state, item);
     }
     tryCardOrFoul(state, minute);

@@ -161,6 +161,23 @@ export function runSimPeriodRaw(eng, fromMin, toMin, opts = {}) {
 /** 压缩快照：直播投影够用，体积小于完整 snapshot */
 export function compactSimFrame(eng) {
   const b = eng.ball;
+  // 入网脉冲只发一帧，立即清掉，避免后续帧/跳段在错误位置重放网效
+  const netHit = !!b._netHitPulse;
+  if (netHit) b._netHitPulse = false;
+  // 角球等定位球：死球窗内标 setPiece，表现层可打角球徽章
+  const setPiece =
+    b.state === "corner" ||
+    (eng.deadBallUntil &&
+      eng.t < eng.deadBallUntil &&
+      (b.state === "corner" ||
+        (b.kickX != null &&
+          (b.kickX < 8 || b.kickX > 92) &&
+          (b.kickY < 8 || b.kickY > 92) &&
+          b.owner)))
+      ? b.state === "corner"
+        ? "corner"
+        : null
+      : null;
   return {
     t: eng.t,
     ball: {
@@ -169,17 +186,25 @@ export function compactSimFrame(eng) {
       // 高空球高度（米级 0..~8），直播投影阴影/缩放用
       z: Number.isFinite(b.z) ? b.z : 0,
       owner: b.owner,
+      state: b.state || null,
+      netHit,
+      setPiece: setPiece || (b.state === "corner" ? "corner" : null),
     },
-    players: eng.agents.map((a) => ({
-      id: a.id,
-      team: a.team,
-      x: a.x,
-      y: a.y,
-      heading: a.heading,
-      hasBall: b.owner === a.id,
-      role: a.role,
-      num: a.num,
-    })),
+    players: eng.agents.map((a) => {
+      const poseOn = a.pose && eng.t < (a.poseUntil || 0);
+      return {
+        id: a.id,
+        team: a.team,
+        x: a.x,
+        y: a.y,
+        heading: a.heading,
+        hasBall: b.owner === a.id,
+        role: a.role,
+        num: a.num,
+        pose: poseOn ? a.pose : null,
+        poseDir: poseOn ? a.poseDir || 0 : 0,
+      };
+    }),
   };
 }
 
@@ -212,15 +237,19 @@ export function buildHighlightWindows(opts = {}) {
   const goals = opts.scaledGoals || [];
   const windows = [];
 
-  // 进球：更长推进窗（含庆祝聚拢 ~5.5s + 中圈开球过渡）
+  // 进球：更长推进窗（助攻起脚 ~6s + 射门 + 庆祝聚拢 + 中圈开球）
   for (const g of goals) {
     const t = g.t != null ? g.t : (g.minute || 1) * 60;
+    // 有助攻时再多留 6s 起脚/传球，回放叙事更完整
+    const lead = g.assistId ? 28 : 22;
     windows.push({
-      t0: Math.max(tStart, t - 22),
+      t0: Math.max(tStart, t - lead),
       t1: Math.min(tEnd, t + 16),
       priority: 100,
       label: "goal",
       at: t,
+      assistId: g.assistId || null,
+      scorerId: g.scorerId || null,
     });
   }
 
@@ -262,6 +291,29 @@ export function buildHighlightWindows(opts = {}) {
     shotN++;
   }
 
+  // 角球：半场最多 3 次（用户反馈「从没见过角球画面」——旧版高光窗根本不含角球）
+  const corners = raw.filter((e) => e.type === "corner").sort((a, b) => a.t - b.t);
+  let cornerN = 0;
+  for (let i = 0; i < corners.length && cornerN < 3; i++) {
+    const e = corners[i];
+    if (!farFromExisting(e.t, 22)) continue;
+    if (
+      cornerN > 0 &&
+      e.t - (windows.filter((w) => w.label === "corner").slice(-1)[0]?.at ?? 0) < 70
+    ) {
+      continue;
+    }
+    windows.push({
+      t0: Math.max(tStart, e.t - 2),
+      // 摆位顿 + 开出 + 禁区争夺
+      t1: Math.min(tEnd, e.t + 12),
+      priority: 42,
+      label: "corner",
+      at: e.t,
+    });
+    cornerN++;
+  }
+
   // 开球一小段
   if (tEnd - tStart > 60) {
     windows.push({
@@ -285,6 +337,8 @@ export function buildHighlightWindows(opts = {}) {
         last.priority = w.priority;
         last.label = w.label;
         if (w.at != null) last.at = w.at;
+        if (w.assistId) last.assistId = w.assistId;
+        if (w.scorerId) last.scorerId = w.scorerId;
       }
     } else {
       merged.push({ ...w });
@@ -369,6 +423,8 @@ export function buildHighlightSegments(frames, windows, tStart, tEnd) {
         label: w.label,
         // 高潮时刻（进球/扑救/射门），导演镜头与慢镜对齐
         at: w.at != null ? w.at : (a + b) / 2,
+        assistId: w.assistId || null,
+        scorerId: w.scorerId || null,
         fromMin: minOf(a),
         toMin: minOf(b),
       });
@@ -447,6 +503,7 @@ export function translatePeriodToMatch(state, period, helpers) {
       minute,
       team: g.team,
       scorerId: g.scorerId,
+      assistId: g.assistId || null,
       t: g.t,
     });
   }
@@ -458,7 +515,13 @@ export function translatePeriodToMatch(state, period, helpers) {
   const emitted = [];
   for (const item of timeline) {
     if (item.kind === "goal") {
-      const ev = registerGoal(state, item.minute, item.team, item.scorerId);
+      const ev = registerGoal(
+        state,
+        item.minute,
+        item.team,
+        item.scorerId,
+        item.assistId || null
+      );
       if (ev) emitted.push(ev);
     } else {
       const ev = pushFlavor(state, item);

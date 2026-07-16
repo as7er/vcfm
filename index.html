@@ -927,7 +927,7 @@
     <div id="season-summary" class="season-summary hidden" role="dialog" aria-modal="true"></div>
   </div>
 
-  <script type="module" src="js/main.js?v=92"></script>
+  <script type="module" src="js/main.js?v=98"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {
@@ -935,12 +935,12 @@
           caches.keys().then(function (keys) {
             return Promise.all(
               keys
-                .filter(function (k) { return k.indexOf("vcfm-") === 0 && k !== "vcfm-v92"; })
+                .filter(function (k) { return k.indexOf("vcfm-") === 0 && k !== "vcfm-v98"; })
                 .map(function (k) { return caches.delete(k); })
             );
           }).catch(function () {});
         }
-        navigator.serviceWorker.register("./sw.js?v=92").then(function (reg) {
+        navigator.serviceWorker.register("./sw.js?v=98").then(function (reg) {
           try { reg.update(); } catch (e) {}
           if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
         }).catch(function () {});

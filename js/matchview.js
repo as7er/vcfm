@@ -258,11 +258,93 @@ export class MatchView {
       } else if (Math.hypot(pl.vx, pl.vy) > 0.08) {
         pl.heading = Math.atan2(pl.vy, pl.vx);
       }
-      const has = !!s.hasBall;
-      pl.el.classList.toggle("has-ball", has);
-      if (has) carrier = pl;
+      // 扑救倒地 / 开球等短时姿态（来自 sim compact 帧）
+      // 注意：慢镜下不能每帧把 poseUntil 往后推，否则会「绿胶囊卡死」整段 SLOW-MO
+      if (s.pose) {
+        pl.pose = s.pose;
+        pl.poseDir = s.poseDir || 0;
+        // 仅首次进入姿态时开定时；续帧只刷新 pose 内容
+        if (!pl.poseUntil || performance.now() > pl.poseUntil) {
+          pl.poseUntil = performance.now() + 520;
+        }
+      } else if (pl.pose) {
+        // sim 已无姿态：最多再留 80ms 防闪，然后清掉
+        if (!pl.poseUntil || performance.now() > pl.poseUntil - 400) {
+          pl.poseUntil = Math.min(pl.poseUntil || performance.now() + 80, performance.now() + 80);
+        }
+        if (performance.now() > pl.poseUntil) {
+          pl.pose = null;
+          pl.poseDir = 0;
+          pl.poseUntil = 0;
+        }
+      }
+      // 先清光环，球位更新后再按「真 owner + 贴球」赋值（杜绝空飘球却亮人）
+      pl.el.classList.remove("has-ball");
       this._applyPlayer(pl);
     }
+
+    if (sim.ball) {
+      const bx = clamp(sim.ball.x, 0, 100);
+      const by = clamp(sim.ball.y, 0, 100);
+      const bz = clamp(Number(sim.ball.z) || 0, 0, 12);
+      const prevZ = this.ball.z || 0;
+      this.ball.x = smooth >= 1 ? bx : this.ball.x + (bx - this.ball.x) * smooth;
+      this.ball.y = smooth >= 1 ? by : this.ball.y + (by - this.ball.y) * smooth;
+      this.ball.z = smooth >= 1 ? bz : (this.ball.z || 0) + (bz - (this.ball.z || 0)) * smooth;
+      this.ball.tx = this.ball.x;
+      this.ball.ty = this.ball.y;
+      // 落地轻弹：从空中落回地面时闪一下落点
+      if (prevZ > 1.2 && (this.ball.z || 0) < 0.35 && !this.carrier) {
+        this._ballBounceFlash = performance.now() + 220;
+      }
+      // 仅在球门线附近才播入网（防跳段/粘帧在中场炸出「迷你球门」）
+      if (sim.ball.netHit && !this._netHitDone && (by < 8 || by > 92)) {
+        this._netHitDone = true;
+        const attHome = by < 50;
+        const gx = clamp(bx, 42, 58);
+        const gy = attHome ? Math.min(by, 3.5) : Math.max(by, 96.5);
+        this._goalNetEffect?.(gx, gy, attHome);
+      }
+    }
+
+    // 持球光环：仅球有 owner 且该球员贴在球边；飞行/松球绝不亮
+    const ballState = sim.ball?.state || null;
+    const isCornerState =
+      ballState === "corner" || sim.ball?.setPiece === "corner";
+    const inFlight =
+      ballState === "shot" ||
+      ballState === "pass" ||
+      ballState === "loose" ||
+      ballState === "dead";
+    const ownerId = !inFlight ? sim.ball?.owner || null : null;
+    if (ownerId) {
+      const own = this.players.find((p) => p.id === ownerId);
+      if (own) {
+        const d = Math.hypot(own.x - this.ball.x, own.y - this.ball.y);
+        if (isCornerState) {
+          // 角球：主罚人钉在角旗球旁（修「角旗只有球、人全挤禁区」）
+          own.x = this.ball.x;
+          own.y = this.ball.y + (this.ball.y < 50 ? 1.5 : -1.5);
+          own.tx = own.x;
+          own.ty = own.y;
+          own.heading = Math.atan2(50 - own.y, 50 - own.x);
+          own.el.classList.add("has-ball", "highlight");
+          carrier = own;
+          this._applyPlayer(own);
+        } else if (d < 5.5) {
+          own.el.classList.add("has-ball");
+          carrier = own;
+          // 显示层球贴脚下，避免「人亮球远」
+          this.ball.x = own.x + Math.cos(own.heading || 0) * 1.2;
+          this.ball.y = own.y + Math.sin(own.heading || 0) * 1.2;
+          this.ball.tx = this.ball.x;
+          this.ball.ty = this.ball.y;
+          this.ball.z = 0;
+        }
+      }
+    }
+    // 表现层叠人轻分离（角球禁区多推一轮）
+    this._visualUnstack(isCornerState ? 2 : 1);
 
     if (carrier) {
       this.carrier = carrier;
@@ -271,19 +353,12 @@ export class MatchView {
       this.ballState = "held";
     } else {
       this.carrier = null;
-      this.ballState = "free";
-      for (const pl of this.players) pl.el.classList.remove("has-ball");
-    }
-
-    if (sim.ball) {
-      const bx = clamp(sim.ball.x, 0, 100);
-      const by = clamp(sim.ball.y, 0, 100);
-      const bz = clamp(Number(sim.ball.z) || 0, 0, 12);
-      this.ball.x = smooth >= 1 ? bx : this.ball.x + (bx - this.ball.x) * smooth;
-      this.ball.y = smooth >= 1 ? by : this.ball.y + (by - this.ball.y) * smooth;
-      this.ball.z = smooth >= 1 ? bz : (this.ball.z || 0) + (bz - (this.ball.z || 0)) * smooth;
-      this.ball.tx = this.ball.x;
-      this.ball.ty = this.ball.y;
+      this.ballState =
+        ballState === "shot"
+          ? "shot"
+          : ballState === "pass"
+            ? "flight"
+            : "free";
     }
     this._pushBallTrail();
     this._applyBall();
@@ -316,19 +391,28 @@ export class MatchView {
         x: a.x + (b.x - a.x) * t,
         y: a.y + (b.y - a.y) * t,
         heading: h + dh * t,
-        // 持球态跟前一帧，避免 50% 处来回闪
-        hasBall: !!a.hasBall,
+        pose: b.pose || a.pose || null,
+        poseDir: b.poseDir ?? a.poseDir ?? 0,
+        hasBall: false, // 下面按 ball.owner 统一赋值
       };
     });
-    // 球 owner 用前半/后半切换一次即可；z 插值做空中抛物线感
+    // 球 owner 跟插值后半帧，避免前半还亮旧持球人
     const za = Number(fa.ball?.z) || 0;
     const zb = Number(fb.ball?.z) || 0;
+    const owner = t < 0.45 ? fa.ball?.owner : fb.ball?.owner;
+    const st = t < 0.45 ? fa.ball?.state : fb.ball?.state;
     const ball = {
       x: (fa.ball?.x ?? 50) + ((fb.ball?.x ?? 50) - (fa.ball?.x ?? 50)) * t,
       y: (fa.ball?.y ?? 50) + ((fb.ball?.y ?? 50) - (fa.ball?.y ?? 50)) * t,
       z: za + (zb - za) * t,
-      owner: fa.ball?.owner ?? null,
+      state: st || null,
+      // 只认后半帧的脉冲，避免插值区间内重复 netHit
+      netHit: t >= 0.5 ? !!fb.ball?.netHit : !!fa.ball?.netHit,
+      owner: owner ?? null,
     };
+    if (owner) {
+      for (const p of players) p.hasBall = p.id === owner;
+    }
     // 插值本身已是 60fps 平滑，不再二次 soft（双重平滑会发糊/发飘）
     return this.applySimSnapshot(
       { t: (fa.t ?? 0) + ((fb.t ?? 0) - (fa.t ?? 0)) * t, ball, players },
@@ -379,6 +463,7 @@ export class MatchView {
       }
       // 供进球后 FMM 自动重播
       this._lastTimeline = { frames, label, climaxAt, t0, tEnd: tEnd0 };
+      this._netHitDone = false;
       const sp = {
         frames,
         i: 0,
@@ -402,6 +487,9 @@ export class MatchView {
         directorPhase: "build",
         /** FMM：默认不猛推 box，只轻跟 */
         fmmWide: opts.fmmWide !== false,
+        assistId: opts.assistId || null,
+        scorerId: opts.scorerId || null,
+        _assistFocusDone: false,
       };
       this._simPlay = sp;
       this.applySimSnapshot(frames[0], { soft: false });
@@ -421,10 +509,41 @@ export class MatchView {
         this._tickDirector(sp, ts, realDt);
 
         if (ts < sp.holdUntil) {
-          // hold：不推进 simT；进球时仍做庆祝聚拢动画
-          if (this.phase === "goal") this._tickVisualCelebrate(realDt);
+          // hold：不推进 simT；进球叙事 → 庆祝
+          if (this.phase === "goal") {
+            if (this._goalBeat && !this._goalBeat.done) {
+              this._tickGoalBeat(realDt);
+            } else {
+              this._tickVisualCelebrate(realDt);
+            }
+          }
           this._updateSimCamera(realDt);
           this._drawCanvas();
+          sp.raf = requestAnimationFrame(tick);
+          return;
+        }
+
+        // 进球叙事/庆祝中：不要用后续 sim 帧覆盖（否则刚围拢又被冲散）
+        if (
+          this.phase === "goal" &&
+          (this._goalBeat || this._celebrate)
+        ) {
+          if (this._goalBeat && !this._goalBeat.done) {
+            this._tickGoalBeat(realDt);
+          } else {
+            this._tickVisualCelebrate(realDt);
+          }
+          this._updateSimCamera(realDt);
+          this._drawCanvas();
+          // 仍推进一点 simT 以免卡死事件，但很慢
+          sp.simT += realDt * 0.15;
+          const tEndHold = sp.frames[sp.frames.length - 1].t ?? 0;
+          if (sp.simT >= tEndHold - 1e-6 && !this._celebrate && !this._goalBeat) {
+            this._clearDirectorChrome();
+            this._simPlay = null;
+            sp.resolve();
+            return;
+          }
           sp.raf = requestAnimationFrame(tick);
           return;
         }
@@ -493,30 +612,34 @@ export class MatchView {
       this.camMode = "follow";
       this.camBoostUntil = now + 4200;
       this.phase = "goal";
+      this._netHitDone = false;
       this.fieldEl?.classList.add("mp-replay-slow");
-      this.setBanner(lang === "en" ? "⚽ GOAL" : "⚽ 进球", "goal");
-      // 文案由 main 进球链写入 ticker；此处兜底
+      // 先播 3s 助攻→射门→入网，再庆祝（勿立刻聚拢抢戏）
+      const fixture = opts.fixture;
+      const homeId = fixture?.home || this.home?.id;
+      const attHome =
+        opts.attHome != null
+          ? !!opts.attHome
+          : opts.ev?.teamId
+            ? opts.ev.teamId === homeId
+            : true;
+      this._beginGoalBeat(opts.ev || {}, { attHome, lang });
+      // 横幅稍晚由 beat 入网时打出；此处兜底文案
       this.setFmmTicker?.(
         lang === "en" ? "GOAL!!" : "入球了!!",
         "goal",
         0
       );
-      // 焦点：射手 + 启动庆祝聚拢
       const scorer =
         (opts.ev?.playerId && this.players.find((p) => p.id === opts.ev.playerId)) ||
-        this.carrier;
-      if (scorer) {
-        scorer.el.classList.add("highlight", "scorer");
-        this.highlightId = scorer.id;
-        this.flashUntil = now + 5200;
-        this._setFocus([scorer], 4800);
-        this._beginVisualCelebrate(scorer, opts.ev);
-      }
+        null;
       if (sp) {
         sp.eventRateMul = 0.32;
-        sp.eventSlowUntil = now + 2800;
+        sp.eventSlowUntil = now + 3200;
         sp.rateMul = Math.min(sp.rateMul || 1, 0.32);
         sp.directorPhase = "impact";
+        sp.assistId = opts.ev?.assistId || sp.assistId || null;
+        sp.scorerId = opts.ev?.playerId || scorer?.id || null;
       }
       return;
     }
@@ -538,6 +661,12 @@ export class MatchView {
         this.highlightId = gk.id;
         this.flashUntil = now + 1800;
         this._setFocus([gk], 1600);
+        // 表现层扑救倒地（sim 帧若未带 pose 时兜底；短促，避免慢镜卡死）
+        if (!gk.pose || gk.pose !== "dive") {
+          gk.pose = "dive";
+          gk.poseDir = (this.ball.x || 50) >= gk.x ? 1 : -1;
+          gk.poseUntil = now + 520;
+        }
       }
       if (sp) {
         sp.eventRateMul = 0.4;
@@ -566,14 +695,23 @@ export class MatchView {
     }
   }
 
-  /** 清除慢镜/回放角标 */
+  /** 清除慢镜/回放角标/角球态 */
   _clearDirectorChrome() {
-    this.fieldEl?.classList.remove("mp-replay-slow");
+    this.fieldEl?.classList.remove("mp-replay-slow", "mp-corner-active");
     // mp-replay 留给完整回放；直播导演只清 slow
     if (this.phase !== "goal") {
       this.fieldEl?.classList.remove("mp-replay");
       this.replayBadgeEl?.classList.add("hidden");
     } else if (this.replayBadgeEl && !this.fieldEl?.classList.contains("mp-replay")) {
+      this.replayBadgeEl.classList.add("hidden");
+    }
+  }
+
+  /** 关掉角球徽章/角旗光（段结束或开出后） */
+  _clearCornerChrome() {
+    this.fieldEl?.classList.remove("mp-corner-active");
+    const t = this.replayBadgeEl?.textContent || "";
+    if (t.includes("角球") || t.includes("CORNER")) {
       this.replayBadgeEl.classList.add("hidden");
     }
   }
@@ -617,22 +755,76 @@ export class MatchView {
 
       // FMM 对齐：全程接近全场，只做轻跟 + 慢镜（不猛推 box）
       const wide = sp.fmmWide !== false;
-      if (lead > 5.5) {
+      const isCorner = sp.label === "corner";
+      if (isCorner) {
+        // 角球段：只在「摆位/开出」窗口亮徽章；开出后（after>2.5）立刻关掉，避免粘整段
+        sp.directorPhase = lead > 0.2 ? "push" : after < 2.5 ? "impact" : "settle";
+        this.camMode = after < 3 ? "box" : "follow";
+        this.camBoostUntil = Math.max(this.camBoostUntil, now + 400);
+        scriptMul = lead > 0 ? 0.7 : after < 2 ? 0.78 : 0.95;
+        if (lead > -0.5 && after < 2.2) {
+          if (!sp._cornerChrome) {
+            sp._cornerChrome = true;
+            if (this.replayBadgeEl) {
+              this.replayBadgeEl.textContent =
+                (typeof document !== "undefined" && document.documentElement?.lang === "en")
+                  ? "🚩 CORNER"
+                  : "🚩 角球";
+              this.replayBadgeEl.classList.remove("hidden");
+            }
+            this.fieldEl?.classList.add("mp-corner-active");
+          }
+        } else if (sp._cornerChrome && after >= 2.2) {
+          sp._cornerChrome = false;
+          this._clearCornerChrome();
+        }
+      } else if (lead > 5.5) {
         sp.directorPhase = "build";
         scriptMul = 1;
         this.camMode = "follow";
+        // 进球段：先把焦点打在助攻者（传球起脚）
+        if (isBig && sp.assistId && !sp._assistFocusDone) {
+          const ass = this.players.find((p) => p.id === sp.assistId);
+          if (ass) {
+            ass.el.classList.add("highlight");
+            this._setFocus([ass], 2200);
+            sp._assistFocusDone = true;
+            const en =
+              typeof document !== "undefined" &&
+              document.documentElement?.lang === "en";
+            this.setFmmTicker?.(
+              en
+                ? `${ass.name || "Player"} looks up…`
+                : `${ass.name || "球员"} 抬头观察…`,
+              "shot",
+              1600
+            );
+          }
+        }
       } else if (lead > 2.2) {
         sp.directorPhase = "push";
         // 轻跟，不切 box
         this.camMode = wide ? "follow" : "box";
         this.camBoostUntil = Math.max(this.camBoostUntil, now + 400);
         scriptMul = isBig ? 0.82 : isSave ? 0.88 : 0.92;
+        // 助攻传球后半段：焦点扩到接球/射手
+        if (isBig && sp.scorerId && lead < 4.2) {
+          const sc = this.players.find((p) => p.id === sp.scorerId);
+          const ass = sp.assistId
+            ? this.players.find((p) => p.id === sp.assistId)
+            : null;
+          if (sc) this._setFocus(ass ? [ass, sc] : [sc], 1800);
+        }
       } else if (lead > 0.05) {
         sp.directorPhase = "slow";
         this.camMode = wide ? "follow" : "box";
         this.camBoostUntil = Math.max(this.camBoostUntil, now + 700);
         scriptMul = isBig ? 0.38 : isSave ? 0.45 : isChance ? 0.5 : 0.58;
         if (isBig || isSave) this.fieldEl?.classList.add("mp-replay-slow");
+        if (isBig && sp.scorerId) {
+          const sc = this.players.find((p) => p.id === sp.scorerId);
+          if (sc) this._setFocus([sc], 2200);
+        }
       } else if (after < (isBig ? 2.8 : isSave ? 1.8 : 1.2)) {
         sp.directorPhase = "impact";
         this.camMode = wide ? "follow" : "box";
@@ -661,6 +853,7 @@ export class MatchView {
       }
     }
     this._simPlay = null;
+    this._clearCornerChrome();
   }
 
   /**
@@ -2287,8 +2480,11 @@ export class MatchView {
       }
     }
 
-    // 球轨迹丝带（地面投影）
+    // 球轨迹丝带（地面投影）；射门用更醒目的橙黄弧
     const trail = this._ballTrail || [];
+    const isShotTrail =
+      this.ballState === "shot" ||
+      (this.phase === "goal" && trail.some((p) => (p.z || 0) > 0.8));
     if (trail.length >= 2) {
       ctx.save();
       ctx.lineCap = "round";
@@ -2301,11 +2497,16 @@ export class MatchView {
         ctx.beginPath();
         ctx.moveTo(px(a.x), py(a.y));
         ctx.lineTo(px(b.x), py(b.y));
-        ctx.strokeStyle =
-          elev > 0.8
-            ? `rgba(253, 224, 71, ${0.12 + t * 0.55})`
-            : `rgba(248, 250, 252, ${0.08 + t * 0.42})`;
-        ctx.lineWidth = (1.2 + t * 2.8 + elev * 0.35) * (minDim / 420);
+        if (isShotTrail) {
+          ctx.strokeStyle = `rgba(251, 146, 60, ${0.18 + t * 0.72})`;
+          ctx.lineWidth = (1.8 + t * 3.6 + elev * 0.5) * (minDim / 420);
+        } else {
+          ctx.strokeStyle =
+            elev > 0.8
+              ? `rgba(253, 224, 71, ${0.12 + t * 0.55})`
+              : `rgba(248, 250, 252, ${0.08 + t * 0.42})`;
+          ctx.lineWidth = (1.2 + t * 2.8 + elev * 0.35) * (minDim / 420);
+        }
         ctx.stroke();
       }
       ctx.restore();
@@ -2322,14 +2523,20 @@ export class MatchView {
         focusOn && !this.focusIds.has(pl.id) && !pl.el.classList.contains("has-ball");
       ctx.globalAlpha = dim ? 0.38 : 1;
 
-      // 冲刺残影
-      if (spd > 0.55 && pl.heading != null) {
+      // 冲刺残影（再明显一点）
+      if (spd > 0.48 && pl.heading != null && pl.pose !== "dive") {
         const hx = Math.cos(pl.heading);
         const hy = Math.sin(pl.heading);
-        ctx.fillStyle = "rgba(255,255,255,0.08)";
-        for (let k = 1; k <= 2; k++) {
+        for (let k = 1; k <= 3; k++) {
+          ctx.fillStyle = `rgba(255,255,255,${0.12 - k * 0.03})`;
           ctx.beginPath();
-          ctx.arc(x - hx * r * k * 0.55, y - hy * r * k * 0.55, r * (1 - k * 0.12), 0, Math.PI * 2);
+          ctx.arc(
+            x - hx * r * k * 0.62,
+            y - hy * r * k * 0.62,
+            r * (1 - k * 0.14),
+            0,
+            Math.PI * 2
+          );
           ctx.fill();
         }
       }
@@ -2340,7 +2547,7 @@ export class MatchView {
       ctx.ellipse(x, y + r * 0.55, r * 0.72, r * 0.28, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // 队服圆点
+      // 队服圆点（扑救时仍保持圆形号码，侧移 + 残影表示倒地，不再画绿胶囊）
       const isGk = pl.pos === "GK" || pl.role === "GK";
       const bg = isGk
         ? pl.team === "home"
@@ -2348,15 +2555,29 @@ export class MatchView {
           : "#a3e635"
         : pl.el.querySelector(".mp-dot")?.style?.background ||
           (pl.team === "home" ? "#3d8bfd" : "#ef4444");
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fillStyle = bg;
-      ctx.fill();
+      const diving =
+        pl.pose === "dive" &&
+        (!pl.poseUntil || performance.now() < pl.poseUntil);
+      const diveDir = diving ? pl.poseDir || 1 : 0;
+      // 扑救：身体仍是圆点，只向扑球方向平移一点 + 身后残影
+      const drawX = diving ? x + diveDir * r * 0.55 : x;
+      const drawY = diving ? y : y;
 
-      // 队服高光条（轻微 3D）
+      if (diving) {
+        // 横向残影（像侧扑，而不是变成椭圆胶囊）
+        for (let k = 3; k >= 1; k--) {
+          ctx.globalAlpha = dim ? 0.12 : 0.16 - k * 0.03;
+          ctx.beginPath();
+          ctx.arc(drawX - diveDir * r * k * 0.42, drawY, r * (1 - k * 0.08), 0, Math.PI * 2);
+          ctx.fillStyle = bg;
+          ctx.fill();
+        }
+        ctx.globalAlpha = dim ? 0.38 : 1;
+      }
+
       ctx.beginPath();
-      ctx.arc(x - r * 0.22, y - r * 0.28, r * 0.55, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(255,255,255,0.14)";
+      ctx.arc(drawX, drawY, r, 0, Math.PI * 2);
+      ctx.fillStyle = bg;
       ctx.fill();
 
       ctx.lineWidth = isGk ? 2.5 : pl.team === "home" ? 2 : 1.6;
@@ -2368,6 +2589,9 @@ export class MatchView {
       if (pl.el.classList.contains("has-ball")) {
         ctx.strokeStyle = "#fde68a";
         ctx.lineWidth = 2.8;
+      } else if (diving) {
+        ctx.strokeStyle = "rgba(253, 224, 71, 0.95)";
+        ctx.lineWidth = 2.6;
       } else if (pl.fsm === "press") {
         ctx.strokeStyle = "rgba(248,113,113,0.9)";
       } else if (pl.fsm === "support") {
@@ -2378,12 +2602,12 @@ export class MatchView {
       // 持球光环（FM 选中/持球感）
       if (pl.el.classList.contains("has-ball")) {
         ctx.beginPath();
-        ctx.arc(x, y, r + 4, 0, Math.PI * 2);
+        ctx.arc(drawX, drawY, r + 4, 0, Math.PI * 2);
         ctx.strokeStyle = "rgba(253, 224, 71, 0.55)";
         ctx.lineWidth = 2;
         ctx.stroke();
         ctx.beginPath();
-        ctx.arc(x, y, r + 7.5, 0, Math.PI * 2);
+        ctx.arc(drawX, drawY, r + 7.5, 0, Math.PI * 2);
         ctx.strokeStyle = "rgba(253, 224, 71, 0.22)";
         ctx.lineWidth = 3;
         ctx.stroke();
@@ -2393,12 +2617,12 @@ export class MatchView {
       if (pl.heading !== undefined && spd > 0.35) {
         const hx = Math.cos(pl.heading);
         const hy = Math.sin(pl.heading);
-        const tipX = x + hx * r * 1.35;
-        const tipY = y + hy * r * 1.35;
+        const tipX = drawX + hx * r * 1.35;
+        const tipY = drawY + hy * r * 1.35;
         const nx = -hy;
         const ny = hx;
-        const baseX = x + hx * r * 0.55;
-        const baseY = y + hy * r * 0.55;
+        const baseX = drawX + hx * r * 0.55;
+        const baseY = drawY + hy * r * 0.55;
         ctx.beginPath();
         ctx.moveTo(tipX, tipY);
         ctx.lineTo(baseX + nx * r * 0.42, baseY + ny * r * 0.42);
@@ -2409,24 +2633,26 @@ export class MatchView {
       }
 
       // 号码：描边 + 高对比填充（粉衣/浅色球衣可辨）
-      const numStr = String(pl.num ?? "");
-      const numCol =
-        pl.numColor ||
-        pl.el.querySelector(".mp-dot")?.style?.color ||
-        contrastText(bg);
-      ctx.font = `900 ${Math.max(10, r * 1.05)}px system-ui,"Segoe UI",sans-serif`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      // 与字色相反的描边，保证绿茵上任何球衣都清楚
-      const numL = relativeLuma(numCol);
-      ctx.lineJoin = "round";
-      ctx.miterLimit = 2;
-      ctx.lineWidth = Math.max(2.8, r * 0.28);
-      ctx.strokeStyle =
-        numL > 0.55 ? "rgba(15,23,42,0.82)" : "rgba(255,255,255,0.88)";
-      ctx.strokeText(numStr, x, y + 0.5);
-      ctx.fillStyle = numCol;
-      ctx.fillText(numStr, x, y + 0.5);
+      {
+        const numStr = String(pl.num ?? "");
+        const numCol =
+          pl.numColor ||
+          pl.el.querySelector(".mp-dot")?.style?.color ||
+          contrastText(bg);
+        ctx.font = `900 ${Math.max(10, r * 1.05)}px system-ui,"Segoe UI",sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        // 与字色相反的描边，保证绿茵上任何球衣都清楚
+        const numL = relativeLuma(numCol);
+        ctx.lineJoin = "round";
+        ctx.miterLimit = 2;
+        ctx.lineWidth = Math.max(2.8, r * 0.28);
+        ctx.strokeStyle =
+          numL > 0.55 ? "rgba(15,23,42,0.82)" : "rgba(255,255,255,0.88)";
+        ctx.strokeText(numStr, drawX, drawY + 0.5);
+        ctx.fillStyle = numCol;
+        ctx.fillText(numStr, drawX, drawY + 0.5);
+      }
 
       // 姓名：持球 / 焦点 / highlight
       if (
@@ -2440,8 +2666,8 @@ export class MatchView {
         ctx.fillStyle = "#f8fafc";
         ctx.strokeStyle = "rgba(0,0,0,0.78)";
         ctx.lineWidth = 3;
-        ctx.strokeText(pl.name || "", x, y + r + 8);
-        ctx.fillText(pl.name || "", x, y + r + 8);
+        ctx.strokeText(pl.name || "", drawX, drawY + r + 8);
+        ctx.fillText(pl.name || "", drawX, drawY + r + 8);
       }
       ctx.globalAlpha = 1;
     }
@@ -2492,6 +2718,15 @@ export class MatchView {
       ctx.beginPath();
       ctx.arc(bx, by, mark * 0.85, 0, Math.PI * 2);
       ctx.strokeStyle = "rgba(253, 224, 71, 0.3)";
+      ctx.stroke();
+    }
+    // 落地弹跳涟漪
+    if (this._ballBounceFlash && performance.now() < this._ballBounceFlash) {
+      const life = (this._ballBounceFlash - performance.now()) / 220;
+      ctx.beginPath();
+      ctx.arc(bx, by, br * (1.6 + (1 - life) * 2.2), 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(248,250,252,${0.35 * life})`;
+      ctx.lineWidth = 1.5;
       ctx.stroke();
     }
   }
@@ -2722,11 +2957,57 @@ export class MatchView {
   }
 
   _updateTouchClasses(ts) {
+    // sim 驱动时只认 carrier，不用 touchUntil 拖影（否则会出现「人亮球远」）
+    if (this.simDrive || this._simPlay) {
+      for (const pl of this.players) {
+        pl.el.classList.toggle("has-ball", pl === this.carrier);
+      }
+      return;
+    }
     for (const pl of this.players) {
-      // 以当前持球人为主；刚传球/射门后短暂保留触球高亮
+      // 旧编舞模式：持球人 + 刚触球短高亮
       const on = pl === this.carrier || (pl.touchUntil > ts && !this.carrier);
       pl.el.classList.toggle("has-ball", on);
     }
+  }
+
+  /**
+   * 显示层禁区/近距离叠人轻推开（不改 sim 真相，只避免圆点糊成一团）
+   * @param {number} [iters]
+   */
+  _visualUnstack(iters = 1) {
+    if (!this.players?.length) return;
+    const list = this.players.filter((p) => !p.el.classList.contains("sent-off"));
+    const minD = 3.1;
+    for (let n = 0; n < iters; n++) {
+      for (let i = 0; i < list.length; i++) {
+        for (let j = i + 1; j < list.length; j++) {
+          const a = list[i];
+          const b = list[j];
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const d = Math.hypot(dx, dy) || 0.001;
+          if (d >= minD) continue;
+          // 禁区更狠一点
+          const inBox =
+            (a.y < 22 || a.y > 78) && (b.y < 22 || b.y > 78);
+          const push = ((minD - d) / 2) * (inBox ? 1.15 : 0.85);
+          const ux = dx / d;
+          const uy = dy / d;
+          // 门将少动
+          const aGk = a.pos === "GK" || a.role === "GK";
+          const bGk = b.pos === "GK" || b.role === "GK";
+          const aw = aGk ? 0.15 : 1;
+          const bw = bGk ? 0.15 : 1;
+          const den = aw + bw || 1;
+          a.x = clamp(a.x - ux * push * (bw / den), 2, 98);
+          a.y = clamp(a.y - uy * push * (bw / den), 2, 98);
+          b.x = clamp(b.x + ux * push * (aw / den), 2, 98);
+          b.y = clamp(b.y + uy * push * (aw / den), 2, 98);
+        }
+      }
+    }
+    for (const pl of list) this._applyPlayer(pl);
   }
 
   /** 进攻方向：主队朝上(y减小)，客队朝下 */
@@ -5195,11 +5476,21 @@ export class MatchView {
           this.playSfx("save");
           setTimeout(() => this.setBanner(""), 900);
           break;
-        case "corner":
-          this.setBanner("🚩", "info");
-          this.setCaption(ev.text || "CORNER", "info", 1000);
-          setTimeout(() => this.setBanner(""), 800);
+        case "corner": {
+          // sim 路径也要摆出角球画面（旧版只闪 🚩，用户反馈从没见过角球状态）
+          this._stageCornerSetPiece(ev, fixture);
+          this.setBanner("🚩 角球", "info");
+          this.setCaption(ev.text || "CORNER", "info", 1600);
+          this.setFmmTicker?.(
+            (typeof document !== "undefined" && document.documentElement?.lang === "en")
+              ? "Corner kick!"
+              : "角球！",
+            "info",
+            1800
+          );
+          setTimeout(() => this.setBanner(""), 1400);
           break;
+        }
         case "chance":
         case "woodwork":
           this.setBanner(ev.type === "woodwork" ? "🪵" : "!", "warn");
@@ -5767,6 +6058,360 @@ export class MatchView {
   }
 
   /**
+   * 角球摆位：球钉角旗 + 主罚人 + 双方堆禁区 + 角球徽章
+   * sim 路径 / 直播事件共用（旧版只闪 🚩 导致「从没见过角球画面」）
+   */
+  _stageCornerSetPiece(ev = {}, fixture = null) {
+    if (!this._built) return;
+    const homeId = fixture?.home || this.home?.id;
+    const attHome =
+      ev.teamId != null
+        ? ev.teamId === homeId
+        : this.possession === "home";
+    const team = attHome ? "home" : "away";
+    // 角旗：优先球当前半边，否则随机
+    const left =
+      Number.isFinite(ev.x) ? ev.x < 50 : (this.ball?.x ?? 50) < 50 || Math.random() < 0.5;
+    const cx = left ? 4 : 96;
+    const cy = attHome ? 3.5 : 96.5;
+    const boxY = attHome ? 14 : 86;
+
+    // 主罚人：事件球员 or 最近边路
+    let taker =
+      (ev.playerId && this.players.find((p) => p.id === ev.playerId)) ||
+      null;
+    if (!taker || taker.team !== team || taker.pos === "GK") {
+      const cands = this.players.filter(
+        (p) =>
+          p.team === team &&
+          p.pos !== "GK" &&
+          !p.el.classList.contains("sent-off")
+      );
+      cands.sort(
+        (a, b) =>
+          Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy)
+      );
+      taker = cands[0] || null;
+    }
+
+    // 进攻：约 5 人进禁区，其余弧顶；防守 5 人盯人——别 20 人糊成一团
+    let attPacked = 0;
+    let defPacked = 0;
+    for (const pl of this.players) {
+      if (pl.el.classList.contains("sent-off")) continue;
+      if (pl.pos === "GK" || pl.role === "GK") {
+        if (pl.team !== team) {
+          pl.x = clamp(50 + (Math.random() - 0.5) * 3, 46, 54);
+          pl.y = attHome ? 5 : 95;
+        } else {
+          pl.x = pl.baseX ?? pl.x;
+          pl.y = pl.baseY ?? pl.y;
+        }
+        pl.tx = pl.x;
+        pl.ty = pl.y;
+        this._applyPlayer(pl);
+        continue;
+      }
+      if (pl === taker) continue;
+      if (pl.team === team) {
+        const pack = attPacked < 5;
+        if (pack) attPacked++;
+        const ang = (attPacked / 6) * Math.PI - Math.PI / 2;
+        pl.x = clamp(
+          pack
+            ? 50 + Math.cos(ang) * (10 + (attPacked % 3) * 4) + (left ? -2 : 2)
+            : 40 + Math.random() * 20,
+          18,
+          82
+        );
+        pl.y = clamp(
+          pack
+            ? boxY + Math.sin(ang) * 6 + (Math.random() - 0.5) * 3
+            : boxY + (attHome ? 12 : -12),
+          8,
+          92
+        );
+        if (pack) pl.el.classList.add("highlight");
+      } else {
+        const pack = defPacked < 5;
+        if (pack) defPacked++;
+        pl.x = clamp(
+          pack ? 42 + defPacked * 3 + (Math.random() - 0.5) * 4 : pl.baseX ?? 50,
+          22,
+          78
+        );
+        pl.y = clamp(
+          pack ? boxY + (Math.random() - 0.5) * 5 : pl.baseY ?? 50,
+          8,
+          92
+        );
+      }
+      pl.tx = pl.x;
+      pl.ty = pl.y;
+      this._applyPlayer(pl);
+    }
+
+    // 主罚人最后钉在角旗（必须在堆人之后）
+    if (taker) {
+      taker.x = cx;
+      taker.y = cy + (attHome ? 1.5 : -1.5);
+      taker.tx = taker.x;
+      taker.ty = taker.y;
+      taker.heading = Math.atan2(boxY - taker.y, 50 - taker.x);
+      taker.el.classList.add("highlight", "has-ball");
+      this.carrier = taker;
+      this.lastCarrierId = taker.id;
+      this._setFocus([taker], 2400);
+      this._applyPlayer(taker);
+    } else {
+      this.carrier = null;
+    }
+
+    // 球钉在角旗
+    this.ball.x = cx;
+    this.ball.y = cy;
+    this.ball.z = 0;
+    this.ball.tx = cx;
+    this.ball.ty = cy;
+    this.ballState = "held";
+    this.possession = team;
+    this._ballTrail = [];
+    this._applyBall();
+    this._visualUnstack(2);
+
+    this.camMode = "box";
+    this.camBoostUntil = performance.now() + 2400;
+    this.phase = "play";
+
+    // 角球徽章
+    if (this.replayBadgeEl) {
+      this.replayBadgeEl.textContent =
+        (typeof document !== "undefined" && document.documentElement?.lang === "en")
+          ? "🚩 CORNER"
+          : "🚩 角球";
+      this.replayBadgeEl.classList.remove("hidden");
+      clearTimeout(this._cornerBadgeTimer);
+      this._cornerBadgeTimer = setTimeout(() => {
+        if (this.replayBadgeEl?.textContent?.includes("角球") ||
+            this.replayBadgeEl?.textContent?.includes("CORNER")) {
+          this.replayBadgeEl.classList.add("hidden");
+        }
+      }, 2600);
+    }
+    this.fieldEl?.classList.add("mp-corner-active");
+    clearTimeout(this._cornerFieldTimer);
+    this._cornerFieldTimer = setTimeout(() => {
+      this.fieldEl?.classList.remove("mp-corner-active");
+    }, 2800);
+  }
+
+  /**
+   * 进球高光叙事（约 3s）：助攻起脚 → 接球 → 射门弧 → 入网
+   * 解决「比分对了但画面上球跟人没关系」
+   */
+  _beginGoalBeat(ev, { attHome = true, lang = "zh" } = {}) {
+    if (!this._built) return;
+    const team = attHome ? "home" : "away";
+    const scorer =
+      this.players.find((p) => p.id === ev?.playerId) ||
+      this.players.find((p) => p.team === team && (p.pos === "ATT" || p.role === "ATT")) ||
+      this.players.find((p) => p.team === team && p.pos !== "GK");
+    if (!scorer) return;
+    let assister =
+      (ev?.assistId && this.players.find((p) => p.id === ev.assistId && p !== scorer)) ||
+      null;
+    if (!assister) {
+      // 找同队最近的非门将当助攻视觉替身
+      assister = this.players
+        .filter(
+          (p) =>
+            p.team === team &&
+            p !== scorer &&
+            p.pos !== "GK" &&
+            !p.el.classList.contains("sent-off")
+        )
+        .sort(
+          (a, b) =>
+            Math.hypot(a.x - scorer.x, a.y - scorer.y) -
+            Math.hypot(b.x - scorer.x, b.y - scorer.y)
+        )[0] || null;
+    }
+    const mouth = this._goalMouth(attHome, { deep: true });
+    // 组织点：进攻方向禁区前沿
+    const boxY = attHome ? 18 : 82;
+    const finishY = attHome ? 12 : 88;
+    const assistY = attHome ? 26 : 74;
+    // 摆位：射手在门前，助攻在身后侧
+    scorer.x = clamp(mouth.gx + (Math.random() - 0.5) * 6, 38, 62);
+    scorer.y = finishY;
+    scorer.tx = scorer.x;
+    scorer.ty = scorer.y;
+    scorer.heading = attHome ? -Math.PI / 2 : Math.PI / 2;
+    if (assister) {
+      assister.x = clamp(scorer.x + (assister.x < 50 ? -8 : 8), 28, 72);
+      assister.y = assistY;
+      assister.tx = assister.x;
+      assister.ty = assister.y;
+      assister.heading = Math.atan2(scorer.y - assister.y, scorer.x - assister.x);
+    }
+    // 其余人：同队前压半步，对方回防，避免糊在射门点
+    for (const pl of this.players) {
+      if (pl === scorer || pl === assister || pl.el.classList.contains("sent-off")) continue;
+      if (pl.pos === "GK" || pl.role === "GK") continue;
+      if (pl.team === team) {
+        pl.x = clamp(lerp(pl.x, scorer.x, 0.25) + (Math.random() - 0.5) * 6, 8, 92);
+        pl.y = clamp(lerp(pl.y, boxY, 0.35) + (Math.random() - 0.5) * 5, 8, 92);
+      } else {
+        pl.x = clamp(pl.x * 0.7 + 50 * 0.3 + (Math.random() - 0.5) * 4, 10, 90);
+        pl.y = clamp(
+          attHome
+            ? Math.max(pl.y, 28) * 0.6 + 40 * 0.4
+            : Math.min(pl.y, 72) * 0.6 + 60 * 0.4,
+          12,
+          88
+        );
+      }
+      pl.tx = pl.x;
+      pl.ty = pl.y;
+      this._applyPlayer(pl);
+    }
+    this._visualUnstack(2);
+    // 球从助攻脚下开始
+    const start = assister
+      ? { x: assister.x, y: assister.y }
+      : { x: scorer.x, y: scorer.y + (attHome ? 6 : -6) };
+    this.ball.x = start.x;
+    this.ball.y = start.y;
+    this.ball.z = 0;
+    this.ball.tx = start.x;
+    this.ball.ty = start.y;
+    this._ballTrail = [];
+    this.ballState = "flight";
+    this.carrier = null;
+    for (const pl of this.players) pl.el.classList.remove("has-ball");
+    if (assister) {
+      assister.el.classList.add("highlight", "has-ball");
+      this._setFocus([assister, scorer], 3200);
+    } else {
+      scorer.el.classList.add("highlight", "scorer");
+      this._setFocus([scorer], 3200);
+    }
+    this._applyPlayer(scorer);
+    if (assister) this._applyPlayer(assister);
+    this._applyBall();
+    this.phase = "goal";
+    this.camMode = "follow";
+    this.camBoostUntil = performance.now() + 3200;
+    this._goalBeat = {
+      t: 0,
+      attHome,
+      team,
+      scorerId: scorer.id,
+      assistId: assister?.id || null,
+      start,
+      mid: { x: scorer.x, y: scorer.y },
+      mouth,
+      lang,
+      done: false,
+    };
+  }
+
+  /** 每帧推进进球叙事；返回 true 表示仍在播 */
+  _tickGoalBeat(dt) {
+    const g = this._goalBeat;
+    if (!g || g.done) return false;
+    g.t += Math.max(0.008, dt);
+    const scorer = this.players.find((p) => p.id === g.scorerId);
+    const assister = g.assistId
+      ? this.players.find((p) => p.id === g.assistId)
+      : null;
+    const en = g.lang === "en";
+
+    // 0–0.85s 助攻传球
+    if (g.t < 0.85) {
+      const u = clamp(g.t / 0.85, 0, 1);
+      const e = u * u * (3 - 2 * u);
+      this.ball.x = lerp(g.start.x, g.mid.x, e);
+      this.ball.y = lerp(g.start.y, g.mid.y, e);
+      this.ball.z = Math.sin(u * Math.PI) * 1.8;
+      this.ballState = "flight";
+      this.carrier = null;
+      for (const pl of this.players) pl.el.classList.remove("has-ball");
+      if (assister) assister.el.classList.add("highlight");
+      if (scorer) scorer.el.classList.add("highlight");
+      if (g.t > 0.05 && g.t < 0.2) {
+        this.setCaption?.(en ? "Assist…" : "助攻传球…", "shot", 0);
+      }
+    }
+    // 0.85–1.25s 接球停一下
+    else if (g.t < 1.25) {
+      if (scorer) {
+        this.ball.x = scorer.x + Math.cos(scorer.heading || 0) * 1.1;
+        this.ball.y = scorer.y + Math.sin(scorer.heading || 0) * 1.1;
+        this.ball.z = 0;
+        this.carrier = scorer;
+        for (const pl of this.players) pl.el.classList.remove("has-ball");
+        scorer.el.classList.add("has-ball", "highlight", "scorer");
+        this._setFocus([scorer], 2000);
+      }
+      this.ballState = "held";
+      if (g.t < 0.95) {
+        const nm = scorer?.name || "";
+        this.setCaption?.(
+          nm ? (en ? `${nm} shoots!` : `${nm} 射门!`) : en ? "Shot!" : "射门!",
+          "shot",
+          0
+        );
+      }
+    }
+    // 1.25–2.35s 射门入网
+    else if (g.t < 2.35) {
+      const u = clamp((g.t - 1.25) / 1.1, 0, 1);
+      const e = u * u * (3 - 2 * u);
+      const from = g.mid;
+      this.ball.x = lerp(from.x, g.mouth.gx, e);
+      this.ball.y = lerp(from.y, g.mouth.gy, e);
+      this.ball.z = Math.sin(u * Math.PI) * (2.2 + (1 - u) * 1.5);
+      this.ballState = "shot";
+      this.carrier = null;
+      for (const pl of this.players) {
+        pl.el.classList.remove("has-ball");
+        if (pl === scorer) pl.el.classList.add("highlight", "scorer");
+      }
+      if (!g._net && u > 0.92) {
+        g._net = true;
+        this._goalNetEffect(g.mouth.gx, g.mouth.gy, g.attHome);
+        this.setBanner?.(en ? "⚽ GOAL" : "⚽ 进球", "goal");
+      }
+    }
+    // 2.35s+ 定格球在网内 → 切庆祝
+    else {
+      this.ball.x = g.mouth.gx;
+      this.ball.y = g.mouth.gy;
+      this.ball.z = 0.2;
+      this.ballState = "free";
+      this.carrier = null;
+      for (const pl of this.players) pl.el.classList.remove("has-ball");
+      if (!g._cele) {
+        g._cele = true;
+        if (scorer) this._beginVisualCelebrate(scorer, { playerId: scorer.id });
+      }
+      // 叙事结束，庆祝继续由 _celebrate 接管
+      if (g.t > 2.55) {
+        g.done = true;
+        this._goalBeat = null;
+      }
+    }
+    this.ball.tx = this.ball.x;
+    this.ball.ty = this.ball.y;
+    this._pushBallTrail();
+    this._applyBall();
+    // 射门段加强橙黄轨迹
+    if (g.t >= 1.25 && g.t < 2.4) this.ballState = "shot";
+    return !g.done;
+  }
+
+  /**
    * 进球庆祝：表现层聚拢（hold 冻结时间轴时也跑；与 sim 庆祝帧叠加更热闹）
    * @param {object} scorer
    * @param {object} [ev]
@@ -5777,15 +6422,19 @@ export class MatchView {
     const attHome = team === "home";
     const cornerX = (scorer.x ?? 50) < 50 ? 10 : 90;
     this._celebrate = {
-      until: performance.now() + 4800,
+      until: performance.now() + 5200,
       team,
       scorerId: scorer.id,
       cornerX,
       attHome,
     };
+    // 射手立刻往角旗半拉，保证画面立刻有「冲过去」感
+    scorer.x = clamp(lerp(scorer.x, cornerX, 0.35), 6, 94);
+    scorer.y = clamp(lerp(scorer.y, attHome ? 10 : 90, 0.4), 5, 95);
     scorer.tx = cornerX;
     scorer.ty = attHome ? 8 : 92;
-    // 近端队友优先围拢
+    scorer.el.classList.add("highlight", "scorer");
+    // 近端队友优先围拢：先半瞬移再跑，5–7 人必须明显靠拢
     const mates = this.players
       .filter(
         (p) =>
@@ -5801,21 +6450,44 @@ export class MatchView {
       );
     mates.forEach((pl, i) => {
       if (i < 7) {
-        const ang = (i / 7) * Math.PI * 2;
-        pl.tx = clamp(scorer.x + Math.cos(ang) * (4 + (i % 3)) + (cornerX - 50) * 0.15, 6, 94);
-        pl.ty = clamp(scorer.y + Math.sin(ang) * (3 + (i % 2)) + (attHome ? -4 : 4), 5, 95);
+        const ang = (i / 7) * Math.PI * 2 + 0.4;
+        const ring = 3.2 + (i % 3) * 1.4;
+        const tx = clamp(
+          scorer.x + Math.cos(ang) * ring + (cornerX - 50) * 0.12,
+          6,
+          94
+        );
+        const ty = clamp(
+          scorer.y + Math.sin(ang) * ring * 0.85 + (attHome ? -3 : 3),
+          5,
+          95
+        );
+        // 立刻拉近 55%，肉眼可见「围上来」
+        pl.x = clamp(lerp(pl.x, tx, 0.55), 5, 95);
+        pl.y = clamp(lerp(pl.y, ty, 0.55), 4, 96);
+        pl.tx = tx;
+        pl.ty = ty;
         pl.el.classList.add("highlight");
       } else {
-        pl.tx = clamp(lerp(pl.x, scorer.x, 0.35), 8, 92);
-        pl.ty = clamp(lerp(pl.y, scorer.y, 0.35), 8, 92);
+        pl.tx = clamp(lerp(pl.x, scorer.x, 0.4), 8, 92);
+        pl.ty = clamp(lerp(pl.y, scorer.y, 0.4), 8, 92);
       }
+      this._applyPlayer(pl);
     });
-    // 失球方缓缓后撤
+    this._applyPlayer(scorer);
+    // 失球方明显后撤
     for (const pl of this.players) {
       if (pl.team === team || pl.pos === "GK") continue;
-      pl.tx = clamp(pl.baseX * 0.55 + 50 * 0.45, 10, 90);
-      pl.ty = clamp(pl.baseY * 0.65 + 50 * 0.35, 12, 88);
+      pl.tx = clamp(pl.baseX * 0.5 + 50 * 0.5, 10, 90);
+      pl.ty = clamp(pl.baseY * 0.55 + 50 * 0.45, 14, 86);
+      pl.x = lerp(pl.x, pl.tx, 0.2);
+      pl.y = lerp(pl.y, pl.ty, 0.2);
+      this._applyPlayer(pl);
     }
+    this._setFocus(
+      [scorer, ...mates.slice(0, 5)].filter(Boolean),
+      4500
+    );
     const nm = scorer.name || scorer.player?.name || "";
     if (nm) {
       const en =
@@ -5837,18 +6509,18 @@ export class MatchView {
       return;
     }
     const scorer = this.players.find((p) => p.id === c.scorerId);
-    const k = 1 - Math.pow(0.08, Math.max(0.016, dt));
+    // 更快聚拢
+    const k = 1 - Math.pow(0.04, Math.max(0.016, dt));
     for (const pl of this.players) {
       if (pl.el.classList.contains("sent-off")) continue;
       const tx = pl.tx ?? pl.x;
       const ty = pl.ty ?? pl.y;
-      // 射手略快，队友中速，对方慢
       const speed =
         scorer && pl.id === scorer.id
-          ? k * 1.35
+          ? k * 1.55
           : pl.team === c.team
-            ? k
-            : k * 0.55;
+            ? k * 1.25
+            : k * 0.5;
       pl.x = lerp(pl.x, tx, clamp(speed, 0, 1));
       pl.y = lerp(pl.y, ty, clamp(speed, 0, 1));
       if (Math.hypot(tx - pl.x, ty - pl.y) > 0.4) {
@@ -5856,25 +6528,32 @@ export class MatchView {
       }
       this._applyPlayer(pl);
     }
-    // 球保持在门附近（若还在禁区）
-    if (scorer && (this.ball.y < 18 || this.ball.y > 82)) {
-      /* keep net ball */
-    } else if (scorer) {
-      // 中场误触发时不硬拽
+    // 球钉在进攻球门网口
+    if (c.attHome) {
+      this.ball.y = Math.min(this.ball.y, 3.5);
+    } else {
+      this.ball.y = Math.max(this.ball.y, 96.5);
     }
+    this.ball.x = clamp(this.ball.x, 42, 58);
+    this.ball.z = 0.15;
+    this.ball.tx = this.ball.x;
+    this.ball.ty = this.ball.y;
+    this._applyBall();
     // 射手目标随时间微调（角旗晃动感）
     if (scorer) {
       scorer.tx = c.cornerX + Math.sin(performance.now() / 220) * 2;
       scorer.ty = (c.attHome ? 7 : 93) + Math.cos(performance.now() / 280) * 1.2;
       // 近端队友持续追射手
+      let hi = 0;
       for (const pl of this.players) {
         if (pl.team !== c.team || pl === scorer || pl.pos === "GK") continue;
         if (!pl.el.classList.contains("highlight")) continue;
-        const ang = (String(pl.id || "").length % 8) * 0.7;
-        pl.tx = clamp(scorer.x + Math.cos(ang) * 5, 6, 94);
-        pl.ty = clamp(scorer.y + Math.sin(ang) * 4, 5, 95);
+        const ang = (hi++ / 7) * Math.PI * 2 + performance.now() / 900;
+        pl.tx = clamp(scorer.x + Math.cos(ang) * 4.2, 6, 94);
+        pl.ty = clamp(scorer.y + Math.sin(ang) * 3.6, 5, 95);
       }
     }
+    this._visualUnstack(1);
   }
 
   /** 进球后中圈开球：失球方门将拿球再轻传，少硬切 */
