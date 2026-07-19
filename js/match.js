@@ -729,7 +729,34 @@ function addSimGoal(state, minute, team, scorerId, assistId = null) {
 function pushSimFlavor(state, item) {
   const club = item.team === "home" ? state.home : state.away;
   if (!club) return null;
+  const sk = item.team;
   const text = defaultFlavorText(state, item);
+
+  // —— 纪律事件（黄/红/点球）：走既有 card/red 通道，喂 discipline.js 记停赛 ——
+  if (item.type === "card") {
+    state.stats[sk].yellows++;
+    const extra = { teamId: club.id, fromSim: true };
+    if (item.agentId) extra.playerId = item.agentId;
+    return pushEv(state, item.minute, "card", text, extra);
+  }
+  if (item.type === "red") {
+    state.stats[sk].reds++;
+    if (item.agentId) {
+      state.sentOff[sk].add(item.agentId);
+      state.yellowCount.delete(item.agentId);
+    }
+    const extra = { teamId: club.id, fromSim: true };
+    if (item.agentId) extra.playerId = item.agentId;
+    if (item.secondYellow) extra.secondYellow = true;
+    const ev = pushEv(state, item.minute, "red", text, extra);
+    recomputeSides(state);
+    return ev;
+  }
+  if (item.type === "penalty") {
+    // 犯规数在 period 级已全量归账（含此点球犯规），此处只发通知事件，不重复计。
+    return pushEv(state, item.minute, "penalty", text, { teamId: club.id, fromSim: true });
+  }
+
   const type =
     item.type === "corner"
       ? "corner"
@@ -773,6 +800,7 @@ async function simulatePeriodWithSim(state, fromMin, toMin, { onEvent, playHighl
     st.xg += n * (0.09 + rng() * 0.04);
     const totalShots = Math.max(1, (scaled.shots.home || 0) + (scaled.shots.away || 0));
     st.possessionTicks += Math.round(40 + (n / totalShots) * 80 + rng() * 15);
+    if (period.fouls) st.fouls += period.fouls[team] || 0;
   }
 
   const lo = tStart <= 0 ? 1 : 46;
@@ -835,7 +863,8 @@ async function simulatePeriodWithSim(state, fromMin, toMin, { onEvent, playHighl
       minutesDone.add(minute);
       state.minute = minute;
       const mark = state.events.length;
-      tryCardOrFoul(state, minute);
+      // 用户场犯规/卡片由空间引擎从真实抢断涌现（adapt.js 翻译），不再概率掷骰。
+      // 伤病暂仍走事件层（引擎未产出伤病）。
       tryInjury(state, minute);
       midMatchCoachPrompt(state, minute);
       if (minute % 15 === 0) {
@@ -938,7 +967,7 @@ async function simulatePeriodWithSim(state, fromMin, toMin, { onEvent, playHighl
       else if (c.kind === "flavor") pushSimFlavor(state, c.item);
     }
 
-    tryCardOrFoul(state, minute);
+    // 用户场犯规/卡片由空间引擎涌现；伤病暂仍走事件层。
     tryInjury(state, minute);
     midMatchCoachPrompt(state, minute);
 
@@ -989,6 +1018,7 @@ function simulatePeriodWithSimSync(state, fromMin, toMin) {
     st.xg += n * (0.09 + rng() * 0.04);
     const totalShots = Math.max(1, (scaled.shots.home || 0) + (scaled.shots.away || 0));
     st.possessionTicks += Math.round(40 + (n / totalShots) * 80 + rng() * 15);
+    if (period.fouls) st.fouls += period.fouls[team] || 0;
   }
 
   const lo = tStart <= 0 ? 1 : 46;
@@ -1026,7 +1056,7 @@ function simulatePeriodWithSimSync(state, fromMin, toMin) {
         addSimGoal(state, minute, item.team, item.scorerId, item.assistId || null);
       else pushSimFlavor(state, item);
     }
-    tryCardOrFoul(state, minute);
+    // 用户场犯规/卡片由空间引擎涌现；伤病暂仍走事件层。
     tryInjury(state, minute);
     midMatchCoachPrompt(state, minute);
     if (minute % 15 === 0) {

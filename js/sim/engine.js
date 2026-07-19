@@ -426,6 +426,14 @@ export class SimEngine {
    * 持球者按 decisionUntil 节流（受 tempo 与接球状态影响），中间沿用上次意图。
    */
   _think(a, dt, owner, controlTeam = owner?.team || null, phaseActor = owner) {
+    if (a.sentOff) {
+      // 被罚下：走向边线外并停住，不再参与任何决策/跑位。
+      a.tx = a.team === "home" ? 1 : 99;
+      a.ty = clamp(a.y, 4, 96);
+      a.fsm = "off";
+      a.intent = null;
+      return;
+    }
     if (a.role === "GK") return this._thinkGK(a, owner);
 
     const b = this.ball;
@@ -1035,7 +1043,7 @@ export class SimEngine {
     const holderPressure = this._pressureOn(a);
     const out = [];
     for (const m of this.agents) {
-      if (m === a || m.team !== a.team || m.role === "GK") continue;
+      if (m === a || m.team !== a.team || m.role === "GK" || m.sentOff) continue;
       const d = dist(a.x, a.y, m.x, m.y);
       if (d < 6 || d > 45) continue; // 太近没必要，太远不可靠
       // 普通传球也瞄准预计接球点，而不是队友当前脚下。接球队员稍后会共享同一目标。
@@ -1585,7 +1593,7 @@ export class SimEngine {
     const dMe = dist(a.x, a.y, this.ball.x, this.ball.y);
     for (const o of this.agents) {
       if (o === a || o.team !== a.team || o.role !== "ATT") continue;
-      if (o.el?.classList?.contains?.("sent-off")) continue;
+      if (o.sentOff) continue;
       if (dist(o.x, o.y, this.ball.x, this.ball.y) < dMe) return false;
     }
     return true;
@@ -1620,7 +1628,9 @@ export class SimEngine {
     if (!plan || (this.t < plan.until && plan.jobs.size)) return plan;
     const pressing = this._tacticLevel(team, "pressing");
 
-    const candidates = this.agents.filter((a) => a.team === team && a.role !== "GK");
+    const candidates = this.agents.filter(
+      (a) => a.team === team && a.role !== "GK" && !a.sentOff
+    );
     const ordered = candidates.slice().sort((a, b) => {
       const da = dist(a.x, a.y, this.ball.x, this.ball.y);
       const db = dist(b.x, b.y, this.ball.x, this.ball.y);
@@ -2112,14 +2122,20 @@ export class SimEngine {
             b.settleUntil = this.t + 1.15;
             this.deadBallUntil = this.t + 1.0;
           } else {
-            // 托出：球弹向边路/角区，不落到前锋脚下
+            // 托出：约 40% 托过底线得角球（现实中门将扑救最主要的角球来源），
+            // 其余弹向边路/角区、不落到前锋脚下。
             const side = diveDir || (Math.random() < 0.5 ? 1 : -1);
-            const outY = gk.team === "home" ? -1 : 1; // 朝场外/边路
+            const bylineDir = gk.team === "home" ? 1 : -1; // 己方底线方向：home 朝 +y(≈100)
+            const tipOver = Math.random() < 0.4;
             b.owner = null;
             b.x = cx;
             b.y = cy;
-            b.vx = side * (14 + Math.random() * 10);
-            b.vy = outY * (6 + Math.random() * 5) + (gk.team === "home" ? -2 : 2);
+            b.vx = side * (10 + Math.random() * 8);
+            // tipOver：朝底线外送足够速度越线 → _resolveBounds 判角球给进攻方；
+            // 否则朝场内边路托出，回到运动战。
+            b.vy = tipOver
+              ? bylineDir * (10 + Math.random() * 6)
+              : -bylineDir * (6 + Math.random() * 5);
             b.z = 0.6 + Math.random() * 0.8;
             b.vz = 4 + Math.random() * 3;
             b.state = "loose";
@@ -2164,11 +2180,20 @@ export class SimEngine {
         const pBlock = clamp(0.12 + blockSkill * 0.38 - speed / 240, 0.08, 0.42);
         if (Math.random() >= pBlock) continue;
         const side = o.x <= b.x ? 1 : -1;
-        b.vx = side * (7 + Math.random() * 8) + b.vx * 0.12;
-        b.vy *= -0.12;
+        // 约 30% 挡过自己的底线得角球（真实角球来源之一）；否则弹回场内。
+        const bylineDir = o.team === "home" ? 1 : -1; // 己方底线：home 在 +y
+        const blockOut = Math.random() < 0.3;
+        b.vx = side * (6 + Math.random() * 7) + b.vx * 0.12;
+        b.vy = blockOut ? bylineDir * (9 + Math.random() * 6) : b.vy * -0.12;
         b.z = Math.max(0.1, b.z || 0);
         b.vz = 2 + Math.random() * 3;
         b.state = "loose";
+        if (blockOut) {
+          b.lastKicker = o.id;
+          b.kickTeam = o.team;
+          b.kickX = b.x;
+          b.kickY = b.y;
+        }
         this._clearBallTarget();
         this._emit("block", o, { from: b.lastKicker });
         return;
@@ -2265,6 +2290,10 @@ export class SimEngine {
             owner.ty = clamp(owner.y + bk * 4, 3, 97);
             this._emit("tackle", o, { from: owner.id });
             return;
+          } else {
+            // 抢断失败 + 贴身接触：按 tackling 反比 + 战术凶狠度掷犯规。
+            // 成立则判任意球/点球（禁区内），并按严重度掷黄/红，直接 return。
+            if (this._commitFoul(o, owner)) return;
           }
         }
       }
@@ -2388,6 +2417,178 @@ export class SimEngine {
   }
 
   /**
+   * 犯规判定（P3）：抢断失败 + 贴身接触时调用。
+   * - 犯规概率 = f(防守者 tackling 反比, 战术压迫凶狠度)
+   * - 禁区内 → 点球；其余 → 任意球（判给被侵犯方）
+   * - 严重度掷黄/红：累计第二黄 → 红；小概率直红
+   * 成立返回 true（已重启死球），否则 false。
+   * @param {object} defender 犯规的防守球员
+   * @param {object} victim 被侵犯的持球者
+   */
+  _commitFoul(defender, victim) {
+    const b = this.ball;
+    // 禁区判定：犯规发生在防守方(defender)自己的禁区内 → 点球
+    // 防守方球门：home 守 y≈100，away 守 y≈0；禁区约 x∈[22,78]、纵深 16
+    const inBox =
+      b.x > 22 &&
+      b.x < 78 &&
+      (defender.team === "home" ? b.y >= 84 : b.y <= 16);
+
+    // 凶狠度：压迫越高越易犯规；tackling 越好越不易“铲不到还犯规”。
+    // 基准经量化校准到全场约 22 次犯规（失败抢断接触 ~166 次/场 × 均值 ~0.13）。
+    const pressing = this._tacticLevel(defender.team, "pressing");
+    let pFoul = clamp(
+      0.028 + (1 - defender.attr.tackling) * 0.077 + (pressing - 3) * 0.008,
+      0.015,
+      0.12
+    );
+    // 禁区内强抑制：真实里后卫在禁区格外谨慎、裁判需明显接触才判点，
+    // 否则点球会随禁区内每次贴身暴涨。约 0.024× → 点球落到每 3-4 场一个量级。
+    if (inBox) pFoul *= 0.024;
+    if (Math.random() >= pFoul) return false;
+
+    // 被侵犯方获得球权重启
+    const attackTeam = victim.team;
+
+    // 卡片严重度（相对犯规数的真实比例）：黄 ~15%，直红 ~0.3%。
+    const roll = Math.random();
+    let card = "none";
+    // 直红（暴力/最后一人）：很小概率
+    if (roll < 0.003 + (pressing - 3) * 0.0008) {
+      card = "red";
+    } else if (roll < 0.15 + (pressing - 3) * 0.015) {
+      const prev = defender._yellows || 0;
+      if (prev >= 1) {
+        // 已有黄牌者会格外谨慎、裁判对第二黄也偏宽容：仅 ~22% 真的变红，
+        // 否则本次逃过（不吃牌）。杜绝第二黄红牌泛滥（真实红牌约每 8-10 场一张）。
+        if (Math.random() < 0.22) card = "red2";
+      } else {
+        card = "yellow";
+        defender._yellows = prev + 1;
+      }
+    }
+
+    if (card === "red" || card === "red2") {
+      defender.sentOff = true;
+    }
+
+    this._emit("foul", defender, {
+      from: victim.id,
+      card, // none | yellow | red | red2
+      penalty: inBox,
+      x: b.x,
+      y: b.y,
+    });
+
+    if (inBox) {
+      this._penaltyKick(attackTeam);
+    } else {
+      const fx = clamp(b.x, 4, 96);
+      const fy = clamp(b.y, 4, 96);
+      this._restart("freekick", attackTeam, fx, fy);
+    }
+    return true;
+  }
+
+  /**
+   * 点球：罚球点单挑门将（不做助跑动画）。
+   * 按主罚者 finishing vs 门将 reflexes 结算进球/扑救/罚失，进球走 _goal。
+   * @param {"home"|"away"} team 主罚方
+   */
+  _penaltyKick(team) {
+    const b = this.ball;
+    const dir = this.attackDir(team); // 主罚方进攻方向
+    const spotY = team === "home" ? 12 : 88; // 罚球点（对方禁区内）
+    // 主罚者：核心优先，否则本队 finishing 最高的非门将
+    const takers = this.agents
+      .filter((a) => a.team === team && a.role !== "GK" && !a.sentOff)
+      .sort(
+        (a, c) =>
+          (c.isCore ? 1 : 0) - (a.isCore ? 1 : 0) ||
+          c.attr.finishing - a.attr.finishing
+      );
+    const taker = takers[0] || null;
+    const oppTeam = team === "home" ? "away" : "home";
+    const gk = this.agents.find((a) => a.team === oppTeam && a.role === "GK") || null;
+
+    // 死球摆位：其余球员退到禁区弧顶外
+    for (const a of this.agents) {
+      a.vx = 0;
+      a.vy = 0;
+      a.intent = null;
+      a.pose = null;
+      if (a === taker || a === gk) continue;
+      // 站到弧顶外（远离罚球点）
+      const backY = team === "home" ? 26 : 74;
+      a.y = clamp(backY + (Math.random() - 0.5) * 6, 4, 96);
+      a.x = clamp(30 + Math.random() * 40, 6, 94);
+      a.tx = a.x;
+      a.ty = a.y;
+      a.decisionUntil = this.t + 1.2;
+      a.fsm = "home";
+    }
+    if (gk) {
+      gk.x = 50;
+      gk.y = gk.baseY;
+      gk.tx = gk.x;
+      gk.ty = gk.y;
+    }
+    if (!taker) {
+      // 兜底：没人可罚，直接门球给对方
+      this._restart("goalkick", oppTeam, 50, team === "home" ? 12 : 88);
+      return;
+    }
+    taker.x = 50;
+    taker.y = spotY - dir * 4;
+    taker.tx = taker.x;
+    taker.ty = taker.y;
+
+    // 结算：finishing 决定命中，门将 reflexes 决定扑出，另有罚失（打偏/中框）
+    const finish = taker.attr.finishing;
+    const save = gk ? 0.5 * gk.attr.reflexes + 0.3 * gk.attr.handling : 0.2;
+    const pScore = clamp(0.78 + (finish - 0.6) * 0.35 - save * 0.28, 0.5, 0.9);
+    const r = Math.random();
+    // 球先摆到点上（供直播看到）
+    b.x = 50;
+    b.y = spotY;
+    b.z = 0;
+    b.vx = 0;
+    b.vy = 0;
+    b.vz = 0;
+    b.owner = null;
+    b.lastKicker = taker.id;
+    b.kickTeam = team;
+    b.state = "shot";
+    b._shotAssistId = null;
+
+    if (r < pScore) {
+      // 进球：钉在球门方向
+      b.y = team === "home" ? 0.6 : 99.4;
+      b._penaltyGoal = true;
+      this._goal(team);
+    } else if (r < pScore + (1 - pScore) * 0.7 && gk) {
+      // 门将扑出：球托向边路，转运动战
+      this._emit("save", gk, { hold: false, penalty: true });
+      const side = Math.random() < 0.5 ? 1 : -1;
+      b.x = 50 + side * 8;
+      b.y = spotY + dir * 3;
+      b.vx = side * 12;
+      b.vy = -dir * 6;
+      b.z = 0.5;
+      b.vz = 3;
+      b.state = "loose";
+      b.lastKicker = gk.id;
+      b.kickTeam = oppTeam;
+      b.settleUntil = this.t + 0.6;
+      this.deadBallUntil = this.t + 0.5;
+    } else {
+      // 罚失（打偏/中框出底线）：门球给对方
+      this._emit("shot", taker, { penalty: true, offTarget: true });
+      this._restart("goalkick", oppTeam, 50, team === "home" ? 12 : 88);
+    }
+  }
+
+  /**
    * 边界与进球判定（P3）：
    * - 球越过球门线且在门框内 → 进球
    * - 越过球门线（门框外）→ 进攻方碰的 = 门球；防守方碰的 = 角球
@@ -2405,13 +2606,14 @@ export class SimEngine {
     if (b.y <= 0) {
       // 客队球门线：门框内且是主队打进 → 进球
       if (b.x > SIM.GOAL_X0 && b.x < SIM.GOAL_X1) return this._goal("home");
-      // 门框外出底线：谁最后碰的决定门球/角球
-      if (kickTeam === "home") return this._restart("corner", "home", b.x < 50 ? 2 : 98, 4);
+      // 门框外出底线：防守方(away)最后碰 = 角球给进攻方(home)；进攻方(home)碰 = 门球给 away
+      if (kickTeam === "away") return this._restart("corner", "home", b.x < 50 ? 2 : 98, 4);
       return this._restart("goalkick", "away", 50, 12);
     }
     if (b.y >= 100) {
       if (b.x > SIM.GOAL_X0 && b.x < SIM.GOAL_X1) return this._goal("away");
-      if (kickTeam === "away") return this._restart("corner", "away", b.x < 50 ? 2 : 98, 96);
+      // 防守方(home)最后碰 = 角球给进攻方(away)；进攻方(away)碰 = 门球给 home
+      if (kickTeam === "home") return this._restart("corner", "away", b.x < 50 ? 2 : 98, 96);
       return this._restart("goalkick", "home", 50, 88);
     }
 
@@ -2427,7 +2629,7 @@ export class SimEngine {
    * 死球重启：角球 / 门球 / 界外球。
    * 把球放到重启点、交给 restartTeam 最近球员，并重置双方站位到合理形态，
    * 给足死球保护窗口——保证球真正离开门口，杜绝篮板连射。
-   * @param {"corner"|"goalkick"|"throwin"|"offside"} type
+   * @param {"corner"|"goalkick"|"throwin"|"offside"|"freekick"} type
    */
   _restart(type, restartTeam, x, y) {
     const b = this.ball;
@@ -2463,7 +2665,7 @@ export class SimEngine {
     const mirrorY = (topY) => (restartTeam === "home" ? topY : 100 - topY);
     if (type === "corner") {
       const attackOutfield = this.agents.filter(
-        (a) => a.team === restartTeam && a.role !== "GK"
+        (a) => a.team === restartTeam && a.role !== "GK" && !a.sentOff
       );
       const cornerSide = x < 50 ? 0 : 100;
       cornerTaker = attackOutfield
@@ -2626,12 +2828,17 @@ export class SimEngine {
     const b = this.ball;
     this.score[scoringTeam]++;
     const scorer = b.lastKicker ? this.agentById(b.lastKicker) : null;
+    const isPenalty = !!b._penaltyGoal;
+    b._penaltyGoal = false;
     const assistId =
-      b._shotAssistId && b._shotAssistId !== scorer?.id ? b._shotAssistId : null;
+      !isPenalty && b._shotAssistId && b._shotAssistId !== scorer?.id
+        ? b._shotAssistId
+        : null;
     this._emit("goal", scorer, {
       team: scoringTeam,
       score: { ...this.score },
       assistId,
+      penalty: isPenalty,
     });
 
     // 球钉在球门线外/网口（主队进客门 y≈0，客队进主门 y≈100）
@@ -2833,7 +3040,7 @@ export class SimEngine {
     let best = null;
     let bestD = Infinity;
     for (const a of this.agents) {
-      if (a.team !== team || a.role === "GK") continue;
+      if (a.team !== team || a.role === "GK" || a.sentOff) continue;
       const d = dist(a.x, a.y, x, y);
       if (d < bestD) {
         bestD = d;

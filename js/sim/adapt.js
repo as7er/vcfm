@@ -160,7 +160,12 @@ export function runSimPeriodRaw(eng, fromMin, toMin, opts = {}) {
   const scaled = eng.directResult({ tMin: tStart, tMax: tEnd });
   const raw = eng.events.filter((e) => e.t > tStart && e.t <= tEnd);
   const flavor = pickFlavorEvents(raw, fromMin, toMin);
-  return { scaled, flavor, tStart, tEnd, steps: guard, frames };
+  // 全量犯规计数（含未吃牌者），按犯规方归账供统计栏显示。
+  const fouls = { home: 0, away: 0 };
+  for (const e of raw) {
+    if (e.type === "foul" && (e.team === "home" || e.team === "away")) fouls[e.team]++;
+  }
+  return { scaled, flavor, tStart, tEnd, steps: guard, frames, fouls };
 }
 
 /** 压缩快照：直播投影够用，体积小于完整 snapshot */
@@ -471,6 +476,31 @@ function pickFlavorEvents(raw, fromMin, toMin) {
       counts[type]++;
     }
   }
+
+  // —— 纪律事件（不采样、不封顶）：每张卡/每个点球都必须落地 ——
+  // discipline.js 按 card/red 事件记停赛，漏一张就错账，故全量翻译。
+  for (const e of raw) {
+    if (e.type !== "foul") continue;
+    const minute = Math.max(fromMin, Math.min(toMin, simTToMinute(e.t)));
+    if (e.card === "yellow") {
+      out.push({ minute, type: "card", team: e.team, agentId: e.agentId, t: e.t });
+    } else if (e.card === "red" || e.card === "red2") {
+      out.push({
+        minute,
+        type: "red",
+        team: e.team,
+        agentId: e.agentId,
+        secondYellow: e.card === "red2",
+        t: e.t,
+      });
+    }
+    if (e.penalty) {
+      // 点球判给被侵犯方（fouler 的对手），故翻转 team。
+      const wonBy = e.team === "home" ? "away" : "home";
+      out.push({ minute, type: "penalty", team: wonBy, foulTeam: e.team, t: e.t });
+    }
+  }
+
   out.sort((a, b) => a.minute - b.minute || a.t - b.t);
   return out;
 }
@@ -570,6 +600,14 @@ export function defaultFlavorText(state, item) {
       return `🚫 ${minute}' ${short} 越位`;
     case "intercept":
       return `拦截 ${minute}' ${who} 断下传球`;
+    case "card":
+      return `🟨 ${minute}' ${who} 吃到黄牌`;
+    case "red":
+      return item.secondYellow
+        ? `🟥 ${minute}' ${who} 两黄变一红被罚下！`
+        : `🟥 ${minute}' ${who} 被红牌罚下！`;
+    case "penalty":
+      return `❗ ${minute}' ${short} 获得点球`;
     default:
       return `${minute}' ${short}`;
   }
