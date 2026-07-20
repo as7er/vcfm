@@ -741,9 +741,12 @@ export class SimEngine {
 
     // ——————————— 近距离/弧顶射门区 ———————————
     if (inShootZone) {
+      // 全队射门节奏上限只管常规进攻；已杀到门前（dGoal<12）必须允许起脚，
+      // 否则冷却期内持球者在门前无动作可选 → 底线僵持（看门狗曾兜底的根因）。
+      const cdBlocked = this.t < (this._teamShotUntil[a.team] || 0);
       const canShoot =
         this.t >= (a.shotCdUntil || 0) &&
-        this.t >= (this._teamShotUntil[a.team] || 0) &&
+        (!cdBlocked || dGoal < 12) &&
         (attackAge >= 3.5 || dGoal < 12);
       const distF = clamp(1 - dGoal / SHOOT_ZONE, 0, 1);
       const finBias = isMid && !isWing
@@ -771,11 +774,11 @@ export class SimEngine {
       // 12~22 距离的窗口反而略积极：避免强队总是一路带到六码区才射，
       // 既让画面更像正常攻门，也把机会质量拉回合理范围。
       const rangeBonus = dGoal >= 12 && dGoal <= 22 ? 0.32 : dGoal < 12 ? 0.1 : 0;
-      const shootDecisionP = clamp(
-        0.07 + shootQuality * 0.18 + rangeBonus,
-        0.03,
-        0.56
-      );
+      // 穿透全队冷却的门前射门是"保活性"的例外通道，不是常规机会：
+      // 概率重压（×0.3），大部分冷却期门前球走下方泄压阀（传中/回做）出球。
+      const shootDecisionP =
+        clamp(0.07 + shootQuality * 0.18 + rangeBonus, 0.03, 0.56) *
+        (cdBlocked ? 0.3 : 1);
       const clearCloseChance = dGoal < 13 && angF > 0.16 && pressure < 0.9;
       if (
         canShoot &&
@@ -791,6 +794,19 @@ export class SimEngine {
       if (passTo && passQuality > (core ? 0.42 : isWing ? 0.34 : 0.3)) {
         this._pass(a, passTo);
         return;
+      }
+      // 泄压阀：射门被全队冷却封锁 + 被贴身逼抢时，继续往人堆里盘带只会
+      // 在禁区边缘形成僵持平衡（残余僵持的根因）。真实球员会起球传中或回做。
+      if (this.t < (this._teamShotUntil[a.team] || 0) && pressure > 0.55) {
+        const cross = this._bestCross(a);
+        if (cross && Math.random() < 0.5) {
+          this._pass(a, cross);
+          return;
+        }
+        if (passTo && Math.random() < 0.6) {
+          this._pass(a, passTo);
+          return;
+        }
       }
       // 核心 / 边锋：内切带进去
       const tuckIn = isWing ? 0.55 + cutInProgress * 0.1 : core ? 0.55 : 0.4;
@@ -1657,9 +1673,12 @@ export class SimEngine {
     const nearest = ordered[0] || null;
     const oldPress = oldPressId ? candidates.find((a) => a.id === oldPressId) : null;
     // 迟滞：旧上抢者没有明显落后就继续，避免两个人每 tick 互换职责。
+    // 但必须自己也够得着球（<5.5）：否则贴身队友全是 screen/shape 无权下脚，
+    // 而挂名 presser 永远追不上 → 持球僵持。
     const presser =
       oldPress &&
       nearest &&
+      dist(oldPress.x, oldPress.y, this.ball.x, this.ball.y) <= 5.5 &&
       dist(oldPress.x, oldPress.y, this.ball.x, this.ball.y) <=
         dist(nearest.x, nearest.y, this.ball.x, this.ball.y) + 3.5
         ? oldPress
@@ -1800,10 +1819,12 @@ export class SimEngine {
   _thinkLoose(a) {
     const b = this.ball;
     if (this._isClosestToBall(a)) {
-      // 预测球的落点（简单外推），朝落点冲
+      // 预测球的落点（简单外推），朝落点冲。
+      // clamp 必须比拾球半径更贴边（1..99）：球停在底线死角（y>97+2.6）时
+      // 3..97 的旧 clamp 会让追球者永远停在拾球半径之外 → 无主球僵持。
       const lead = 0.4;
-      a.tx = clamp(b.x + b.vx * lead, 3, 97);
-      a.ty = clamp(b.y + b.vy * lead, 3, 97);
+      a.tx = clamp(b.x + b.vx * lead, 1, 99);
+      a.ty = clamp(b.y + b.vy * lead, 1, 99);
       a.fsm = "press";
       return;
     }
@@ -2189,7 +2210,7 @@ export class SimEngine {
       const checked = b._blockersChecked instanceof Set ? b._blockersChecked : new Set();
       b._blockersChecked = checked;
       for (const o of this.agents) {
-        if (o.team === b.kickTeam || o.role === "GK" || checked.has(o.id)) continue;
+        if (o.team === b.kickTeam || o.role === "GK" || o.sentOff || checked.has(o.id)) continue;
         const d = dist(o.x, o.y, b.x, b.y);
         if (d > 3.2 + Math.min(1.2, speed * 0.018)) continue;
         checked.add(o.id);
@@ -2226,7 +2247,8 @@ export class SimEngine {
       const flown = (b.kickX != null) ? dist(b.x, b.y, b.kickX, b.kickY) : 999;
       if (flown >= 6) { // 传球早段仍受保护（防贴脸截断/乒乓），飞出一段后才可拦
         for (const o of this.agents) {
-          if (o.team === b.kickTeam || o.role === "GK") continue;
+          // sentOff：离场者（红牌/伤退走向边线途中）绝不能拦截，否则带球离场冻结比赛
+          if (o.team === b.kickTeam || o.role === "GK" || o.sentOff) continue;
           if (this.t < (o.tackleCdUntil || 0)) continue;
           const d = dist(o.x, o.y, b.x, b.y);
           // 拦截半径：比脚下控球略大（伸脚/身体挡），越靠近越易成
@@ -2269,7 +2291,7 @@ export class SimEngine {
       if (this.t < (this._teamTackleUntil[defendingTeam] || 0)) return;
       const tacklePlan = this._refreshDefPlan(defendingTeam, owner);
       for (const o of this.agents) {
-        if (o.team === owner.team || o.role === "GK") continue;
+        if (o.team === owner.team || o.role === "GK" || o.sentOff) continue;
         // 只有球队当前指定的上抢者可以下脚；其他人保持封线/盯人职责。
         if (tacklePlan?.jobs.get(o.id)?.type !== "press") continue;
         // 抢断尝试冷却：个人与全队都不能每 tick 掷骰子。
@@ -2372,7 +2394,9 @@ export class SimEngine {
           last.team === "home"
             ? b.y > 84 && b.x > 26 && b.x < 74
             : b.y < 16 && b.x > 26 && b.x < 74;
-        if (inSix && flown < 14) {
+        // 保护只在球仍在运动时有效：解围软弱球停在门区内时 flown 永远 <14，
+        // 若继续禁止拾取会让对方站在死球旁边干瞪眼（无主球僵持来源之一）。
+        if (inSix && flown < 14 && Math.hypot(b.vx, b.vy) > 1) {
           // 球还没真正离开门区 → 对方不能抢
           best = null;
         }
@@ -2448,6 +2472,16 @@ export class SimEngine {
     if (!p || p.sentOff || p.injuredOff || p.role === "GK") return false;
     p.injuredOff = true;
     p.sentOff = true; // 复用罚下减员：退出决策/跑位/发球候选，场上真实少一人
+    // 伤退者可能正持球（接触伤受害者/疲劳伤抽查都可能是 owner）：
+    // 必须原地放落为 loose，否则他会带着球走向边线并永久冻结比赛。
+    if (this.ball.owner === p.id) {
+      const b = this.ball;
+      b.owner = null;
+      b.state = "loose";
+      b.vx = 0;
+      b.vy = 0;
+      this._clearBallTarget();
+    }
     this._emit("injury", p, { cause });
     // 请求替补（接入层决定名额/人选）：约 40s 后从边线热替换进场，恢复 11v11。
     // 无名额/无人可换 → 返回 null，真实地少人作战。
