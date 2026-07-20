@@ -418,6 +418,23 @@ export class SimEngine {
     this._resolvePossession(dt);
     // 5) 裁判规则（P3 填充：越位/出界/进球）——P0 仅做出界夹回
     this._resolveBounds();
+    // 5a) 防死锁看门狗：僵持 20s 强制解围（存量僵持 + 减员放大的兜底）
+    this._antiDeadlock(dt);
+    // 5b) 疲劳伤病抽查（每 60s 模拟时间一次）
+    if (this.t >= (this._fatigueCheckT || 0)) {
+      this._fatigueCheckT = this.t + 60;
+      this._tickFatigueInjury();
+    }
+    // 5c) 伤病换人生效（替补从边线进场）
+    if (this._pendingSubs && this._pendingSubs.length) {
+      for (let i = this._pendingSubs.length - 1; i >= 0; i--) {
+        const s = this._pendingSubs[i];
+        if (this.t >= s.at) {
+          this.substituteAgent(s.outId, s.player);
+          this._pendingSubs.splice(i, 1);
+        }
+      }
+    }
     this.t += dt;
   }
 
@@ -2314,6 +2331,8 @@ export class SimEngine {
     let best = null;
     let bestD = SIM.CONTROL_RADIUS + speed * 0.04;
     for (const a of this.agents) {
+      // 已离场者（红牌/伤退）绝不能接管球：否则球会跟着他走出边线并永远 held
+      if (a.sentOff) continue;
       if (a.id === b.lastKicker && this.t < (a.noReclaimUntil || 0)) continue;
       if (oppBlocked && a.team !== b.kickTeam) continue;
       // 门将只能在本方禁区附近拿自由球（防中场门将"参与传球"）
@@ -2417,6 +2436,170 @@ export class SimEngine {
   }
 
   /**
+   * 伤病涌现（P3 收尾）：让球员因对抗或疲劳受伤退场。
+   * 引擎只判定「发生伤病风险」并让其退出模拟（复用 sentOff 减员）；
+   * 是否真成伤、缺阵多久由 match 层按队医/训练/天气二次结算（保留设施深度）。
+   * 门将不作为对象（避免无人守门）。
+   * @param {object} p 受伤球员
+   * @param {"contact"|"fatigue"} cause 成因（仅用于文案/统计）
+   * @returns {boolean}
+   */
+  _commitInjury(p, cause) {
+    if (!p || p.sentOff || p.injuredOff || p.role === "GK") return false;
+    p.injuredOff = true;
+    p.sentOff = true; // 复用罚下减员：退出决策/跑位/发球候选，场上真实少一人
+    this._emit("injury", p, { cause });
+    // 请求替补（接入层决定名额/人选）：约 40s 后从边线热替换进场，恢复 11v11。
+    // 无名额/无人可换 → 返回 null，真实地少人作战。
+    const sub = typeof this.onInjurySub === "function" ? this.onInjurySub(p, cause) : null;
+    if (sub) {
+      (this._pendingSubs || (this._pendingSubs = [])).push({
+        outId: p.id,
+        player: sub,
+        at: this.t + 40,
+      });
+    }
+    return true;
+  }
+
+  /**
+   * 伤病热替换：把 outId 所在 slot 换成替补 player（角色/基准位继承槽位）。
+   * 引擎不做名额记账（match 层负责），只让替补从中线边缘进场跑回基准位。
+   * @param {string} outId 伤退球员 id
+   * @param {object} player 替补球员（club.players 成员）
+   * @returns {boolean}
+   */
+  substituteAgent(outId, player) {
+    const a = this.agents.find((x) => x.id === outId);
+    if (!a || !player) return false;
+    const attrs = player.attrs || {};
+    a.id = player.id;
+    a.player = player;
+    a.num = player.number ?? a.num;
+    a.attr = {
+      pace: norm(attrs.pace),
+      accel: norm(attrs.pace) * 0.6 + norm(attrs.strength) * 0.4,
+      passing: norm(attrs.passing),
+      vision: norm(attrs.vision),
+      shooting: norm(attrs.shooting),
+      finishing: norm(attrs.finishing),
+      dribbling: norm(attrs.dribbling),
+      tackling: norm(attrs.tackling),
+      marking: norm(attrs.marking),
+      strength: norm(attrs.strength),
+      stamina: norm(attrs.stamina),
+      positioning: norm(attrs.positioning),
+      reflexes: norm(attrs.reflexes),
+      handling: norm(attrs.handling),
+      kicking: norm(attrs.kicking),
+    };
+    a.fitness = player.fitness ?? 100;
+    a.sentOff = false;
+    a.injuredOff = false;
+    a._yellows = 0;
+    a.isCore = false;
+    // 从中线边缘进场，跑回基准位
+    a.x = a.baseX < 50 ? 1 : 99;
+    a.y = 50;
+    a.tx = a.baseX;
+    a.ty = a.baseY;
+    a.vx = 0;
+    a.vy = 0;
+    a.intent = null;
+    a.fsm = "home";
+    a.decisionUntil = this.t + 0.8;
+    a.protectUntil = 0;
+    a.tackleCdUntil = 0;
+    return true;
+  }
+
+  /**
+   * 防死锁看门狗（对症存量僵持 + 减员放大版）：
+   * 球权/球位 20s 零进展（正常持球含角球停顿最长 ~5s）判定为病理僵持，
+   * 强制持球者大脚解围到对方半场（同门将被逼抢的既有行为）；无主僵持球轻推回中场。
+   * 根因（持球决策在特定攻防形态下选不出动作）另行排查，此处只兜底保比赛活性。
+   */
+  _antiDeadlock(dt) {
+    const b = this.ball;
+    if (this.celebrateUntil && this.t < this.celebrateUntil) {
+      this._stallT = 0;
+      return;
+    }
+    if (this.t < this.deadBallUntil) {
+      this._stallT = 0;
+      return;
+    }
+    const key = `${b.owner || "-"}|${b.state}`;
+    const moved = Math.hypot(b.x - (this._stallX ?? b.x), b.y - (this._stallY ?? b.y));
+    if (key === this._stallKey && moved < 3) {
+      this._stallT = (this._stallT || 0) + dt;
+    } else {
+      this._stallKey = key;
+      this._stallX = b.x;
+      this._stallY = b.y;
+      this._stallT = 0;
+    }
+    if (this._stallT < 20) return;
+    this._stallT = 0;
+    this._stallKey = null;
+    const o = b.owner ? this.agentById(b.owner) : null;
+    this._emit("stall_clear", o || null);
+    if (o) {
+      const dir = this.attackDir(o.team);
+      const tx = clamp(o.x < 50 ? 62 + Math.random() * 24 : 14 + Math.random() * 24, 6, 94);
+      const ty = clamp(o.y + dir * (28 + Math.random() * 14), 6, 94);
+      const d = Math.max(1, dist(o.x, o.y, tx, ty));
+      const sp = 26;
+      b.vx = ((tx - o.x) / d) * sp;
+      b.vy = ((ty - o.y) / d) * sp;
+      b.z = 0.4;
+      b.vz = 4.5;
+      b.owner = null;
+      b.state = "loose";
+      b.lastKicker = o.id;
+      b.kickTeam = o.team;
+      b.kickX = o.x;
+      b.kickY = o.y;
+      this._clearBallTarget();
+      o.noReclaimUntil = this.t + 1.2;
+      o.decisionUntil = this._nextControlDecision(o);
+      o.intent = null;
+    } else {
+      // 无主球僵持（没人去捡）：定速推回中圈，让接管判定重新有人可选
+      const d = Math.max(1, dist(b.x, b.y, 50, 50));
+      b.vx = ((50 - b.x) / d) * 10;
+      b.vy = ((50 - b.y) / d) * 10;
+      b.z = 0;
+      b.vz = 0;
+      b.state = "loose";
+    }
+  }
+
+  /**
+   * 疲劳性无接触伤：每模拟分钟考察一名体能最低的在场球员，低概率受伤。
+   * 真实里肌肉拉伤无场面因果，故独立于对抗；体能越低越危险。
+   */
+  _tickFatigueInjury() {
+    let worst = null;
+    let worstFit = 101;
+    for (const a of this.agents) {
+      if (a.sentOff || a.injuredOff || a.role === "GK") continue;
+      const f = a.fitness ?? 100;
+      if (f < worstFit) {
+        worstFit = f;
+        worst = a;
+      }
+    }
+    if (!worst) return;
+    // 持球者/飞行接球点不伤（避免球随人「离场」卡死），留给下次抽查
+    if (worst.id === this.ball.owner || worst.id === this.ball.receiverId) return;
+    const fit = worstFit / 100;
+    const mul = this.injuryMul?.[worst.team] ?? 1;
+    const p = clamp(0.0006 + (0.7 - fit) * 0.004, 0.0003, 0.006) * mul;
+    if (Math.random() < p) this._commitInjury(worst, "fatigue");
+  }
+
+  /**
    * 犯规判定（P3）：抢断失败 + 贴身接触时调用。
    * - 犯规概率 = f(防守者 tackling 反比, 战术压迫凶狠度)
    * - 禁区内 → 点球；其余 → 任意球（判给被侵犯方）
@@ -2480,6 +2663,14 @@ export class SimEngine {
       y: b.y,
     });
 
+    // 被侵犯者可能伤退：犯规越重越可能（重伤多来自恶性犯规）。
+    // 量级：普通犯规 ~1%、黄牌级 ~6%、直红 ~20% → 配合犯规 ~22/场
+    // 约 0.4 次接触伤/场，对齐旧 tryInjury 的整体频率。
+    const injMul = this.injuryMul?.[victim.team] ?? 1;
+    const pInj =
+      card === "red" ? 0.2 : card === "yellow" || card === "red2" ? 0.06 : 0.01;
+    if (Math.random() < pInj * injMul) this._commitInjury(victim, "contact");
+
     if (inBox) {
       this._penaltyKick(attackTeam);
     } else {
@@ -2511,8 +2702,9 @@ export class SimEngine {
     const oppTeam = team === "home" ? "away" : "home";
     const gk = this.agents.find((a) => a.team === oppTeam && a.role === "GK") || null;
 
-    // 死球摆位：其余球员退到禁区弧顶外
+    // 死球摆位：其余球员退到禁区弧顶外（已离场者不参与摆位）
     for (const a of this.agents) {
+      if (a.sentOff) continue;
       a.vx = 0;
       a.vy = 0;
       a.intent = null;
@@ -2693,7 +2885,7 @@ export class SimEngine {
       attackers.slice(5).forEach((a, i) => attackEdgeSlots.set(a.id, i));
 
       const defenders = this.agents
-        .filter((a) => a.team !== restartTeam && a.role !== "GK")
+        .filter((a) => a.team !== restartTeam && a.role !== "GK" && !a.sentOff)
         .sort((a, b) => {
           const pa = a.role === "DEF" ? 0 : a.role === "MID" ? 1 : 2;
           const pb = b.role === "DEF" ? 0 : b.role === "MID" ? 1 : 2;
@@ -2717,6 +2909,7 @@ export class SimEngine {
     const defendEdgeY = [34, 31, 35, 31, 34];
 
     for (const a of this.agents) {
+      if (a.sentOff) continue; // 已离场者不参与死球摆位（否则每次重启都被传送回场内）
       a.vx = 0;
       a.vy = 0;
       a.intent = null;
@@ -3004,6 +3197,7 @@ export class SimEngine {
     this.celebrateParticipants = null;
     this.cornerShapeUntil = 0;
     for (const a of this.agents) {
+      if (a.sentOff) continue; // 已离场者不回基准位（保持走向边线/场外）
       a.x = a.baseX;
       a.y = a.baseY;
       a.vx = 0;

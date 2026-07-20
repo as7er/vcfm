@@ -726,6 +726,51 @@ function addSimGoal(state, minute, team, scorerId, assistId = null) {
   );
 }
 
+/**
+ * 伤病空间化接线：把队医/训练/天气的易伤系数与「伤退→自动替补」回调注入引擎。
+ * 引擎只负责涌现与热替换；名额/人选在回调里预占，事件与 lineup 在 cue 落账时生效
+ * （pushSimFlavor 的 injury 分支）。用户队也自动补人：半场是预跑的，无法中途询问；
+ * 换人事件对用户可见，中场仍可自由调整。
+ */
+function wireSimInjuries(state) {
+  const eng = state.simEng;
+  if (!eng) return;
+  const wMul = state.weather?.injury || 1;
+  eng.injuryMul = {
+    home: wMul * doctorInjuryMod(state.home) * trainingInjuryMod(state.home),
+    away: wMul * doctorInjuryMod(state.away) * trainingInjuryMod(state.away),
+  };
+  if (!state._simPendingSubs) state._simPendingSubs = [];
+  eng.onInjurySub = (agent) => {
+    const club = agent.team === "home" ? state.home : state.away;
+    const sk = agent.team;
+    const pending = state._simPendingSubs.filter((s) => s.team === sk);
+    if (state.subsUsed[sk] + pending.length >= state.maxSubs) return null;
+    const taken = new Set(pending.map((s) => s.inId));
+    const xiIds = new Set(club.tactics.lineup);
+    const outP = club.players.find((p) => p.id === agent.id);
+    if (!outP) return null; // 占位 agent（无真实球员）不换
+    const bench = club.players
+      .filter(
+        (p) =>
+          !xiIds.has(p.id) &&
+          !taken.has(p.id) &&
+          (p.injured || 0) <= 0 &&
+          !state.sentOff[sk].has(p.id) &&
+          (p.fitness || 0) > 50
+      )
+      .sort((a, b) => {
+        const am = a.pos === outP.pos ? 5 : 0;
+        const bm = b.pos === outP.pos ? 5 : 0;
+        return b.ovr + bm - (a.ovr + am);
+      });
+    const inn = bench[0];
+    if (!inn) return null;
+    state._simPendingSubs.push({ team: sk, outId: agent.id, inId: inn.id });
+    return inn;
+  };
+}
+
 function pushSimFlavor(state, item) {
   const club = item.team === "home" ? state.home : state.away;
   if (!club) return null;
@@ -756,6 +801,35 @@ function pushSimFlavor(state, item) {
     // 犯规数在 period 级已全量归账（含此点球犯规），此处只发通知事件，不重复计。
     return pushEv(state, item.minute, "penalty", text, { teamId: club.id, fromSim: true });
   }
+  if (item.type === "injury") {
+    // 空间涌现的伤退：引擎已让球员离场（有替补时已热替换恢复 11v11）。
+    // 本层结算真实伤情与名额（队医/训练/天气已通过 injuryMul 在引擎端生效）。
+    const p = club.players?.find((x) => x.id === item.agentId);
+    if (!p) return null;
+    const days =
+      item.cause === "contact" ? 2 + Math.floor(rng() * 5) : 1 + Math.floor(rng() * 3);
+    p.injured = days;
+    p.fitness = Math.round(Math.min(p.fitness ?? 100, 45));
+    state.injuredOut.add(p.id);
+    const ev = pushEv(
+      state,
+      item.minute,
+      "injury",
+      `🏥 ${item.minute}' ${club.short} ${p.name} 受伤下场（约 ${days} 天）`,
+      { teamId: club.id, playerId: p.id, fromSim: true }
+    );
+    recomputeSides(state);
+    // 引擎回调时选定的替补：此刻正式落账（lineup/名额/换人事件同旧通道）
+    const subIdx = (state._simPendingSubs || []).findIndex(
+      (s) => s.team === sk && s.outId === p.id
+    );
+    if (subIdx >= 0) {
+      const sub = state._simPendingSubs.splice(subIdx, 1)[0];
+      const silent = club.id !== state.world.userClubId; // AI 换人保持旧的静默习惯
+      applySubstitution(state, club, sub.outId, sub.inId, item.minute, silent);
+    }
+    return ev;
+  }
 
   const type =
     item.type === "corner"
@@ -781,6 +855,7 @@ function pushSimFlavor(state, item) {
  */
 async function simulatePeriodWithSim(state, fromMin, toMin, { onEvent, playHighlightPlan } = {}) {
   ensureSimEngine(state);
+  wireSimInjuries(state);
   if (fromMin >= 46) resyncSimAfterHalfTime(state);
 
   const liveStream = !!(state._liveMode && onEvent);
@@ -863,9 +938,7 @@ async function simulatePeriodWithSim(state, fromMin, toMin, { onEvent, playHighl
       minutesDone.add(minute);
       state.minute = minute;
       const mark = state.events.length;
-      // 用户场犯规/卡片由空间引擎从真实抢断涌现（adapt.js 翻译），不再概率掷骰。
-      // 伤病暂仍走事件层（引擎未产出伤病）。
-      tryInjury(state, minute);
+      // 用户场犯规/卡片/伤病均由空间引擎涌现（adapt.js 翻译 → pushSimFlavor 落账），不再概率掷骰。
       midMatchCoachPrompt(state, minute);
       if (minute % 15 === 0) {
         for (const club of [state.home, state.away]) {
@@ -967,8 +1040,7 @@ async function simulatePeriodWithSim(state, fromMin, toMin, { onEvent, playHighl
       else if (c.kind === "flavor") pushSimFlavor(state, c.item);
     }
 
-    // 用户场犯规/卡片由空间引擎涌现；伤病暂仍走事件层。
-    tryInjury(state, minute);
+    // 用户场犯规/卡片/伤病均由空间引擎涌现（pushSimFlavor 落账）。
     midMatchCoachPrompt(state, minute);
 
     if (minute % 15 === 0) {
@@ -1005,6 +1077,7 @@ function simulatePeriodWithSimSync(state, fromMin, toMin) {
   // 因 simulatePeriodWithSim 内部无真正 await（onEvent 缺省），可直接调用并忽略 Promise
   // 为避免微任务时序问题，内联同步路径：
   ensureSimEngine(state);
+  wireSimInjuries(state);
   if (fromMin >= 46) resyncSimAfterHalfTime(state);
 
   const period = runSimPeriodRaw(state.simEng, fromMin, toMin);
@@ -1056,8 +1129,7 @@ function simulatePeriodWithSimSync(state, fromMin, toMin) {
         addSimGoal(state, minute, item.team, item.scorerId, item.assistId || null);
       else pushSimFlavor(state, item);
     }
-    // 用户场犯规/卡片由空间引擎涌现；伤病暂仍走事件层。
-    tryInjury(state, minute);
+    // 用户场犯规/卡片/伤病均由空间引擎涌现（pushSimFlavor 落账）。
     midMatchCoachPrompt(state, minute);
     if (minute % 15 === 0) {
       for (const club of [state.home, state.away]) {

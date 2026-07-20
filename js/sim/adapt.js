@@ -69,6 +69,10 @@ export function resyncSimAfterHalfTime(state) {
       a.id = p.id;
       a.player = p;
       a.num = p.number ?? a.num;
+      // 离场状态跟随「现在这个槽位的球员」：红牌者仍被罚下；
+      // 伤员被中场换下后，接替者必须恢复在场（否则替补被卡在场外）
+      a.sentOff = state.sentOff[team].has(p.id) || (p.injured || 0) > 0;
+      a.injuredOff = (p.injured || 0) > 0;
       // 角色以阵型槽为准，GK 槽永远是门将 AI
       a.role = slot.pos || p.pos || a.role;
       try {
@@ -501,6 +505,20 @@ function pickFlavorEvents(raw, fromMin, toMin) {
     }
   }
 
+  // —— 伤病（不采样）：引擎已让球员真实退场/热替换，漏翻译会错账 ——
+  for (const e of raw) {
+    if (e.type !== "injury") continue;
+    const minute = Math.max(fromMin, Math.min(toMin, simTToMinute(e.t)));
+    out.push({
+      minute,
+      type: "injury",
+      team: e.team,
+      agentId: e.agentId,
+      cause: e.cause,
+      t: e.t,
+    });
+  }
+
   out.sort((a, b) => a.minute - b.minute || a.t - b.t);
   return out;
 }
@@ -608,6 +626,8 @@ export function defaultFlavorText(state, item) {
         : `🟥 ${minute}' ${who} 被红牌罚下！`;
     case "penalty":
       return `❗ ${minute}' ${short} 获得点球`;
+    case "injury":
+      return `🏥 ${minute}' ${who} 受伤倒地`;
     default:
       return `${minute}' ${short}`;
   }
