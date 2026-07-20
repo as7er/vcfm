@@ -3485,11 +3485,10 @@ export class SimEngine {
   }
 
   // ——————————————————————————————————————————————
-  // 结果层：正式路径读取真实事件；旧缩放器只保留给回归对比
+  // 结果层：从空间模拟事件直接生成结果
   // ——————————————————————————————————————————————
   /**
    * 直接从空间模拟事件生成结果。进球、射手、助攻和直播帧共享同一事实来源。
-   * 保留 scaledResult 供旧诊断对比，但正式用户比赛不再二次重掷比分。
    */
   directResult(opts = {}) {
     const tMin = opts.tMin ?? 0;
@@ -3526,106 +3525,10 @@ export class SimEngine {
     return result;
   }
 
-  /** 旧版子采样 + 二次转化结果，仅供 _scaled.mjs 等历史诊断使用。 */
-  scaledResult(opts = {}) {
-    // 目标场均每队射门（真实约 12-14）；作为"两队原始射门均值"映射的锚点。
-    // 半场窗口可用 targetShotsPerTeam≈6.5 或靠 tMin/tMax 自动减半。
-    const tMin = opts.tMin ?? 0;
-    const tMax = opts.tMax ?? Infinity;
-    const windowSec =
-      Number.isFinite(tMax) && Number.isFinite(tMin) ? Math.max(1, tMax - tMin) : 90 * 60;
-    const defaultTarget = windowSec <= 50 * 60 ? 7 : 13;
-    const targetShots = opts.targetShotsPerTeam ?? defaultTarget;
-    const rng = opts.rng || Math.random;
-
-    // 原始射门事件（可按时间窗过滤，供半场结算 / 适配层）
-    const rawShots = this.events.filter(
-      (e) => e.type === "shot" && e.t >= tMin && e.t <= tMax
-    );
-    const bySide = { home: [], away: [] };
-    for (const s of rawShots) {
-      if (s.team === "home" || s.team === "away") bySide[s.team].push(s);
-    }
-
-    const result = {
-      score: { home: 0, away: 0 },
-      shots: { home: 0, away: 0 },
-      goals: [], // [{ team, minute, scorerId, t }]
-      rawScore: { ...this.score },
-      rawShots: { home: bySide.home.length, away: bySide.away.length },
-      tMin,
-      tMax: Number.isFinite(tMax) ? tMax : null,
-    };
-
-    // 缩放：两队原始射门均值锚定到 targetShots。但不做线性比例——
-    // 线性会把原始 24:2 这种悬殊比例原样放大成碾压。改用【幂律压缩】：
-    // 每队目标射门 = targetShots × (本队原始/均值)^COMPRESS。
-    // COMPRESS<1 收敛强弱差距（0.5 即开平方），让 24:2 → 约 16:9 的真实差距，
-    // 强队仍明显占优、弱队也有还手之力，不再碾压。
-    const COMPRESS = 0.5;
-    const rawAvg = (bySide.home.length + bySide.away.length) / 2 || 1;
-
-    for (const team of ["home", "away"]) {
-      const shots = bySide[team];
-      if (!shots.length) continue;
-      // 幂律压缩后的该队目标射门数
-      const ratio = shots.length / rawAvg;
-      const scaled = targetShots * Math.pow(ratio, COMPRESS);
-      let keep = Math.floor(scaled) + (rng() < (scaled % 1) ? 1 : 0);
-      keep = clamp(keep, 0, shots.length);
-      if (!keep) continue;
-      const idx = this._sampleIndices(shots.length, keep, rng);
-      result.shots[team] = keep;
-      const gk = this._teamGk(team === "home" ? "away" : "home");
-      const gkSave = gk ? gk.attr.reflexes : 0.5;
-      for (const i of idx) {
-        const s = shots[i];
-        const shooter = s.agentId ? this.agentById(s.agentId) : null;
-        const fin = shooter ? shooter.attr.finishing : 0.5;
-        // xG 式转化率：基线 ~0.11，finishing 提升、对方门将抑制
-        const p = clamp(0.06 + 0.16 * fin - 0.06 * gkSave, 0.02, 0.4);
-        if (rng() < p) {
-          result.score[team]++;
-          // 优先用射门事件自带的助攻；否则回查 8.5s 内本方传球
-          let assistId = s.assistId || null;
-          if (!assistId && s.agentId) {
-            for (let j = this.events.length - 1; j >= 0; j--) {
-              const e = this.events[j];
-              if (e.t > s.t) continue;
-              if (s.t - e.t > 8.5) break;
-              if (
-                e.type === "pass" &&
-                e.team === team &&
-                e.agentId &&
-                e.agentId !== s.agentId
-              ) {
-                assistId = e.agentId;
-                break;
-              }
-            }
-          }
-          if (assistId === s.agentId) assistId = null;
-          result.goals.push({
-            team,
-            minute: Math.max(1, Math.min(90, Math.round((s.t / (90 * 60)) * 90))) || 1,
-            scorerId: s.agentId || null,
-            assistId,
-            t: s.t,
-          });
-        }
-      }
-    }
-    result.goals.sort((a, b) => (a.t ?? a.minute) - (b.t ?? b.minute));
-    return result;
-  }
-
-  /** 从 n 个中不重复抽取 k 个下标（升序返回），保留时间顺序 */
-  _sampleIndices(n, k, rng = Math.random) {
-    if (k >= n) return Array.from({ length: n }, (_, i) => i);
-    const picked = new Set();
-    while (picked.size < k) picked.add(Math.floor(rng() * n));
-    return [...picked].sort((a, b) => a - b);
-  }
+  /*
+   * P6 清理：scaledResult()/_sampleIndices()（旧幂律缩放二次转化层）已删除。
+   * 正式路径只有 directResult()——比分/射手/助攻与直播帧共享同一事实来源。
+   */
 
   /** 某队门将 agent */
   _teamGk(team) {

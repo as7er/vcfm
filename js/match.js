@@ -1401,67 +1401,11 @@ export function applySubstitution(state, club, outId, inId, minute, silent = fal
   return { ok: true, msg: "换人成功" };
 }
 
-/**
- * 模拟一段时间（含 from，含 to）
- * onEvent?: async (ev, snapshot) => void  用于直播
+/*
+ * P6 清理：v1 异步逐分钟直播路径（simulateMinutes）已删除。
+ * 用户场恒走 v2 空间模拟（simulatePeriodWithSim / simulatePeriodWithSimSync）；
+ * v1 概率引擎仅保留同步版 runMinutesSync 供 AI 后台场（性能）。
  */
-export async function simulateMinutes(state, fromMin, toMin, { onEvent } = {}) {
-  for (let minute = fromMin; minute <= toMin; minute++) {
-    state.minute = minute;
-    if (minute === 46 && fromMin <= 45) {
-      // 半场由外部处理
-    }
-
-    tryAttack(
-      state,
-      minute,
-      state.home,
-      state.away,
-      state.homeAtk,
-      state.awayDef,
-      state.homeXG
-    );
-    tryAttack(
-      state,
-      minute,
-      state.away,
-      state.home,
-      state.awayAtk,
-      state.homeDef,
-      state.awayXG
-    );
-    tryCardOrFoul(state, minute);
-    tryInjury(state, minute);
-    midMatchCoachPrompt(state, minute);
-
-    // 体能微耗（压迫/高位/进攻风格更费）
-    if (minute % 15 === 0) {
-      for (const club of [state.home, state.away]) {
-        const sk = club === state.home ? "home" : "away";
-        const fitW = state._fitW?.[sk] || fitnessMultOf(club.tactics);
-        for (const p of activeXi(state, club)) {
-          const drain =
-            Math.max(1, Math.round(fitW + (state.weather.pace < 0.92 ? 0.5 : 0)));
-          p.fitness = Math.round(Math.max(30, (p.fitness || 100) - drain));
-        }
-      }
-      recomputeSides(state);
-    }
-
-    if (onEvent) {
-      // 只回调本分钟新增事件（带实时 xG/控球）
-      const snap = liveSnap(state, minute);
-      const recent = state.events.filter((e) => e.minute === minute);
-      for (const ev of recent) {
-        await onEvent(ev, snap);
-      }
-      // 无事件也推进分钟显示
-      if (!recent.length) {
-        await onEvent({ minute, type: "tick", text: "" }, snap);
-      }
-    }
-  }
-}
 
 /** 开球 + 上半场 1–45 */
 export async function playFirstHalf(state, opts = {}) {
@@ -1492,7 +1436,8 @@ export async function playFirstHalf(state, opts = {}) {
   if (shouldUseSim(state)) {
     await simulatePeriodWithSim(state, 1, 45, opts);
   } else {
-    await simulateMinutes(state, 1, 45, opts);
+    // 理论兜底：无用户参与的 state 走 AI 同步概率引擎（正常流程不会到这）
+    runMinutesSync(state, 1, 45);
   }
   pushEv(state, 45, "ht", `中场休息 ${home.name} ${state.hg} - ${state.ag} ${away.name}`);
   if (opts.onEvent) {
@@ -1880,7 +1825,8 @@ export async function playSecondHalf(state, opts = {}) {
   if (shouldUseSim(state)) {
     await simulatePeriodWithSim(state, 46, 90, opts);
   } else {
-    await simulateMinutes(state, 46, 90, opts);
+    // 理论兜底：无用户参与的 state 走 AI 同步概率引擎（正常流程不会到这）
+    runMinutesSync(state, 46, 90);
   }
   pushEv(
     state,
@@ -2466,23 +2412,11 @@ export function finalizeMatch(state) {
   };
 }
 
-/**
- * 完整模拟一场（AI 场次 / 用户快速无暂停）
- * options.pauseAtHalf: 若 true 且用户队，只踢上半场并返回 state（不 finalize）
+/*
+ * P6 清理：simulateMatchFull（v1 异步整场入口）已删除。
+ * 用户场入口是 main.js 直调 playFirstHalf / continueSecondHalf；
+ * AI 后台/快速模拟入口是 simulateMatchSync / simulateMatch。
  */
-export async function simulateMatchFull(world, fixture, options = {}) {
-  const state = createMatchSession(world, fixture);
-  const onEvent = options.onEvent;
-  await playFirstHalf(state, { onEvent });
-
-  if (options.pauseAtHalf && state.userSide) {
-    return { paused: true, state, homeGoals: state.hg, awayGoals: state.ag, events: state.events };
-  }
-
-  await playSecondHalf(state, { onEvent });
-  const result = finalizeMatch(state);
-  return { paused: false, state, ...result };
-}
 
 function runMinutesSync(state, fromMin, toMin) {
   for (let minute = fromMin; minute <= toMin; minute++) {

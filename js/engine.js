@@ -154,7 +154,6 @@ import {
   finalizeMatch,
   getBenchPlayers,
   getOnFieldPlayers,
-  simulateMatchFull,
   ensureFixtureWeather,
   isDerby,
   isBigMatch,
@@ -236,7 +235,6 @@ export {
   finalizeMatch,
   getBenchPlayers,
   getOnFieldPlayers,
-  simulateMatchFull,
   ensureFixtureWeather,
   isDerby,
   isBigMatch,
@@ -1655,24 +1653,9 @@ export function getMarketPlayers(world, posFilter = "") {
   return list.slice(0, 40);
 }
 
-/** 直播模拟：完整踢完并逐步回调（无中场暂停） */
-export async function simulateMatchLive(world, fixture, onEvent, delayMs = 80) {
-  const result = await simulateMatchFull(world, fixture, {
-    onEvent: async (ev, snap) => {
-      if (ev.type === "tick") {
-        await onEvent(ev, snap);
-        await sleep(Math.min(delayMs, 20));
-        return;
-      }
-      await onEvent(ev, snap);
-      await sleep(ev.type === "goal" ? delayMs * 2.5 : delayMs);
-    },
-  });
-  return result;
-}
-
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
+/*
+ * P6 清理：simulateMatchLive（v1 逐分钟直播包装）已删除——
+ * 用户直播由 main.js 直调 playFirstHalf/continueSecondHalf（v2 空间模拟录帧投影）。
+ */
 
 export { FORMATIONS, formatMoney, playerOverall, estimateValue };

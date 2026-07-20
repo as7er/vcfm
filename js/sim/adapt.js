@@ -18,16 +18,13 @@ import {
 } from "../models.js";
 import { FORMATIONS } from "../data.js";
 
-/** 总开关：用户场是否走 v2 空间模拟 */
-export const USE_SIM_ENGINE = true;
-
 /**
+ * 用户参与的比赛走 v2 空间模拟；AI 后台场（userSide=null）走概率引擎（性能）。
+ * P6 起 v2 为永久默认，不再设总开关。
  * @param {object} state createMatchSession 返回值
  * @returns {boolean}
  */
 export function shouldUseSim(state) {
-  if (!USE_SIM_ENGINE) return false;
-  // 仅用户参与的比赛（后台 AI 场 userSide=null）
   return !!state?.userSide;
 }
 
