@@ -24,7 +24,7 @@ import {
 } from "./data.js";
 import { ensureMedia, mediaSeasonKickoff } from "./media.js";
 import { t, initPrefs, getLang } from "./i18n.js";
-import { getMatchView, destroyMatchView } from "./matchview.js?v=107";
+import { getMatchView, destroyMatchView } from "./matchview.js?v=108";
 
 function nationLabel(p) {
   if (p.nationFlag && p.nationName) return `${p.nationFlag} ${p.nationName}`;
@@ -203,7 +203,7 @@ import {
   playerAvatarHtml,
   staffAvatarHtml,
   avatarHtml,
-} from "./avatar.js?v=107";
+} from "./avatar.js?v=108";
 
 /** 解雇后回菜单：优先提示换空槽开新档，避免误覆盖 */
 function handleSacked(result) {

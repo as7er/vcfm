@@ -927,12 +927,12 @@
     <div id="season-summary" class="season-summary hidden" role="dialog" aria-modal="true"></div>
   </div>
 
-  <script type="module" src="js/main.js?v=107"></script>
+  <script type="module" src="js/main.js?v=108"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {
         // 只保留当前 CACHE 名，删掉历史 vcfm-*（须与 sw.js 的 CACHE 同步）
-        var CURRENT_CACHE = "vcfm-v107";
+        var CURRENT_CACHE = "vcfm-v108";
         if (window.caches && caches.keys) {
           caches.keys().then(function (keys) {
             return Promise.all(
@@ -942,7 +942,7 @@
             );
           }).catch(function () {});
         }
-        navigator.serviceWorker.register("./sw.js?v=107").then(function (reg) {
+        navigator.serviceWorker.register("./sw.js?v=108").then(function (reg) {
           try { reg.update(); } catch (e) {}
           if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
         }).catch(function () {});
@@ -951,8 +951,8 @@
           if (refreshing) return;
           refreshing = true;
           try {
-            if (!sessionStorage.getItem("vcfm-sw-reloaded-v107")) {
-              sessionStorage.setItem("vcfm-sw-reloaded-v107", "1");
+            if (!sessionStorage.getItem("vcfm-sw-reloaded-v108")) {
+              sessionStorage.setItem("vcfm-sw-reloaded-v108", "1");
               location.reload();
             }
           } catch (e) {

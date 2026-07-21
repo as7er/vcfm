@@ -9,7 +9,7 @@
  * image-rendering:pixelated——SVG crispEdges 在模态动画/系统缩放下会被平滑，
  * PNG 硬边不受合成链路影响。SVG 路径保留（预览/无 DOM 环境兜底）。
  *
- * v5.2 分辨率：逻辑网格 16×16 → 32×32（坐标 2× + 五官/发型细化），
+ * v5.2 分辨率：逻辑网格 **已升级为 32×32**（旧 16 坐标 2× + 五官/发型/球衣细化），
  * 保持热血像素风但可读性明显提高；composeCells 仍是唯一像素事实源。
  *
  * 对外 API 与 v4 完全兼容：moodFromPlayer / renderAvatarSvg / avatarHtml /
@@ -248,10 +248,11 @@ function lookFor(h, nation, age = 25) {
 }
 
 // ============================================================
-// 像素绘制：16×16 单元格列表（cell 单位），双输出 SVG / canvas-PNG
+// 像素绘制：32×32 单元格列表（cell 单位），双输出 SVG / canvas-PNG
+// 布局为旧 16×16 的 2× 放大，并在五官/发型/球衣上做细像素。
 // ============================================================
 
-const GRID = 16;
+const GRID = 32;
 const OUT = "#1b1613"; // 全局粗描边（热血式近黑）
 const EYE = "#1e1a17";
 const EYEWHITE = "#f4efe4";
@@ -269,6 +270,10 @@ function R(x0, x1, y, c) {
 function C(x, y0, y1, c) {
   return { x, y: y0, w: 1, h: y1 - y0 + 1, c };
 }
+/** 矩形填充 [x0..x1] × [y0..y1] */
+function Box(x0, x1, y0, y1, c) {
+  return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1, c };
+}
 
 /** 心情背景（棋盘双色，复古抖动） */
 const MOOD_BG = {
@@ -282,11 +287,11 @@ const MOOD_BG = {
 function bgCells(mood) {
   const [a, b] = MOOD_BG[mood] || MOOD_BG.neutral;
   const cells = [{ x: 0, y: 0, w: GRID, h: GRID, c: a }];
-  // 4×4 cell 的棋盘块，复古但不噪
+  // 8×8 cell 的棋盘块（= 旧 4×4 的 2×）
   for (let by = 0; by < 4; by++) {
     for (let bx = 0; bx < 4; bx++) {
       if ((bx + by) % 2 === 1) {
-        cells.push({ x: bx * 4, y: by * 4, w: 4, h: 4, c: b });
+        cells.push({ x: bx * 8, y: by * 8, w: 8, h: 8, c: b });
       }
     }
   }
@@ -294,82 +299,114 @@ function bgCells(mood) {
 }
 
 /**
- * 发型（覆盖在脸之上）。每款返回 cell 数组。
+ * 发型（覆盖在脸之上）。每款返回 cell 数组（32 空间）。
  * H=发色 Hh=高光 S=肤色（发际线用）
  */
 function hairCells(styleId, H, Hh, S) {
   switch (styleId) {
-    case 0: // 平顶（国夫头）：方正平头 + 鬓角
+    case 0: // 平顶（国夫头）
       return [
-        R(3, 12, 0, OUT), R(3, 12, 1, H), R(3, 12, 2, H), R(3, 12, 3, H),
-        R(4, 6, 1, Hh),
-        P(3, 4, H), P(12, 4, H), P(4, 4, H), P(11, 4, H),
+        Box(6, 25, 0, 1, OUT),
+        Box(6, 25, 2, 7, H),
+        Box(8, 13, 2, 3, Hh),
+        Box(6, 9, 8, 9, H),
+        Box(22, 25, 8, 9, H),
       ];
-    case 1: // 飞机头（リーゼント）：前冲油头
+    case 1: // 飞机头（リーゼント）
       return [
-        R(8, 12, 0, OUT), P(13, 1, OUT),
-        R(8, 12, 1, H), P(13, 2, H),
-        R(3, 12, 2, H), R(3, 12, 3, H), P(3, 1, OUT), R(4, 7, 1, OUT),
-        R(9, 11, 1, Hh), P(12, 2, Hh),
-        P(3, 4, H), P(12, 4, H),
+        Box(16, 25, 0, 1, OUT),
+        P(26, 2, OUT), P(27, 3, OUT),
+        Box(16, 25, 2, 3, H),
+        Box(26, 27, 4, 5, H),
+        Box(6, 25, 4, 7, H),
+        Box(6, 7, 2, 3, OUT),
+        Box(8, 15, 2, 3, OUT),
+        Box(18, 23, 2, 3, Hh),
+        P(24, 4, Hh), P(25, 5, Hh),
+        Box(6, 9, 8, 9, H),
+        Box(22, 25, 8, 9, H),
       ];
-    case 2: // 刺猬头：锯齿尖
+    case 2: // 刺猬头
       return [
-        P(3, 1, H), P(5, 1, H), P(7, 1, H), P(9, 1, H), P(11, 1, H),
-        P(4, 0, OUT), P(8, 0, OUT), P(12, 1, OUT),
-        R(3, 12, 2, H), R(3, 12, 3, H),
-        P(5, 2, Hh), P(8, 2, Hh),
-        P(3, 4, H), P(12, 4, H),
+        P(6, 2, H), P(7, 2, H), P(10, 2, H), P(11, 2, H),
+        P(14, 2, H), P(15, 2, H), P(18, 2, H), P(19, 2, H),
+        P(22, 2, H), P(23, 2, H),
+        P(8, 0, OUT), P(9, 0, OUT), P(16, 0, OUT), P(17, 0, OUT),
+        P(24, 2, OUT), P(25, 2, OUT),
+        Box(6, 25, 4, 7, H),
+        P(10, 4, Hh), P(11, 4, Hh), P(16, 4, Hh), P(17, 4, Hh),
+        Box(6, 9, 8, 9, H),
+        Box(22, 25, 8, 9, H),
       ];
-    case 3: { // 寸头：贴头皮
+    case 3: { // 寸头
       const buzz = mixHex(H, S, 0.3);
       return [
-        R(4, 11, 1, OUT), R(3, 12, 2, buzz), R(3, 12, 3, buzz),
-        P(3, 3, OUT), P(12, 3, OUT),
+        Box(8, 23, 2, 3, OUT),
+        Box(6, 25, 4, 7, buzz),
+        Box(6, 7, 6, 7, OUT),
+        Box(24, 25, 6, 7, OUT),
       ];
     }
-    case 4: // 侧分：右侧分缝，刘海扫左
+    case 4: // 侧分
       return [
-        R(4, 11, 0, OUT), R(3, 12, 1, H), R(3, 9, 2, H), P(11, 2, H), P(12, 2, H),
-        R(3, 7, 3, H),
-        R(4, 6, 1, Hh),
-        P(3, 4, H), P(12, 3, H), P(12, 4, H),
+        Box(8, 23, 0, 1, OUT),
+        Box(6, 25, 2, 3, H),
+        Box(6, 19, 4, 5, H),
+        Box(22, 25, 4, 5, H),
+        Box(6, 15, 6, 7, H),
+        Box(8, 13, 2, 3, Hh),
+        Box(6, 9, 8, 9, H),
+        Box(24, 25, 6, 9, H),
       ];
-    case 5: // 锅盖头：厚齐刘海盖到眉上
+    case 5: // 锅盖头（刘海到眉上）
       return [
-        R(4, 11, 0, OUT), R(3, 12, 1, H), R(3, 12, 2, H), R(3, 12, 3, H),
-        R(3, 4, 4, H), R(11, 12, 4, H),
-        R(4, 7, 1, Hh),
-        P(3, 5, H), P(12, 5, H),
+        Box(8, 23, 0, 1, OUT),
+        Box(6, 25, 2, 7, H),
+        Box(6, 9, 8, 9, H),
+        Box(22, 25, 8, 9, H),
+        Box(8, 15, 2, 3, Hh),
+        Box(6, 9, 10, 11, H),
+        Box(22, 25, 10, 11, H),
       ];
-    case 6: // 爆炸头：大圆蓬
+    case 6: // 爆炸头
       return [
-        R(4, 11, 0, H), R(2, 13, 1, H), R(2, 13, 2, H), R(2, 13, 3, H),
-        C(2, 4, 5, H), C(13, 4, 5, H),
-        P(5, 1, Hh), P(9, 2, Hh), P(12, 1, Hh), P(3, 3, Hh),
+        Box(8, 23, 0, 1, H),
+        Box(4, 27, 2, 7, H),
+        C(4, 8, 11, H), C(5, 8, 11, H),
+        C(26, 8, 11, H), C(27, 8, 11, H),
+        P(10, 2, Hh), P(11, 2, Hh), P(18, 4, Hh), P(19, 4, Hh),
+        P(24, 2, Hh), P(25, 2, Hh), P(6, 6, Hh), P(7, 6, Hh),
       ];
-    case 7: // 短卷：顶部波浪
+    case 7: // 短卷
       return [
-        P(4, 1, H), P(5, 1, H), P(7, 1, H), P(8, 1, H), P(10, 1, H), P(11, 1, H),
-        R(3, 12, 2, H), R(3, 12, 3, H),
-        P(5, 2, Hh), P(9, 2, Hh), P(12, 2, Hh),
-        P(3, 4, H), P(12, 4, H),
+        Box(8, 11, 2, 3, H), Box(14, 17, 2, 3, H), Box(20, 23, 2, 3, H),
+        Box(6, 25, 4, 7, H),
+        P(10, 4, Hh), P(11, 4, Hh), P(18, 4, Hh), P(19, 4, Hh),
+        P(24, 4, Hh), P(25, 4, Hh),
+        Box(6, 9, 8, 9, H),
+        Box(22, 25, 8, 9, H),
       ];
-    case 8: { // 光头渐层：只留两鬓
+    case 8: { // 光头渐层
       const fade = mixHex(H, S, 0.45);
+      const gloss = mixHex(S, "#ffffff", 0.3);
       return [
-        R(4, 11, 2, OUT), C(3, 3, 5, fade), C(12, 3, 5, fade),
-        P(6, 2, mixHex(S, "#ffffff", 0.3)), P(7, 2, mixHex(S, "#ffffff", 0.3)),
+        Box(8, 23, 4, 5, OUT),
+        C(6, 6, 11, fade), C(7, 6, 11, fade),
+        C(24, 6, 11, fade), C(25, 6, 11, fade),
+        Box(12, 15, 4, 5, gloss),
       ];
     }
-    case 9: // 90s 长发：顶厚 + 两侧垂到颚
+    case 9: // 90s 长发
       return [
-        R(4, 11, 0, OUT), R(3, 12, 1, H), R(3, 12, 2, H), R(3, 12, 3, H),
-        C(2, 3, 8, H), C(13, 3, 8, H), P(2, 9, OUT), P(13, 9, OUT),
-        R(4, 6, 1, Hh),
+        Box(8, 23, 0, 1, OUT),
+        Box(6, 25, 2, 7, H),
+        C(4, 6, 17, H), C(5, 6, 17, H),
+        C(26, 6, 17, H), C(27, 6, 17, H),
+        P(4, 18, OUT), P(5, 18, OUT), P(26, 18, OUT), P(27, 18, OUT),
+        Box(8, 13, 2, 3, Hh),
       ];
     default:
-      return [R(3, 12, 2, "#26221f")];
+      return [Box(6, 25, 4, 5, "#26221f")];
   }
 }
 
@@ -379,97 +416,106 @@ function faceCells(mood, look, styleId) {
   const flatOnly = styleId === 5;
   const parts = [];
 
-  // —— 眉毛 ——
+  // —— 眉毛（双行厚眉）——
   if (flatOnly || mood === "happy" || mood === "tired") {
-    // 平眉
-    parts.push(P(4, 5, browColor), P(5, 5, browColor));
-    parts.push(P(10, 5, browColor), P(11, 5, browColor));
+    parts.push(Box(8, 11, 10, 11, browColor), Box(20, 23, 10, 11, browColor));
   } else if (mood === "sad") {
-    // 垂眉（外低内高）
-    parts.push(P(6, 4, browColor), P(5, 5, browColor), P(4, 5, browColor));
-    parts.push(P(9, 4, browColor), P(10, 5, browColor), P(11, 5, browColor));
+    // 垂眉：外低内高
+    parts.push(Box(12, 13, 8, 9, browColor), Box(10, 11, 10, 11, browColor), Box(8, 9, 10, 11, browColor));
+    parts.push(Box(18, 19, 8, 9, browColor), Box(20, 21, 10, 11, browColor), Box(22, 23, 10, 11, browColor));
   } else {
-    // 热血怒眉（外高内低，neutral / injured 默认）
-    parts.push(P(4, 4, browColor), P(5, 4, browColor), P(6, 5, browColor));
-    parts.push(P(11, 4, browColor), P(10, 4, browColor), P(9, 5, browColor));
+    // 热血怒眉：外高内低
+    parts.push(Box(8, 11, 8, 9, browColor), Box(12, 13, 10, 11, browColor));
+    parts.push(Box(20, 23, 8, 9, browColor), Box(18, 19, 10, 11, browColor));
   }
 
-  // —— 眼睛 ——
+  // —— 眼睛（2×2 白 + 瞳）——
   if (mood === "injured") {
-    // 左眼闭合「—」+ 右眼正常 + 淤青
-    parts.push(P(5, 6, EYE), P(6, 6, EYE));
-    parts.push(P(10, 6, EYEWHITE), P(9, 6, EYE));
-    parts.push(P(10, 7, "#a15b50"));
+    // 左眼闭合线 + 右眼正常 + 淤青
+    parts.push(Box(10, 13, 12, 13, EYE));
+    parts.push(Box(20, 21, 12, 13, EYEWHITE), Box(18, 19, 12, 13, EYE));
+    parts.push(Box(20, 21, 14, 15, "#a15b50"));
   } else if (mood === "tired") {
-    // 半睁「——」+ 汗滴
-    parts.push(P(5, 6, EYE), P(6, 6, EYE), P(9, 6, EYE), P(10, 6, EYE));
-    parts.push(P(12, 4, "#8fd7f2"), P(12, 5, "#5db6dc"));
+    parts.push(Box(10, 13, 12, 13, EYE), Box(18, 21, 12, 13, EYE));
+    parts.push(Box(24, 25, 8, 9, "#8fd7f2"), Box(24, 25, 10, 11, "#5db6dc"));
   } else {
-    parts.push(P(5, 6, EYEWHITE), P(6, 6, EYE), P(9, 6, EYE), P(10, 6, EYEWHITE));
+    // 左眼：白-瞳，右眼：瞳-白（外亮内深）
+    parts.push(Box(10, 11, 12, 13, EYEWHITE), Box(12, 13, 12, 13, EYE));
+    parts.push(Box(18, 19, 12, 13, EYE), Box(20, 21, 12, 13, EYEWHITE));
   }
 
-  // —— 鼻 ——
-  parts.push(P(7, 7, look.skinShade));
+  // —— 鼻（小竖影）——
+  parts.push(Box(14, 15, 14, 15, look.skinShade));
 
   // —— 嘴 ——
   if (mood === "happy") {
-    // 热血咧嘴大笑：黑框白牙
-    parts.push(R(5, 10, 8, OUT), R(6, 9, 8, "#fdf6ea"), R(6, 9, 9, OUT));
-    parts.push(P(4, 7, "#d98a6a"), P(11, 7, "#d98a6a")); // 脸红
+    parts.push(Box(10, 21, 16, 17, OUT));
+    parts.push(Box(12, 19, 16, 17, "#fdf6ea"));
+    parts.push(Box(12, 19, 18, 19, OUT));
+    parts.push(Box(8, 9, 14, 15, "#d98a6a"), Box(22, 23, 14, 15, "#d98a6a"));
   } else if (mood === "sad" || mood === "injured") {
-    // 撇嘴
-    parts.push(P(7, 8, MOUTH), P(8, 8, MOUTH), P(6, 9, MOUTH), P(9, 9, MOUTH));
+    parts.push(Box(14, 17, 16, 17, MOUTH));
+    parts.push(Box(12, 13, 18, 19, MOUTH), Box(18, 19, 18, 19, MOUTH));
   } else {
-    // 抿嘴硬汉线
-    parts.push(P(7, 8, MOUTH), P(8, 8, MOUTH), P(9, 8, MOUTH));
+    parts.push(Box(14, 19, 16, 17, MOUTH));
   }
 
-  // —— 受伤绷带（缠头）——
+  // —— 受伤绷带 ——
   if (mood === "injured") {
-    parts.push(R(4, 11, 2, "#e8e4da"), P(3, 3, "#e8e4da"), P(12, 2, "#d4cfc2"));
+    parts.push(Box(8, 23, 4, 5, "#e8e4da"));
+    parts.push(Box(6, 7, 6, 7, "#e8e4da"), Box(24, 25, 4, 5, "#d4cfc2"));
   }
   return parts;
 }
 
-/** 头部底盘：描边 + 脸 + 耳 + 下颚阴影（发型另画） */
+/** 头部底盘：描边 + 脸 + 耳 + 下颚阴影 */
 function headCells(look) {
   const S = look.skin;
   const Sd = look.skinShade;
   return [
-    // 描边圈
-    R(4, 11, 2, OUT),
-    C(3, 3, 9, OUT), C(12, 3, 9, OUT),
-    R(4, 5, 10, OUT), R(10, 11, 10, OUT),
-    // 脸
-    R(4, 11, 3, S), R(4, 11, 4, S), R(4, 11, 5, S), R(4, 11, 6, S),
-    R(4, 11, 7, S), R(4, 11, 8, S), R(4, 11, 9, S),
+    // 顶描边
+    Box(8, 23, 4, 5, OUT),
+    // 侧描边
+    Box(6, 7, 6, 19, OUT),
+    Box(24, 25, 6, 19, OUT),
+    // 下颚描边
+    Box(8, 11, 20, 21, OUT),
+    Box(20, 23, 20, 21, OUT),
+    // 脸填充
+    Box(8, 23, 6, 19, S),
     // 耳
-    P(3, 6, S), P(12, 6, S),
+    Box(6, 7, 12, 13, S),
+    Box(24, 25, 12, 13, S),
     // 下颚阴影
-    P(4, 9, Sd), P(11, 9, Sd),
+    Box(8, 9, 18, 19, Sd),
+    Box(22, 23, 18, 19, Sd),
   ];
 }
 
-/** 球衣躯干（球员）：垫肩斜线 + 队色 + 插肩袖副色 + GK 横带 */
+/** 球衣躯干（球员） */
 function jerseyCells(kitP, kitS, pos, skin) {
   const collar = mixHex(kitS, "#ffffff", 0.25);
   const parts = [
     // 颈
-    R(6, 9, 10, skin),
+    Box(12, 19, 20, 21, skin),
     // 肩线描边
-    R(2, 5, 11, OUT), R(10, 13, 11, OUT), P(1, 12, OUT), P(14, 12, OUT),
+    Box(4, 11, 22, 23, OUT),
+    Box(20, 27, 22, 23, OUT),
+    P(2, 24, OUT), P(3, 24, OUT), P(28, 24, OUT), P(29, 24, OUT),
     // 领口
-    R(6, 9, 11, collar),
+    Box(12, 19, 22, 23, collar),
     // 躯干
-    R(1, 14, 12, kitP), R(1, 14, 13, kitP), R(1, 14, 14, kitP), R(1, 14, 15, kitP),
+    Box(2, 29, 24, 31, kitP),
     // 插肩袖（副色）
-    C(1, 12, 15, kitS), C(2, 12, 15, kitS), C(13, 12, 15, kitS), C(14, 12, 15, kitS),
-    P(3, 12, kitS), P(12, 12, kitS),
+    Box(2, 5, 24, 31, kitS),
+    Box(26, 29, 24, 31, kitS),
+    Box(6, 7, 24, 25, kitS),
+    Box(24, 25, 24, 25, kitS),
     // 胸口小 V
-    P(7, 12, kitS), P(8, 12, kitS),
+    Box(14, 17, 24, 25, kitS),
   ];
   if (pos === "GK") {
-    parts.push(R(4, 11, 14, mixHex(kitP, "#ffffff", 0.5)));
+    parts.push(Box(8, 23, 28, 29, mixHex(kitP, "#ffffff", 0.5)));
   }
   return parts;
 }
@@ -478,39 +524,48 @@ function jerseyCells(kitP, kitS, pos, skin) {
 function staffTorsoCells(role, tieColor, skin) {
   if (role === "doctor") {
     return [
-      R(6, 9, 10, skin),
-      R(2, 5, 11, OUT), R(10, 13, 11, OUT), P(1, 12, OUT), P(14, 12, OUT),
-      R(1, 14, 12, "#eef2f6"), R(1, 14, 13, "#eef2f6"), R(1, 14, 14, "#eef2f6"), R(1, 14, 15, "#eef2f6"),
-      C(7, 11, 15, "#d7dde5"), C(8, 11, 15, "#d7dde5"),
-      P(7, 13, "#d84343"), P(8, 13, "#d84343"), P(7, 14, "#d84343"), P(8, 14, "#d84343"),
+      Box(12, 19, 20, 21, skin),
+      Box(4, 11, 22, 23, OUT), Box(20, 27, 22, 23, OUT),
+      P(2, 24, OUT), P(3, 24, OUT), P(28, 24, OUT), P(29, 24, OUT),
+      Box(2, 29, 24, 31, "#eef2f6"),
+      Box(14, 17, 22, 31, "#d7dde5"),
+      Box(14, 17, 26, 29, "#d84343"),
     ];
   }
   if (role === "scout") {
     return [
-      R(6, 9, 10, skin),
-      R(2, 5, 11, OUT), R(10, 13, 11, OUT), P(1, 12, OUT), P(14, 12, OUT),
-      R(1, 14, 12, "#57503c"), R(1, 14, 13, "#57503c"), R(1, 14, 14, "#57503c"), R(1, 14, 15, "#57503c"),
-      R(6, 9, 11, "#6b6350"), P(7, 13, "#403a2c"), P(8, 13, "#403a2c"),
-      C(4, 12, 15, "#4a4433"), C(11, 12, 15, "#4a4433"),
+      Box(12, 19, 20, 21, skin),
+      Box(4, 11, 22, 23, OUT), Box(20, 27, 22, 23, OUT),
+      P(2, 24, OUT), P(3, 24, OUT), P(28, 24, OUT), P(29, 24, OUT),
+      Box(2, 29, 24, 31, "#57503c"),
+      Box(12, 19, 22, 23, "#6b6350"),
+      Box(14, 17, 26, 27, "#403a2c"),
+      Box(8, 9, 24, 31, "#4a4433"),
+      Box(22, 23, 24, 31, "#4a4433"),
     ];
   }
-  // coach / manager：深西装 + 白衬衫 + 领带
+  // coach / manager
   return [
-    R(6, 9, 10, skin),
-    R(2, 5, 11, OUT), R(10, 13, 11, OUT), P(1, 12, OUT), P(14, 12, OUT),
-    R(1, 14, 12, "#2a3442"), R(1, 14, 13, "#2a3442"), R(1, 14, 14, "#2a3442"), R(1, 14, 15, "#2a3442"),
-    R(6, 9, 11, "#e8ecf2"), P(6, 12, "#e8ecf2"), P(9, 12, "#e8ecf2"),
-    P(7, 12, tieColor), P(8, 12, tieColor), P(7, 13, tieColor), P(8, 13, tieColor),
-    P(7, 14, shiftHex(tieColor, -24)), P(8, 14, shiftHex(tieColor, -24)),
+    Box(12, 19, 20, 21, skin),
+    Box(4, 11, 22, 23, OUT), Box(20, 27, 22, 23, OUT),
+    P(2, 24, OUT), P(3, 24, OUT), P(28, 24, OUT), P(29, 24, OUT),
+    Box(2, 29, 24, 31, "#2a3442"),
+    Box(12, 19, 22, 23, "#e8ecf2"),
+    Box(12, 13, 24, 25, "#e8ecf2"),
+    Box(18, 19, 24, 25, "#e8ecf2"),
+    Box(14, 17, 24, 27, tieColor),
+    Box(14, 17, 28, 29, shiftHex(tieColor, -24)),
   ];
 }
 
-/** 球探鸭舌帽（盖掉发型顶部） */
+/** 球探鸭舌帽 */
 function scoutCapCells() {
   return [
-    R(4, 11, 0, OUT), R(3, 12, 1, "#6b6350"), R(3, 12, 2, "#6b6350"),
-    R(3, 13, 3, "#57503c"), P(13, 3, "#4a4433"), P(12, 3, "#4a4433"),
-    R(4, 7, 1, "#7d755f"),
+    Box(8, 23, 0, 1, OUT),
+    Box(6, 25, 2, 5, "#6b6350"),
+    Box(6, 27, 6, 7, "#57503c"),
+    Box(24, 27, 6, 7, "#4a4433"),
+    Box(8, 15, 2, 3, "#7d755f"),
   ];
 }
 
@@ -575,14 +630,16 @@ export function renderAvatarSvg(opts = {}) {
   const size = opts.size || 36;
   const mood = opts.mood || "neutral";
   const cells = composeCells(opts);
-  const CELL = 3;
+  // 32 格 × 2 显示单位 = 64 viewBox（旧 16×3=48 的同比例放大）
+  const CELL = 2;
+  const VB = GRID * CELL;
   const rects = cells
     .map(
       (r) =>
         `<rect x="${r.x * CELL}" y="${r.y * CELL}" width="${r.w * CELL}" height="${r.h * CELL}" fill="${r.c}"/>`
     )
     .join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="${size}" height="${size}" class="avatar-svg avatar-pixel" shape-rendering="crispEdges" data-mood="${mood}" data-ini="${escapeAttr(initials(opts.name))}" aria-hidden="true">${rects}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${VB} ${VB}" width="${size}" height="${size}" class="avatar-svg avatar-pixel" shape-rendering="crispEdges" data-mood="${mood}" data-ini="${escapeAttr(initials(opts.name))}" aria-hidden="true">${rects}</svg>`;
 }
 
 /** PNG 缓存：同一 (种子|心情|球衣|尺寸|DPR) 只画一次 canvas */
@@ -612,8 +669,9 @@ export function renderAvatarPngUri(opts = {}) {
   const hit = pngCache.get(key);
   if (hit) return hit;
 
-  // 每格整数设备像素：k = round(目标设备尺寸/16)，canvas = 16k 正方形
-  const k = Math.max(2, Math.round((size * dpr) / GRID));
+  // 每格整数设备像素：k = round(目标设备尺寸/32)，canvas = 32k 正方形
+  // 小尺寸 UI（16–24px）至少 k=1，避免过度上采样糊掉
+  const k = Math.max(1, Math.round((size * dpr) / GRID));
   const px = GRID * k;
   const canvas = document.createElement("canvas");
   canvas.width = px;
