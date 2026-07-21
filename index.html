@@ -11,7 +11,7 @@
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icons/icon.svg" />
   <title>VCFM</title>
-  <link rel="stylesheet" href="css/style.css?v=109" />
+  <link rel="stylesheet" href="css/style.css?v=110" />
   <script>
     /* 尽早应用主题/语言，避免闪白 */
     (function () {
@@ -929,12 +929,12 @@
     <div id="season-summary" class="season-summary hidden" role="dialog" aria-modal="true"></div>
   </div>
 
-  <script type="module" src="js/main.js?v=109"></script>
+  <script type="module" src="js/main.js?v=110"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {
         // 只保留当前 CACHE 名，删掉历史 vcfm-*（须与 sw.js 的 CACHE 同步）
-        var CURRENT_CACHE = "vcfm-v109";
+        var CURRENT_CACHE = "vcfm-v110";
         if (window.caches && caches.keys) {
           caches.keys().then(function (keys) {
             return Promise.all(
@@ -944,7 +944,7 @@
             );
           }).catch(function () {});
         }
-        navigator.serviceWorker.register("./sw.js?v=109").then(function (reg) {
+        navigator.serviceWorker.register("./sw.js?v=110").then(function (reg) {
           try { reg.update(); } catch (e) {}
           if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
         }).catch(function () {});
@@ -953,8 +953,8 @@
           if (refreshing) return;
           refreshing = true;
           try {
-            if (!sessionStorage.getItem("vcfm-sw-reloaded-v109")) {
-              sessionStorage.setItem("vcfm-sw-reloaded-v109", "1");
+            if (!sessionStorage.getItem("vcfm-sw-reloaded-v110")) {
+              sessionStorage.setItem("vcfm-sw-reloaded-v110", "1");
               location.reload();
             }
           } catch (e) {

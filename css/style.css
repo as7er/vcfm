@@ -563,6 +563,8 @@ html[data-theme="light"] .start-card h1 {
   height: 100%;
   display: block;
   object-fit: cover;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
   user-select: none;
   -webkit-user-drag: none;
 }
