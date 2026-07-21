@@ -58,6 +58,23 @@ function norm(v) {
 }
 
 /**
+ * 从空间射门事件估 xG（不另掷骰）。
+ * 距离/空门/点球是主因；远射与禁区边缘自然降权。
+ */
+function estimateShotXg(shot) {
+  if (!shot) return 0.05;
+  if (shot.penalty || shot.type === "penalty") return 0.76;
+  const d = Number(shot.distance);
+  const distM = Number.isFinite(d) ? d : shot.long ? 28 : 16;
+  // 粗略距离模型：近点 ~0.45，禁区外 ~0.08，超远再压
+  let xg = clamp(0.55 * Math.exp(-distM / 14), 0.03, 0.55);
+  if (shot.openGoal) xg = Math.max(xg, 0.42);
+  if (shot.long) xg *= 0.72;
+  if (shot.offTarget) xg *= 0.35;
+  return clamp(xg, 0.02, 0.85);
+}
+
+/**
  * 加权随机采样：从 [{key, w}] 里按权重 w 概率选一个。
  * temp（温度）控制随机度：temp→0 近似取最大值（确定性），temp 越大越随机。
  * 这是让决策"有概率性、不死板"的核心——同样局面不再永远同一选择，
@@ -406,6 +423,13 @@ export class SimEngine {
       for (const a of this.agents) a.attackThinkUntil = 0;
     }
     this.possession = controlTeam || this.possession;
+    // 控球时间积分（秒）：供战报/计分板同源，而非事后按射门份额捏造
+    if (
+      (this.possession === "home" || this.possession === "away") &&
+      !(this.celebrateUntil && this.t < this.celebrateUntil)
+    ) {
+      this.stats[this.possession].poss += dt;
+    }
     for (const a of this.agents) this._think(a, dt, owner, controlTeam, phaseActor);
     // 2) 积分运动
     for (const a of this.agents) this._integrate(a, dt);
@@ -430,7 +454,17 @@ export class SimEngine {
       for (let i = this._pendingSubs.length - 1; i >= 0; i--) {
         const s = this._pendingSubs[i];
         if (this.t >= s.at) {
-          this.substituteAgent(s.outId, s.player);
+          const outId = s.outId;
+          const inn = s.player;
+          if (this.substituteAgent(outId, inn)) {
+            // 与 match 层换人记账对齐：热替换真正进场时再发事件（约伤后 40s）
+            const a = this.agentById(inn?.id);
+            this._emit("sub_on", a, {
+              outId,
+              inId: inn?.id || null,
+              team: a?.team || null,
+            });
+          }
           this._pendingSubs.splice(i, 1);
         }
       }
@@ -2832,13 +2866,18 @@ export class SimEngine {
     b.kickTeam = team;
     b.state = "shot";
     b._shotAssistId = null;
+    b.shotDistance = 11;
+    // 所有点球结果都记一脚射门（与 open play _shoot 对齐），供 shots/xG 同源
+    const penShotMeta = { penalty: true, distance: 11, x: 50, y: spotY };
 
     if (r < pScore) {
+      this._emit("shot", taker, penShotMeta);
       // 进球：钉在球门方向
       b.y = team === "home" ? 0.6 : 99.4;
       b._penaltyGoal = true;
       this._goal(team);
     } else if (r < pScore + (1 - pScore) * 0.7 && gk) {
+      this._emit("shot", taker, penShotMeta);
       // 门将扑出：球托向边路，转运动战
       this._emit("save", gk, { hold: false, penalty: true });
       const side = Math.random() < 0.5 ? 1 : -1;
@@ -2855,7 +2894,7 @@ export class SimEngine {
       this.deadBallUntil = this.t + 0.5;
     } else {
       // 罚失（打偏/中框出底线）：门球给对方
-      this._emit("shot", taker, { penalty: true, offTarget: true });
+      this._emit("shot", taker, { ...penShotMeta, offTarget: true });
       this._restart("goalkick", oppTeam, 50, team === "home" ? 12 : 88);
     }
   }
@@ -3496,9 +3535,13 @@ export class SimEngine {
     const inWindow = (e) => e.t > tMin && e.t <= tMax;
     const rawShots = this.events.filter((e) => e.type === "shot" && inWindow(e));
     const rawGoals = this.events.filter((e) => e.type === "goal" && inWindow(e));
+    const rawSaves = this.events.filter((e) => e.type === "save" && inWindow(e));
     const result = {
       score: { home: 0, away: 0 },
       shots: { home: 0, away: 0 },
+      shotsOn: { home: 0, away: 0 },
+      xg: { home: 0, away: 0 },
+      possessionSec: { home: 0, away: 0 },
       goals: [],
       rawScore: { home: 0, away: 0 },
       rawShots: { home: 0, away: 0 },
@@ -3506,11 +3549,14 @@ export class SimEngine {
       tMax: Number.isFinite(tMax) ? tMax : null,
     };
     for (const shot of rawShots) {
-      if (shot.team === "home" || shot.team === "away") result.shots[shot.team]++;
+      if (shot.team !== "home" && shot.team !== "away") continue;
+      result.shots[shot.team]++;
+      result.xg[shot.team] += estimateShotXg(shot);
     }
     for (const goal of rawGoals) {
       if (goal.team !== "home" && goal.team !== "away") continue;
       result.score[goal.team]++;
+      result.shotsOn[goal.team]++;
       result.goals.push({
         team: goal.team,
         minute: clamp(Math.floor(goal.t / 60) + 1, 1, 90),
@@ -3521,6 +3567,21 @@ export class SimEngine {
         t: goal.t,
       });
     }
+    // 扑救 ⇒ 对方一脚射正（与进球不重复：进球不会再走 save）
+    for (const sav of rawSaves) {
+      if (sav.team !== "home" && sav.team !== "away") continue;
+      const att = sav.team === "home" ? "away" : "home";
+      result.shotsOn[att]++;
+    }
+    for (const team of ["home", "away"]) {
+      result.shotsOn[team] = Math.min(result.shots[team], result.shotsOn[team]);
+      result.xg[team] = Math.round(result.xg[team] * 1000) / 1000;
+    }
+    // 控球秒数：时段内增量由调用方用 poss 快照差分；此处给累计值便于诊断
+    result.possessionSec = {
+      home: this.stats.home.poss || 0,
+      away: this.stats.away.poss || 0,
+    };
     result.rawScore = { ...result.score };
     result.rawShots = { ...result.shots };
     result.goals.sort((a, b) => a.t - b.t);

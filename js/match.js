@@ -47,6 +47,7 @@ import {
   ensureSimEngine,
   resyncSimAfterHalfTime,
   runSimPeriodRaw,
+  applySimPeriodStats,
   defaultFlavorText,
   buildHighlightWindows,
   buildHighlightSegments,
@@ -693,11 +694,15 @@ function addSimGoal(state, minute, team, scorerId, assistId = null, opts = {}) {
   const sk = team;
   const xi = activeXi(state, club);
   const penalty = !!opts.penalty;
+  // 只认引擎挂上的真实射手；找不到时禁止 pickScorer 编造（避免数据榜脏）
   let scorer =
     (scorerId && xi.find((p) => p.id === scorerId)) ||
     (scorerId && club.players.find((p) => p.id === scorerId)) ||
-    pickScorer(xi, state, club);
-  if (!scorer) return null;
+    null;
+  if (!scorer) {
+    console.warn("addSimGoal: unknown scorerId", scorerId, "team", team, "min", minute);
+    return null;
+  }
   // 只认引擎挂上的真实助攻；找不到或点球 → 无助攻（禁止 pickAssister 回退）
   let assister = null;
   if (!penalty && assistId && assistId !== scorer.id) {
@@ -783,6 +788,10 @@ function pushSimFlavor(state, item) {
   // —— 纪律事件（黄/红/点球）：走既有 card/red 通道，喂 discipline.js 记停赛 ——
   if (item.type === "card") {
     state.stats[sk].yellows++;
+    if (item.agentId) {
+      const prev = state.yellowCount.get(item.agentId) || 0;
+      state.yellowCount.set(item.agentId, prev + 1);
+    }
     const extra = { teamId: club.id, fromSim: true };
     if (item.agentId) extra.playerId = item.agentId;
     return pushEv(state, item.minute, "card", text, extra);
@@ -805,8 +814,8 @@ function pushSimFlavor(state, item) {
     return pushEv(state, item.minute, "penalty", text, { teamId: club.id, fromSim: true });
   }
   if (item.type === "injury") {
-    // 空间涌现的伤退：引擎已让球员离场（有替补时已热替换恢复 11v11）。
-    // 本层结算真实伤情与名额（队医/训练/天气已通过 injuryMul 在引擎端生效）。
+    // 空间涌现的伤退：引擎立刻让球员离场；热替换约 40s 后才进场。
+    // 本层先结算伤情，换人记账延到 sub_on（与画面 id 对齐）。
     const p = club.players?.find((x) => x.id === item.agentId);
     if (!p) return null;
     const days =
@@ -822,16 +831,20 @@ function pushSimFlavor(state, item) {
       { teamId: club.id, playerId: p.id, fromSim: true }
     );
     recomputeSides(state);
-    // 引擎回调时选定的替补：此刻正式落账（lineup/名额/换人事件同旧通道）
-    const subIdx = (state._simPendingSubs || []).findIndex(
-      (s) => s.team === sk && s.outId === p.id
-    );
-    if (subIdx >= 0) {
-      const sub = state._simPendingSubs.splice(subIdx, 1)[0];
-      const silent = club.id !== state.world.userClubId; // AI 换人保持旧的静默习惯
-      applySubstitution(state, club, sub.outId, sub.inId, item.minute, silent);
-    }
     return ev;
+  }
+  if (item.type === "sub_on") {
+    // 引擎热替换真正进场：此刻才改 lineup / 发 sub 事件（DOM 与帧 id 同步）
+    const outId = item.outId;
+    const inId = item.inId;
+    if (!outId || !inId) return null;
+    const subIdx = (state._simPendingSubs || []).findIndex(
+      (s) => s.team === sk && s.outId === outId && s.inId === inId
+    );
+    if (subIdx >= 0) state._simPendingSubs.splice(subIdx, 1);
+    const silent = club.id !== state.world.userClubId;
+    const res = applySubstitution(state, club, outId, inId, item.minute, silent);
+    return res?.ok ? state.events[state.events.length - 1] : null;
   }
 
   const type =
@@ -869,17 +882,8 @@ async function simulatePeriodWithSim(state, fromMin, toMin, { onEvent, playHighl
   });
   const { scaled, flavor, tStart, tEnd, frames } = period;
 
-  // 射门 / xG / 控球（缩放量级）
-  for (const team of ["home", "away"]) {
-    const n = scaled.shots[team] || 0;
-    const st = state.stats[team];
-    st.shots += n;
-    st.shotsOn += Math.round(n * (0.34 + rng() * 0.08));
-    st.xg += n * (0.09 + rng() * 0.04);
-    const totalShots = Math.max(1, (scaled.shots.home || 0) + (scaled.shots.away || 0));
-    st.possessionTicks += Math.round(40 + (n / totalShots) * 80 + rng() * 15);
-    if (period.fouls) st.fouls += period.fouls[team] || 0;
-  }
+  // 射门 / 射正 / xG / 控球：与空间事件同源（禁止掷骰）
+  applySimPeriodStats(state, period);
 
   const lo = tStart <= 0 ? 1 : 46;
   const hi = tEnd <= 45 * 60 + 1 ? 45 : 90;
@@ -1093,16 +1097,7 @@ function simulatePeriodWithSimSync(state, fromMin, toMin) {
   const period = runSimPeriodRaw(state.simEng, fromMin, toMin);
   const { scaled, flavor, tStart, tEnd } = period;
 
-  for (const team of ["home", "away"]) {
-    const n = scaled.shots[team] || 0;
-    const st = state.stats[team];
-    st.shots += n;
-    st.shotsOn += Math.round(n * (0.34 + rng() * 0.08));
-    st.xg += n * (0.09 + rng() * 0.04);
-    const totalShots = Math.max(1, (scaled.shots.home || 0) + (scaled.shots.away || 0));
-    st.possessionTicks += Math.round(40 + (n / totalShots) * 80 + rng() * 15);
-    if (period.fouls) st.fouls += period.fouls[team] || 0;
-  }
+  applySimPeriodStats(state, period);
 
   const lo = tStart <= 0 ? 1 : 46;
   const hi = tEnd <= 45 * 60 + 1 ? 45 : 90;

@@ -142,6 +142,11 @@ export function runSimPeriodRaw(eng, fromMin, toMin, opts = {}) {
   const record = !!opts.record;
   const sampleEvery = Math.max(1, opts.sampleEvery ?? 5); // 默认 0.5s 一帧
   const frames = record ? [] : null;
+  // 时段控球秒数差分（引擎 stats.poss 是累计）
+  const poss0 = {
+    home: eng.stats?.home?.poss || 0,
+    away: eng.stats?.away?.poss || 0,
+  };
   const guardMax = Math.ceil((tEnd - eng.t) / SIM.DT + 50);
   let guard = 0;
   while (eng.t + 1e-9 < tEnd && guard < guardMax) {
@@ -159,6 +164,14 @@ export function runSimPeriodRaw(eng, fromMin, toMin, opts = {}) {
   // 原始模拟已经校准到可观看量级；比分和高光必须来自同一批空间事件。
   // 变量名 scaled 暂留以兼容 match.js 既有接口，内容已是 direct result。
   const scaled = eng.directResult({ tMin: tStart, tMax: tEnd });
+  const poss1 = {
+    home: eng.stats?.home?.poss || 0,
+    away: eng.stats?.away?.poss || 0,
+  };
+  scaled.possessionSec = {
+    home: Math.max(0, poss1.home - poss0.home),
+    away: Math.max(0, poss1.away - poss0.away),
+  };
   const raw = eng.events.filter((e) => e.t > tStart && e.t <= tEnd);
   const flavor = pickFlavorEvents(raw, fromMin, toMin);
   // 全量犯规计数（含未吃牌者），按犯规方归账供统计栏显示。
@@ -516,6 +529,21 @@ function pickFlavorEvents(raw, fromMin, toMin) {
     });
   }
 
+  // —— 伤退热替换真正进场（~伤后 40s）：与引擎 id 切换对齐，避免画面先换人、帧还是旧 id ——
+  for (const e of raw) {
+    if (e.type !== "sub_on") continue;
+    const minute = Math.max(fromMin, Math.min(toMin, simTToMinute(e.t)));
+    out.push({
+      minute,
+      type: "sub_on",
+      team: e.team,
+      agentId: e.inId || e.agentId,
+      outId: e.outId,
+      inId: e.inId,
+      t: e.t,
+    });
+  }
+
   out.sort((a, b) => a.minute - b.minute || a.t - b.t);
   return out;
 }
@@ -528,22 +556,17 @@ function pickFlavorEvents(raw, fromMin, toMin) {
  * @param {object} period
  * @param {{ registerGoal: Function, pushFlavor: Function }} helpers
  */
+/**
+ * 将时段结果写入 match state。
+ * 注意：当前 match.js 主路径内联记账，本函数保留给探针/外部调用；
+ * 必须与 simulatePeriodWithSim 同源（含 penalty / 真实 shotsOn·xG·控球）。
+ */
 export function translatePeriodToMatch(state, period, helpers) {
   const { scaled, flavor, tStart, tEnd } = period;
   const { registerGoal, pushFlavor } = helpers;
   const timeline = [];
 
-  for (const team of ["home", "away"]) {
-    const n = scaled.shots[team] || 0;
-    const st = state.stats[team];
-    st.shots += n;
-    const on = Math.round(n * (0.34 + Math.random() * 0.08));
-    st.shotsOn += on;
-    st.xg += n * (0.09 + Math.random() * 0.04);
-    const totalShots = Math.max(1, (scaled.shots.home || 0) + (scaled.shots.away || 0));
-    const share = n / totalShots;
-    st.possessionTicks += Math.round(40 + share * 80 + Math.random() * 15);
-  }
+  applySimPeriodStats(state, period);
 
   const lo = tStart <= 0 ? 1 : 46;
   const hi = tEnd <= 45 * 60 + 1 ? 45 : 90;
@@ -556,6 +579,7 @@ export function translatePeriodToMatch(state, period, helpers) {
       team: g.team,
       scorerId: g.scorerId,
       assistId: g.assistId || null,
+      penalty: !!g.penalty,
       t: g.t,
     });
   }
@@ -572,7 +596,8 @@ export function translatePeriodToMatch(state, period, helpers) {
         item.minute,
         item.team,
         item.scorerId,
-        item.assistId || null
+        item.assistId || null,
+        { penalty: !!item.penalty }
       );
       if (ev) emitted.push(ev);
     } else {
@@ -591,6 +616,30 @@ export function translatePeriodToMatch(state, period, helpers) {
     });
   }
   return emitted;
+}
+
+/** 把 directResult 的射门/射正/xG/控球写入 match state.stats（无掷骰） */
+export function applySimPeriodStats(state, period) {
+  const scaled = period?.scaled || {};
+  for (const team of ["home", "away"]) {
+    const st = state.stats[team];
+    const n = scaled.shots?.[team] || 0;
+    const on = scaled.shotsOn?.[team] || 0;
+    const xg = scaled.xg?.[team] || 0;
+    st.shots += n;
+    st.shotsOn += on;
+    st.xg += xg;
+    // possessionTicks 用控球秒×10，与旧 UI 百分比公式兼容
+    const sec = scaled.possessionSec?.[team];
+    if (sec != null && Number.isFinite(sec)) {
+      st.possessionTicks += Math.max(0, Math.round(sec * 10));
+    } else {
+      // 兜底：无 poss 积分时仍避免纯随机，按射门份额近似
+      const totalShots = Math.max(1, (scaled.shots?.home || 0) + (scaled.shots?.away || 0));
+      st.possessionTicks += Math.round(40 + (n / totalShots) * 80);
+    }
+    if (period?.fouls) st.fouls += period.fouls[team] || 0;
+  }
 }
 
 /** 风味事件默认文案 */

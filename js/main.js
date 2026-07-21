@@ -5226,8 +5226,8 @@ async function runMatch(mode) {
     ensureMatchPitch(true);
     const live = mode === "live";
     matchState._liveMode = live;
-    // 直播 + 用户场 sim：球场切真空间投影（关导演自由 AI）
-    if (live && matchView?.setSimDrive) matchView.setSimDrive(true);
+    // 用户场（直播 + 快速）一律真空间投影：关导演自由 AI，避免 fast 掉进旧编舞
+    if (matchView?.setSimDrive) matchView.setSimDrive(true);
     const onEvent = async (ev, snap) => {
       if (ev?._simLive) {
         handleSimLiveEvent(ev, snap);
@@ -5898,11 +5898,9 @@ async function finishHalfTime(applyOrders) {
   try {
     const live = !!matchState._liveMode;
     setMatchLiveState("live");
-    // 下半场：直播时显示场边战术条 + 继续真空间投影
-    if (live) {
-      setLiveTacBarVisible(true);
-      if (matchView?.setSimDrive) matchView.setSimDrive(true);
-    }
+    // 下半场：直播时显示场边战术条；用户场一律保持真空间投影（含快速）
+    if (live) setLiveTacBarVisible(true);
+    if (matchView?.setSimDrive) matchView.setSimDrive(true);
 
     // 开球提示（横幅 + 评论）
     if (matchView?.showSecondHalfKickoff) {

@@ -1641,9 +1641,10 @@ export class MatchView {
    */
   async prepareEvent(ev, snap, fixture, opts = {}) {
     if (!this._built || !ev || this.phase === "pre" || this.phase === "idle") return;
-    // 真空间投影：不编舞，只贴最新引擎帧
-    if (this.simDrive || snap?.sim) {
+    // 真空间投影 / v2 事件：不编舞，只贴最新引擎帧
+    if (this.simDrive || snap?.sim || snap?.engine === "v2" || ev?.fromSim) {
       if (snap?.sim) this.applySimSnapshot(snap.sim);
+      if (!this.simDrive) this.setSimDrive?.(true);
       return;
     }
     const sleepFn = typeof opts.sleepFn === "function" ? opts.sleepFn : sleep;
@@ -5470,8 +5471,11 @@ export class MatchView {
     if (!this._built || !ev || ev.type === "tick" || ev.type === "sim_frame") return;
 
     // —— 真空间投影：只横幅/音效/贴帧，不瞬移编舞 ——
-    if (this.simDrive || snap?.sim) {
+    // simDrive / 贴帧 / 或 engine=v2 事件：一律走轻量分支（防 fast 未开 simDrive 时掉进旧高光）
+    if (this.simDrive || snap?.sim || snap?.engine === "v2" || ev?.fromSim) {
       if (snap?.sim) this.applySimSnapshot(snap.sim);
+      // 无帧时也钉死 simDrive，阻断 update() 旧 AI
+      if (!this.simDrive) this.setSimDrive?.(true);
       this.updateLiveStrip?.(snap);
       const homeId0 = fixture?.home || this.home?.id;
       switch (ev.type) {
@@ -7259,16 +7263,30 @@ export class MatchView {
     let ag = 0;
     const spd = Math.max(0.25, Number(speed) || 1);
     const waitFn = typeof sleepFn === "function" ? sleepFn : sleep;
+    // 用户场 v2 事件带 fromSim：一键回放只走轻量 UI，不用旧编舞编造助攻/跑位
+    const anySim = (events || []).some((e) => e?.fromSim);
+    if (anySim && this.setSimDrive) this.setSimDrive(true);
     for (const ev of events || []) {
       if (ev.type === "tick") continue;
       if (ev.type === "goal") {
         if (ev.teamId === fixture.home) hg++;
         else ag++;
       }
-      const snap = { homeGoals: hg, awayGoals: ag, minute: ev.minute };
+      const snap = {
+        homeGoals: hg,
+        awayGoals: ag,
+        minute: ev.minute,
+        engine: anySim || ev.fromSim ? "v2" : "v1",
+      };
       if (ev.type === "goal") {
         if (onStep) onStep(ev, snap);
-        await this.playGoalHighlight(ev, snap, fixture, { speed: spd, sleepFn: waitFn });
+        if (anySim || ev.fromSim || this.simDrive) {
+          // 轻量：横幅 + 比分，不 playGoalHighlight 假编舞
+          this.onEvent(ev, snap, fixture);
+          await waitFn(Math.max(280, 900 / spd));
+        } else {
+          await this.playGoalHighlight(ev, snap, fixture, { speed: spd, sleepFn: waitFn });
+        }
         continue;
       }
       this.onEvent(ev, snap, fixture);
