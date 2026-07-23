@@ -1,8 +1,8 @@
-# VCFM — 会话记忆点
+﻿# VCFM — 会话记忆点
 
 > 仓库：https://github.com/as7er/vcfm.git · `master`  
 > 预览：`python -m http.server 8765 --bind 127.0.0.1`  
-> 缓存：**vcfm-v114**（全局球员/俱乐部搜索；前序 v113 青训球员详情修复）
+> 缓存：**vcfm-v122**（禁用换肤克隆自动分配；同队强制球衣色；前序 v120 资产管线）
 
 ## 已完成路线
 
@@ -31,7 +31,8 @@
 - **直播**：用户场 10Hz 录帧 → 高光窗切片真投影；进球只走一次横幅/底栏文案
 - AI 场：仍 `tryAttack` 概率，保证推进日不卡
 - 预览手感：`sim-viewer.html`（raw 手感）
-- 缓存 **vcfm-v114**
+- 缓存 **vcfm-v122**
+- **头像 v5.5 资产管线**：正式肖像仅在有**真正不同构图/发型**的原画时自动分配。`variant-recolor` 换肤克隆一律 `matchable:false`，禁止进自动池。当前 `assignment:"explicit"` + `minAutoPool:6`：池不足时全体走程序生成脸（年龄/国籍/发型/球衣真正不同）；显式 `avatarAssetId` 仍可钉死单张真·母版。同队球衣：正式图**强制** `data-kit-recolor` + `hydrateAvatarKitRecolor`。验证页 `avatar-asset-verify.html`。重建：`node scripts/build-avatar-assets-module.mjs`。
 - **头像 v5.4**：状态表情与天生五官分离；眉/眼/目光/鼻/嘴按种子稳定变化，默认由统一怒眉坏笑改为平静、专注或友善
 - **青训详情**：青训名单的姓名/详情按钮可打开完整资料；不显示仅适用于一线队的约谈、续约与外租操作
 - **全局搜索**：顶部放大镜或 `Ctrl+K` / `/` 搜索一线队球员、俱乐部与本队青训；最多 10 条分组结果，对手能力继续受球探雾限制

@@ -1,5 +1,7 @@
 /** 静态数据：俱乐部、名字、阵型 */
 
+import { COUNTRY_BRANDING, LEAGUE_BRANDING, fictionalizePlayerName } from "./branding.js";
+
 /** 通用欧美名池（职员 / 回退） */
 export const FIRST_NAMES = [
   "Jack", "Lucas", "Marcus", "Harvey", "Kevin", "Leon", "Noah", "Oscar",
@@ -446,7 +448,8 @@ export function generatePlayerName(nationCode, pickFn) {
   }
   const first = pick(pool.first);
   const last = pick(pool.last);
-  return pool.order === "family-given" ? `${last} ${first}` : `${first} ${last}`;
+  const fullName = pool.order === "family-given" ? `${last} ${first}` : `${first} ${last}`;
+  return fictionalizePlayerName(fullName);
 }
 
 /**
@@ -505,17 +508,83 @@ export const NATIONALITIES = [
   { code: "AUS", name: "澳大利亚", flag: "🇦🇺" },
 ];
 
-/** 三级联赛：1 最高，3 最低；开局仅可选第 3 级；每级 20 队 */
-export const DIVISIONS = {
-  1: { id: 1, name: "超级联赛", short: "超联", promote: 0, relegate: 3 },
-  2: { id: 2, name: "甲级联赛", short: "甲级", promote: 3, relegate: 3 },
-  3: { id: 3, name: "乙级联赛", short: "乙级", promote: 3, relegate: 0 },
+/**
+ * 五个真实地理协会。内部 id 沿用旧档值，countryCode 才是公开地理代码。
+ */
+export const COUNTRIES = Object.fromEntries(
+  Object.values(COUNTRY_BRANDING).map((country) => [
+    country.id,
+    {
+      ...country,
+      name: country.nameZh,
+      short: country.shortName,
+      cupName: country.cupNameZh,
+    },
+  ])
+);
+
+export const COUNTRY_LIST = Object.values(COUNTRIES);
+
+const DIVISION_RULES = {
+  1: { promote: 0, relegate: 3, upperDivision: null, lowerDivision: 2, startEligible: false },
+  2: { promote: 3, relegate: 3, upperDivision: 1, lowerDivision: 3, startEligible: false },
+  3: { promote: 3, relegate: 0, upperDivision: 2, lowerDivision: null, startEligible: true },
+  4: { promote: 0, relegate: 3, upperDivision: null, lowerDivision: 5, startEligible: false },
+  5: { promote: 3, relegate: 0, upperDivision: 4, lowerDivision: null, startEligible: true },
+  6: { promote: 0, relegate: 3, upperDivision: null, lowerDivision: 7, startEligible: false },
+  7: { promote: 3, relegate: 0, upperDivision: 6, lowerDivision: null, startEligible: true },
+  8: { promote: 0, relegate: 3, upperDivision: null, lowerDivision: 9, startEligible: false },
+  9: { promote: 3, relegate: 0, upperDivision: 8, lowerDivision: null, startEligible: true },
+  10: { promote: 0, relegate: 3, upperDivision: null, lowerDivision: 11, startEligible: false },
+  11: { promote: 3, relegate: 0, upperDivision: 10, lowerDivision: null, startEligible: true },
 };
 
+export const DIVISIONS = Object.fromEntries(
+  Object.values(LEAGUE_BRANDING).map((league) => [
+    league.id,
+    {
+      ...league,
+      name: league.nameZh,
+      short: league.shortName,
+      ...DIVISION_RULES[league.id],
+    },
+  ])
+);
+
+export const DIVISION_IDS = Object.keys(DIVISIONS).map(Number);
+export const START_DIVISIONS = DIVISION_IDS.filter((id) => DIVISIONS[id].startEligible);
+/** 旧调用兼容：克朗兰的最低可执教级别。 */
 export const START_DIVISION = 3;
 
-/** 60 队名单见 clubs.js */
-export { CLUB_TEMPLATES } from "./clubs.js";
+export const CONTINENTAL_COMPETITIONS = {
+  champions: {
+    id: "champions",
+    name: "大陆冠军联赛",
+    nameEn: "Continental Champions League",
+    short: "大陆冠",
+    rankStart: 1,
+    rankEnd: 4,
+  },
+  union: {
+    id: "union",
+    name: "大陆联盟杯",
+    nameEn: "Continental Union Cup",
+    short: "大陆联",
+    rankStart: 5,
+    rankEnd: 8,
+  },
+  conference: {
+    id: "conference",
+    name: "大陆协作杯",
+    nameEn: "Continental Conference Cup",
+    short: "大陆协",
+    rankStart: 9,
+    rankEnd: 12,
+  },
+};
+
+/** 五国 188 队名单与完整品牌迁移映射见 clubs.js */
+export { CLUB_TEMPLATES, clubBrandingById } from "./clubs.js";
 
 /** 阵型：位置槽位 { pos: GK|DEF|MID|ATT, x: 0-100, y: 0-100 } y=0 己方球门 */
 export const FORMATIONS = {

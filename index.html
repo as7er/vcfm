@@ -11,7 +11,7 @@
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icons/icon.svg" />
   <title>VCFM</title>
-  <link rel="stylesheet" href="css/style.css?v=114" />
+  <link rel="stylesheet" href="css/style.css?v=123" />
   <script>
     /* 尽早应用主题/语言，避免闪白 */
     (function () {
@@ -80,10 +80,13 @@
           <label><span data-i18n="start.manager">经理姓名</span>
             <input id="input-manager" type="text" value="教练" maxlength="16" data-i18n-placeholder="start.manager.placeholder" />
           </label>
-          <label><span data-i18n="start.club">选择球队（仅乙级联赛）</span>
+          <label><span data-i18n="start.country">选择执教国家</span>
+            <select id="select-country"></select>
+          </label>
+          <label><span data-i18n="start.club">选择球队（该国最低级别）</span>
             <select id="select-club"></select>
           </label>
-          <p class="hint" style="margin:0" data-i18n="start.leagueHint">三级联赛：乙级 → 甲级 → 超联。开局只能从乙级起步，争取升级！</p>
+          <p class="hint" style="margin:0" data-i18n="start.leagueHint">五国联赛均可执教；每个新生涯必须从所选国家的最低开放级别起步。</p>
 
           <div class="slot-section">
             <div class="row-between" style="margin-bottom:0.4rem">
@@ -128,6 +131,7 @@
           <button data-tab="training" class="tab" data-i18n="tab.training">训练</button>
           <button data-tab="tactics" class="tab" data-i18n="tab.tactics">战术</button>
           <button data-tab="table" class="tab" data-i18n="tab.table">积分榜</button>
+          <button data-tab="competitions" class="tab" data-i18n="tab.competitions">世界赛事</button>
           <button data-tab="clubs" class="tab" data-i18n="tab.clubs">俱乐部</button>
           <button data-tab="stats" class="tab" data-i18n="tab.stats">数据榜</button>
           <button data-tab="inbox" class="tab" data-i18n="tab.inbox">信箱</button>
@@ -440,11 +444,7 @@
             <div class="row-between" style="flex-wrap:wrap;gap:0.5rem">
               <h2 id="table-title" style="margin:0" data-i18n="table.title">联赛积分榜</h2>
               <div class="filters" style="margin:0">
-                <select id="table-division">
-                  <option value="3" data-i18n="div.3">乙级联赛</option>
-                  <option value="2" data-i18n="div.2">甲级联赛</option>
-                  <option value="1" data-i18n="div.1">超级联赛</option>
-                </select>
+                <select id="table-division" aria-label="league"></select>
               </div>
             </div>
             <p class="hint" id="table-hint" style="margin:0.5rem 0 0.75rem"></p>
@@ -470,18 +470,53 @@
           </div>
         </div>
 
+        <!-- 世界赛事 / 国家队 -->
+        <div id="tab-competitions" class="tab-panel">
+          <div class="card">
+            <div class="row-between" style="flex-wrap:wrap;gap:0.5rem">
+              <h2 style="margin:0" data-i18n="intl.title">世界赛事 · 国家队</h2>
+              <select id="intl-competition" aria-label="competition" style="min-width:12rem"></select>
+            </div>
+            <p class="hint" style="margin:0.5rem 0 0.75rem" data-i18n="intl.hint">
+              约每 30 天国际比赛日。赛季年份逢 2 为世界国家杯，逢 0 为欧洲国家锦标赛，其余为国际系列赛。
+            </p>
+            <div id="intl-summary" class="intl-summary muted" style="margin-bottom:0.75rem"></div>
+            <div id="intl-tables" class="intl-tables" style="display:grid;gap:0.75rem"></div>
+            <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem" data-i18n="intl.recent">近期国家队比赛</h3>
+            <div class="table-wrap">
+              <table id="intl-matches">
+                <thead>
+                  <tr>
+                    <th data-i18n="th.date">日期</th>
+                    <th data-i18n="th.home">主队</th>
+                    <th data-i18n="th.score">比分</th>
+                    <th data-i18n="th.away">客队</th>
+                    <th data-i18n="th.status">状态</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="row-between" style="flex-wrap:wrap;gap:1rem;margin-top:1rem;align-items:flex-start">
+              <div style="flex:1;min-width:12rem">
+                <h3 style="margin:0 0 0.4rem;font-size:0.95rem" data-i18n="intl.scorers">赛事射手</h3>
+                <div id="intl-scorers" class="muted"></div>
+              </div>
+              <div style="flex:1;min-width:12rem">
+                <h3 style="margin:0 0 0.4rem;font-size:0.95rem" data-i18n="intl.history">历届冠军</h3>
+                <div id="intl-history" class="muted"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- 俱乐部浏览器 -->
         <div id="tab-clubs" class="tab-panel">
           <div class="card">
             <div class="row-between" style="flex-wrap:wrap;gap:0.5rem">
               <h2 style="margin:0" data-i18n="clubs.title">俱乐部一览</h2>
               <div class="filters" style="margin:0;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center">
-                <select id="clubs-division">
-                  <option value="all" data-i18n="clubs.allDiv">全部级别</option>
-                  <option value="3" data-i18n="div.3">乙级联赛</option>
-                  <option value="2" data-i18n="div.2">甲级联赛</option>
-                  <option value="1" data-i18n="div.1">超级联赛</option>
-                </select>
+                <select id="clubs-division" aria-label="clubs league"></select>
                 <input id="clubs-search" type="search" data-i18n-placeholder="clubs.searchPh" placeholder="搜索队名…" style="min-width:10rem" />
               </div>
             </div>
@@ -932,12 +967,12 @@
     <div id="season-summary" class="season-summary hidden" role="dialog" aria-modal="true"></div>
   </div>
 
-  <script type="module" src="js/main.js?v=114"></script>
+  <script type="module" src="js/main.js?v=123"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {
         // 只保留当前 CACHE 名，删掉历史 vcfm-*（须与 sw.js 的 CACHE 同步）
-        var CURRENT_CACHE = "vcfm-v114";
+        var CURRENT_CACHE = "vcfm-v123";
         if (window.caches && caches.keys) {
           caches.keys().then(function (keys) {
             return Promise.all(

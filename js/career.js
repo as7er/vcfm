@@ -3,6 +3,7 @@
  */
 
 import { DIVISIONS } from "./data.js";
+import { getUserDomesticCup } from "./cup.js";
 
 export function emptyManagerCareer() {
   return {
@@ -132,19 +133,23 @@ export function settleManagerSeason(world, userPos, userDiv, promoNews = []) {
     c.relegations += 1;
   }
 
-  // 杯赛冠军
-  if (world.cup?.champion === club.id) {
+  // 国内杯与大陆赛事冠军
+  const wonCompetitions = [
+    getUserDomesticCup(world),
+    ...Object.values(world.continentals || {}),
+  ].filter((competition) => competition?.champion === club.id);
+  for (const competition of wonCompetitions) {
     c.cups += 1;
     club.honors.unshift({
       season: world.season,
       type: "cup",
-      title: "VCFM 杯冠军",
+      title: `${competition.name}冠军`,
       detail: "",
     });
     c.trophies.unshift({
       season: world.season,
       type: "cup",
-      title: "VCFM 杯冠军",
+      title: `${competition.name}冠军`,
       detail: club.name,
     });
   }

@@ -10,6 +10,7 @@ import { staffWageBill, ensureStaff } from "./staff.js";
 import { facilityWeeklyUpkeep, ensureFacilities } from "./facilities.js";
 import { userSquadWageBill } from "./loans.js";
 import { isTransferWindowOpen } from "./transfers.js";
+import { DIVISIONS } from "./data.js";
 
 // ---------- 球探任务 ----------
 
@@ -71,9 +72,10 @@ function completeScoutMission(world, mission) {
   for (const c of world.clubs) {
     if (c.id === user.id) continue;
     const div = c.division || 3;
-    if (region === "div3" && div !== 3) continue;
-    if (region === "div2" && div !== 2) continue;
-    if (region === "intl" && div === 3) continue; // 跨级看甲/超
+    const tier = DIVISIONS[div]?.tier || 3;
+    if (region === "div3" && tier < 2) continue;
+    if (region === "div2" && tier !== 2) continue;
+    if (region === "intl" && tier !== 1) continue;
     for (const p of c.players || []) {
       if ((p.age || 30) > 23) continue;
       if ((p.potential || p.ovr || 0) < 13) continue;

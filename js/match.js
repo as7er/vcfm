@@ -22,6 +22,7 @@ import {
   FORMATIONS,
   PLAYER_ROLES,
   TEAM_TALKS,
+  DIVISIONS,
   teamTalkLabel,
   roleLabel,
 } from "./data.js";
@@ -37,7 +38,11 @@ import {
   pushMedia,
 } from "./media.js";
 import { grantHonor } from "./honors.js";
-import { advanceCupBracket } from "./cup.js";
+import {
+  advanceCompetition,
+  applyContinentalResult,
+  findCompetition,
+} from "./cup.js";
 import { processClubMatchDiscipline } from "./discipline.js";
 import { ensureManagerCareer, recordManagerMatch } from "./career.js";
 import { noteUserMatchResult } from "./worldpulse.js";
@@ -125,7 +130,7 @@ export function isBigMatch(world, home, away, isCup) {
     const da = away.division || 3;
     if (dh !== da) return true; // 跨级杯赛
   }
-  if ((home.division || 3) === 1) {
+  if (DIVISIONS[home.division || 3]?.tier === 1) {
     const ph = home.power || 50;
     const pa = away.power || 50;
     if (ph >= 72 && pa >= 72) return true;
@@ -428,7 +433,13 @@ export function createMatchSession(world, fixture) {
   ensureCorePlayer(home);
   ensureCorePlayer(away);
 
-  const isCup = fixture.competition === "cup";
+  const competitionType =
+    fixture.competitionType || (fixture.competition === "cup" ? "domestic-cup" : "league");
+  const isLeague = competitionType === "league";
+  const isKnockout =
+    competitionType === "domestic-cup" || competitionType === "continental-knockout";
+  // 旧代码中的 isCup 表示“不计入国内联赛数据”。
+  const isCup = !isLeague;
   // 与赛前简报同一天气（已锁定则复用）
   const weather = ensureFixtureWeather(fixture);
   const derby = isDerby(home, away);
@@ -444,6 +455,9 @@ export function createMatchSession(world, fixture) {
     home,
     away,
     isCup,
+    isLeague,
+    isKnockout,
+    competitionType,
     weather,
     derby,
     bigMatch,
@@ -2282,7 +2296,7 @@ function applyMatchRatings(state) {
  */
 export function finalizeMatch(state) {
   if (state.finished) return state.report;
-  const { world, fixture, home, away, isCup, hg, ag, events } = state;
+  const { world, fixture, home, away, isCup, isLeague, isKnockout, hg, ag, events } = state;
 
   // 出场 / 零封 / 失球只计联赛（杯赛不进数据榜与赛季个人统计）
   if (!isCup) {
@@ -2318,9 +2332,11 @@ export function finalizeMatch(state) {
   fixture.weather = state.weather.key;
   fixture.derby = state.derby;
 
-  if (!isCup) {
+  if (isLeague) {
     applyResult(world, fixture);
-  } else if (hg === ag) {
+  } else if (fixture.competitionType === "continental-league-stage") {
+    applyContinentalResult(world, fixture);
+  } else if (isKnockout && hg === ag) {
     const penHome = chance(0.5);
     fixture.winner = penHome ? home.id : away.id;
     fixture.penalties = true;
@@ -2329,13 +2345,13 @@ export function finalizeMatch(state) {
       type: "ft",
       text: `点球大战！${penHome ? home.name : away.name} 晋级（原 90 分钟 ${hg}-${ag}）`,
     });
-  } else {
+  } else if (isKnockout) {
     fixture.winner = hg > ag ? home.id : away.id;
   }
 
   drainFitness(home, true, state);
   drainFitness(away, false, state);
-  if (!isCup) {
+  if (!isKnockout) {
     updateMorale(home, hg, ag);
     updateMorale(away, ag, hg);
   } else {
@@ -2376,7 +2392,7 @@ export function finalizeMatch(state) {
       ensureManagerCareer(world);
       let careerGf = myG;
       let careerGa = opG;
-      if (isCup && fixture.penalties) {
+      if (isKnockout && fixture.penalties) {
         // 点球：按胜负记 W/L，比分仍用 90 分钟
         if (fixture.winner === userId) {
           if (myG <= opG) careerGf = opG + 1;
@@ -2390,14 +2406,14 @@ export function finalizeMatch(state) {
       /* ignore */
     }
     let result = "战平";
-    if (isCup) {
+    if (isKnockout) {
       const won = fixture.winner === userId;
       result = won ? (fixture.penalties ? "点球晋级" : "晋级") : fixture.penalties ? "点球出局" : "出局";
     } else {
       if (myG > opG) result = "获胜";
       else if (myG < opG) result = "落败";
     }
-    const tag = isCup ? `🏆 ${fixture.roundLabel || "VCFM 杯"}` : `第 ${fixture.round} 轮`;
+    const tag = isLeague ? `第 ${fixture.round} 轮` : `🏆 ${fixture.roundLabel || fixture.competitionName || "杯赛"}`;
     const ctx = [];
     if (state.derby) ctx.push("德比");
     if (state.weather.key !== "clear") ctx.push(state.weather.name);
@@ -2408,7 +2424,7 @@ export function finalizeMatch(state) {
     if (isHome) {
       const income = matchdayIncome(me, {
         isCup,
-        won: myG > opG || (isCup && fixture.winner === userId),
+        won: myG > opG || (isKnockout && fixture.winner === userId),
       });
       // 德比/焦点略提收入
       const bonus = state.derby ? 1.15 : state.bigMatch ? 1.08 : 1;
@@ -2419,7 +2435,7 @@ export function finalizeMatch(state) {
         text: `🏟️ 主场收入 ${formatMoney(finalIncome)}（${stadiumInfo(me).name} · 容量约 ${stadiumInfo(me).capacity.toLocaleString()}）`,
       });
     }
-    if (!isCup) {
+    if (isLeague) {
       mediaAfterUserMatch(world, fixture, me, opp, myG, opG);
       narrativeAfterUserMatch(world, me, opp, myG, opG, false);
     } else {
@@ -2427,24 +2443,27 @@ export function finalizeMatch(state) {
         outlet: "VCFM体育",
         headline: `${tag}：${me.name} ${myG}-${opG} ${opp.name}，${result}`,
         body: fixture.penalties
-          ? "90 分钟难解难分，最终在点球大战中分出胜负。VCFM 杯永远充满戏剧性。"
-          : `一场跨级别的较量吸引了媒体目光。${result.includes("晋级") ? "赢家笑到最后。" : "苦主只能专注联赛。"}`,
+          ? "90 分钟难解难分，最终在点球大战中分出胜负。淘汰赛的压力在最后一刻达到顶峰。"
+          : fixture.competitionType === "continental-league-stage"
+            ? "五国强队在大陆赛场相遇，积分与净胜球都可能决定晋级命运。"
+            : `一场跨级别的较量吸引了媒体目光。${result.includes("晋级") ? "赢家笑到最后。" : "球队只能专注联赛。"}`,
         tone: result.includes("晋级") ? "positive" : "negative",
         category: "cup",
       });
     }
   }
 
-  if (isCup) {
-    advanceCupBracket(world);
-    if (world.cup?.stage === "done" && world.cup.champion) {
-      const champ = clubById(world, world.cup.champion);
+  if (!isLeague) {
+    advanceCompetition(world, fixture);
+    const tournament = findCompetition(world, fixture);
+    if (tournament?.stage === "done" && tournament.champion) {
+      const champ = clubById(world, tournament.champion);
       if (champ) {
         for (const p of champ.players) {
           grantHonor(p, {
             season: world.season,
-            type: "cup_winner",
-            title: "VCFM 杯冠军",
+            type: "competition_winner",
+            title: `${tournament.name}冠军`,
             detail: champ.name,
             clubId: champ.id,
             clubName: champ.name,
@@ -2454,8 +2473,8 @@ export function finalizeMatch(state) {
         if (champ.id === world.userClubId) {
           pushMedia(world, {
             outlet: "联赛日报",
-            headline: `金杯！${champ.name} 问鼎 VCFM 杯`,
-            body: "三级别球队同场竞技的舞台上，他们站到了最高领奖台。",
+            headline: `金杯！${champ.name} 问鼎${tournament.name}`,
+            body: `${tournament.name}的舞台上，他们站到了最高领奖台。`,
             tone: "positive",
             category: "cup",
           });

@@ -219,10 +219,13 @@ export function mediaDailyPulse(world, userClub) {
 }
 
 export function mediaSeasonKickoff(world, userClub, divName) {
+  const leagueSize = (world.clubs || []).filter(
+    (club) => (club.division || 3) === (userClub.division || 3)
+  ).length;
   pushMedia(world, {
     outlet: "VCFM体育",
     headline: `${world.season} 赛季特刊：${userClub.name} 出征${divName}`,
-    body: `新赛季正式拉开帷幕。VCFM体育专访写到：“从乙级一路向上是无数经理的梦，而${userClub.short}已经站在了当下属于他们的战场。”本季共 20 队同组厮杀，升级名额愈发珍贵。`,
+    body: `新赛季正式拉开帷幕。VCFM体育专访写到：“从乙级一路向上是无数经理的梦，而${userClub.short}已经站在了当下属于他们的战场。”本季共 ${leagueSize} 队同组厮杀，升级名额愈发珍贵。`,
     tone: "positive",
     category: "league",
   });

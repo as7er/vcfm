@@ -4,6 +4,7 @@
  */
 
 import { formatMoney, YOUTH_LEVELS, YOUTH_UPGRADE_COST, ensureYouthAcademy, fillYouthSquad } from "./models.js";
+import { DIVISIONS } from "./data.js";
 
 export const FACILITY_MAX = 5;
 
@@ -57,9 +58,10 @@ export function ensureFacilities(club) {
   if (!club) return null;
   const ya = ensureYouthAcademy(club);
   if (!club.facilities || typeof club.facilities !== "object") {
+    const tier = DIVISIONS[club.division || 3]?.tier || 3;
     club.facilities = {
-      stadium: club.division === 1 ? 3 : club.division === 2 ? 2 : 1,
-      training: club.division === 1 ? 2 : 1,
+      stadium: tier === 1 ? 3 : tier === 2 ? 2 : 1,
+      training: tier === 1 ? 2 : 1,
       youth: ya.level || 1,
       projects: [], // { kind, from, to, finishDay, cost, name }
     };
@@ -263,8 +265,9 @@ export function matchdayIncome(club, { isCup = false, won = false } = {}) {
   let income = Math.round(base * fill);
   if (won) income = Math.round(income * 1.08);
   // 联赛级别微调
-  if (club.division === 1) income = Math.round(income * 1.25);
-  else if (club.division === 2) income = Math.round(income * 1.1);
+  const tier = DIVISIONS[club.division || 3]?.tier || 3;
+  if (tier === 1) income = Math.round(income * 1.25);
+  else if (tier === 2) income = Math.round(income * 1.1);
   return income;
 }
 

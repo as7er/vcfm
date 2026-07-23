@@ -1,6 +1,6 @@
 /** 教练组 / 球探 / 队医 */
 
-import { FIRST_NAMES, LAST_NAMES } from "./data.js";
+import { FIRST_NAMES, LAST_NAMES, DIVISIONS } from "./data.js";
 
 const ROLES = {
   coach: {
@@ -48,7 +48,8 @@ export function createStaff(role, rating = null) {
 
 export function defaultStaffForClub(club) {
   // 级别越高，初始职员越好
-  const base = club.division === 1 ? 12 : club.division === 2 ? 9 : 7;
+  const tier = DIVISIONS[club.division || 3]?.tier || 3;
+  const base = tier === 1 ? 12 : tier === 2 ? 9 : 7;
   return {
     coach: createStaff("coach", base + rand(-1, 2)),
     scout: createStaff("scout", base + rand(-2, 1)),

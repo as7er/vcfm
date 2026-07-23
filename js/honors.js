@@ -1,6 +1,6 @@
 /** 球员个人荣誉（无依赖 engine，避免循环引用） */
 
-import { DIVISIONS } from "./data.js";
+import { DIVISIONS, DIVISION_IDS } from "./data.js";
 import { pushMedia } from "./media.js";
 
 export function ensureHonors(p) {
@@ -97,7 +97,7 @@ export function awardSeasonHonors(world) {
   const season = world.season;
   const grantedUser = [];
 
-  for (const div of [1, 2, 3]) {
+  for (const div of DIVISION_IDS) {
     const divName = DIVISIONS[div]?.name || `第${div}级`;
     const table = sortedTable(world, div);
     if (table.length < 4) continue;

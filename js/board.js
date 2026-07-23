@@ -25,42 +25,45 @@ export function generateBoardObjective(userClub, allClubs, season) {
   );
   const powerRank = Math.max(1, sorted.findIndex((c) => c.id === userClub.id) + 1);
   const n = peers.length || 20;
+  const division = DIVISIONS[div] || DIVISIONS[3];
+  const tier = division.tier || 3;
+  const upperName = DIVISIONS[division.upperDivision]?.name || "上级联赛";
 
   let type;
   let targetPos;
   let label;
 
-  if (div === 3) {
+  if (tier > 1 && !division.lowerDivision) {
     if (powerRank <= 4) {
       type = "promote";
-      targetPos = 3;
-      label = "升级甲级（前 3 名）";
-    } else if (powerRank <= 10) {
+      targetPos = division.promote || 3;
+      label = `升级${upperName}（前 ${targetPos} 名）`;
+    } else if (powerRank <= Math.ceil(n / 2)) {
       type = "top_half";
-      targetPos = 10;
-      label = "杀入前半区（前 10）";
+      targetPos = Math.ceil(n / 2);
+      label = `杀入前半区（前 ${targetPos}）`;
     } else {
       type = "midtable";
-      targetPos = 14;
-      label = "稳住中游（前 14）";
+      targetPos = Math.max(1, n - 4);
+      label = `稳住中游（前 ${targetPos}）`;
     }
-  } else if (div === 2) {
+  } else if (tier > 1) {
     if (powerRank <= 3) {
       type = "promote";
-      targetPos = 3;
-      label = "升级超联（前 3 名）";
+      targetPos = division.promote || 3;
+      label = `升级${upperName}（前 ${targetPos} 名）`;
     } else if (powerRank >= n - 4) {
       type = "survive";
       targetPos = n - 3;
       label = `保级（第 ${n - 3} 名或更好）`;
     } else if (powerRank <= 8) {
       type = "top_half";
-      targetPos = 10;
-      label = "冲击前半区（前 10）";
+      targetPos = Math.ceil(n / 2);
+      label = `冲击前半区（前 ${targetPos}）`;
     } else {
       type = "midtable";
-      targetPos = 14;
-      label = "中游安全（前 14）";
+      targetPos = Math.max(1, n - 4);
+      label = `中游安全（前 ${targetPos}）`;
     }
   } else if (powerRank <= 2) {
     type = "title";

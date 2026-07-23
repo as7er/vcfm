@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="VCFM 球员头像视觉样板" />
+  <title>头像视觉样板 · VCFM</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #202734;
+      --muted: #657080;
+      --line: #d5dce3;
+      --paper: #f5f7f8;
+      --panel: #ffffff;
+      --accent: #2f568e;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font: 15px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main { width: min(1240px, 100%); margin: 0 auto; padding: 28px 22px 42px; }
+    header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 20px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--line);
+    }
+    h1 { margin: 0; font-size: clamp(1.35rem, 2vw, 1.85rem); letter-spacing: 0; }
+    .lede { max-width: 620px; margin: 8px 0 0; color: var(--muted); }
+    .status {
+      flex: 0 0 auto;
+      padding: 7px 11px;
+      border: 1px solid #c4d2e2;
+      color: #2f568e;
+      background: #edf3fa;
+      font-size: .8rem;
+      white-space: nowrap;
+    }
+    .section-head { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:4px 16px; margin: 26px 0 12px; }
+    h2 { margin: 0; font-size: 1.05rem; }
+    .section-note { margin: 0; color: var(--muted); font-size: .82rem; }
+    .portrait-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .portrait-card {
+      min-width: 0;
+      padding: 12px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+    .portrait-card.refined { position:relative; border-color: #9fb4cc; }
+    .card-status { position:absolute; z-index:2; top:18px; right:18px; padding:3px 6px; color:#254b76; background:rgba(240,246,252,.92); border:1px solid #b7c9dc; border-radius:3px; font-size:.66rem; font-weight:700; }
+    .portrait-large {
+      display: grid;
+      place-items: center;
+      aspect-ratio: 1;
+      background: #e2e7eb;
+      overflow: hidden;
+    }
+    .portrait-large svg { display: block; width: 100%; height: 100%; }
+    .portrait-name { margin: 10px 0 1px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .portrait-meta { margin: 0; color: var(--muted); font-size: .78rem; }
+    .trait-list { display:flex; flex-wrap:wrap; gap:4px; margin-top:8px; min-height: 23px; }
+    .trait { padding: 2px 6px; color:#4d5968; background:#eef1f4; border-radius: 3px; font-size: .7rem; }
+    .sizes { display:flex; align-items:flex-end; gap:10px; margin-top: 13px; padding-top: 10px; border-top: 1px solid #edf0f2; }
+    .size-item { display:grid; justify-items:center; gap:3px; color:var(--muted); font-size:.68rem; }
+    .size-box { display:grid; place-items:center; width:64px; height:64px; background:#e9edf0; overflow:hidden; }
+    .size-box.s40 { width:40px; height:40px; }
+    .size-box.s48 { width:48px; height:48px; }
+    .size-box.s64 { width:64px; height:64px; }
+    .size-box svg { display:block; width:100%; height:100%; }
+    .dense-preview { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; padding:10px; background:#ffffff; border:1px solid var(--line); }
+    .dense-player { display:grid; grid-template-columns:40px minmax(0,1fr); align-items:center; gap:9px; min-width:0; padding:7px 8px; background:#f8fafb; border-bottom:1px solid #e6eaee; }
+    .dense-player svg { display:block; width:40px; height:40px; }
+    .dense-name { min-width:0; font-size:.78rem; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .dense-meta { color:var(--muted); font-size:.68rem; }
+    .legend {
+      display:grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap:10px;
+      margin-top: 25px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+    .legend-item { color:var(--muted); font-size:.8rem; }
+    .legend-item strong { display:block; color:var(--ink); font-size:.82rem; }
+    @media (max-width: 980px) { .portrait-grid, .dense-preview { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 620px) {
+      main { padding: 18px 14px 28px; }
+      header { display:block; }
+      .status { display:inline-block; margin-top:12px; }
+      .section-head { display:block; }
+      .section-note { margin-top:4px; }
+      .portrait-grid { grid-template-columns: 1fr; gap: 12px; }
+      .portrait-card { display:grid; grid-template-columns: 150px minmax(0,1fr); column-gap:12px; }
+      .portrait-large { grid-row: span 4; width:150px; }
+      .portrait-name { margin-top:0; }
+      .card-status { top:18px; left:26px; right:auto; }
+      .sizes { grid-column:2; margin-top:8px; padding-top:8px; }
+      .dense-preview { grid-template-columns:1fr; }
+      .legend { grid-template-columns:1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>球员头像视觉样板</h1>
+        <p class="lede">第一阶段隔离预览：体育题材轻动漫插画、成熟头肩构图、发束层次、眼睛高光和克制的赛璐璐阴影。生产页面仍使用现有头像。</p>
+      </div>
+      <span class="status">样板 · 未接入生产页面</span>
+    </header>
+
+    <section aria-labelledby="candidate-heading">
+      <div class="section-head">
+        <h2 id="candidate-heading">第三轮精修候选</h2>
+        <p class="section-note">同一身份同时展示 40 / 48 / 64 / 192 px</p>
+      </div>
+      <div id="candidate-portraits" class="portrait-grid"></div>
+    </section>
+
+    <section aria-labelledby="dense-heading">
+      <div class="section-head">
+        <h2 id="dense-heading">40px 密集列表预览</h2>
+        <p class="section-note">浅色列表背景 · 姓名与位置</p>
+      </div>
+      <div id="dense-portraits" class="dense-preview"></div>
+    </section>
+
+    <section aria-labelledby="legacy-heading">
+      <div class="section-head">
+        <h2 id="legacy-heading">旧版对照，请勿作为目标</h2>
+        <p class="section-note">下排保持原样，本轮不修改</p>
+      </div>
+      <div id="legacy-portraits" class="portrait-grid"></div>
+    </section>
+
+    <section class="legend" aria-label="视觉规则">
+      <div class="legend-item"><strong>统一构图</strong>正面轻微肩部裁切，眼睛、鼻子、嘴巴和发际线共用锚点。</div>
+      <div class="legend-item"><strong>稳定身份</strong>只由 appearanceSeed 或 playerId 决定脸型、发型、肤色和胡须。</div>
+      <div class="legend-item"><strong>俱乐部色</strong>仅传入通用主色/辅色球衣，不绘制队徽、赞助商、号码或文字。</div>
+    </section>
+  </main>
+  <script type="module">
+    import { editorialAvatarSvg, editorialPortraitTraits } from "./js/avatar-style-preview.js?v=3";
+
+    const players = [
+      { id: "portrait-0", appearanceSeed: "portrait-0", name: "Iris Calder", nameZh: "伊里斯·卡尔德", age: 20, pos: "MID", club: "Harbor Teal", primary: "#287b83", secondary: "#e5b85c", bg: "#18293a", refinement: 3 },
+      { id: "portrait-1", appearanceSeed: "portrait-1", name: "Marek Voss", nameZh: "马雷克·沃斯", age: 21, pos: "DEF", club: "Northline Red", primary: "#b94e52", secondary: "#f0d5ae", bg: "#29262b", refinement: 3 },
+      { id: "portrait-2", appearanceSeed: "portrait-2", name: "Sami Okoro", nameZh: "萨米·奥科罗", age: 22, pos: "ATT", club: "Sunfield Blue", primary: "#3d66a6", secondary: "#e38a45", bg: "#202d3f", refinement: 3 },
+      { id: "portrait-3", appearanceSeed: "portrait-3", name: "Noah Kestrel", nameZh: "诺亚·凯斯特尔", age: 23, pos: "GK", club: "Mossgate Green", primary: "#34745a", secondary: "#d5d9b1", bg: "#25302a", refinement: 3 },
+      { id: "portrait-4", appearanceSeed: "portrait-4", name: "Tomas Vale", nameZh: "托马斯·维尔", age: 24, pos: "MID", club: "Amber County", primary: "#b97632", secondary: "#283d67", bg: "#302a24" },
+      { id: "portrait-12", appearanceSeed: "portrait-12", name: "Elias Morrow", nameZh: "伊莱亚斯·莫罗", age: 32, pos: "DEF", club: "Slate Borough", primary: "#536276", secondary: "#d17a56", bg: "#26303a" },
+      { id: "portrait-20", appearanceSeed: "portrait-20", name: "Enzo Bell", nameZh: "恩佐·贝尔", age: 40, pos: "GK", club: "Cinder Athletic", primary: "#5e4a85", secondary: "#c7a5d3", bg: "#2c2733" },
+      { id: "portrait-3-vet", appearanceSeed: "portrait-3-veteran", name: "Rafi Dalen", nameZh: "拉菲·达伦", age: 38, pos: "ATT", club: "Westmere Gold", primary: "#2e557f", secondary: "#d6ad46", bg: "#233044" },
+    ];
+
+    const candidates = players.slice(0, 4);
+    const legacy = players.slice(4);
+    const tags = (p) => {
+      const t = editorialPortraitTraits(p);
+      const face = { "soft-square": "方圆脸", oval: "椭圆脸", long: "长脸", round: "圆脸", broad: "宽脸" }[t.face];
+      const hair = { crop: "短发", wave: "侧波", curl: "卷发", side: "侧分", buzz: "寸头", coils: "紧卷" }[t.hairStyle];
+      const beard = { none: "无胡须", stubble: "短须影", short: "短胡须", full: "完整胡须" }[t.beard];
+      return [face, hair, beard, p.age >= 34 ? "老将" : p.age <= 21 ? "年轻球员" : "成年球员"];
+    };
+    const renderCards = (list, refined) => list.map((p) => {
+      const avatarOpts = (size) => ({ size, kitPrimary: p.primary, kitSecondary: p.secondary, background: p.bg, refinement: p.refinement });
+      const portrait = editorialAvatarSvg(p, avatarOpts(192));
+      const small = (size, cls) => `<div class="size-item"><div class="size-box ${cls}">${editorialAvatarSvg(p, avatarOpts(size))}</div><span>${size}px</span></div>`;
+      return `<article class="portrait-card${refined ? " refined" : ""}">
+        ${refined ? '<span class="card-status">第三轮</span>' : ""}
+        <div class="portrait-large">${portrait}</div>
+        <div class="portrait-name" title="${p.name}">${p.nameZh} · ${p.name}</div>
+        <p class="portrait-meta">${p.pos} · ${p.club}</p>
+        <div class="trait-list">${tags(p).map((tag) => `<span class="trait">${tag}</span>`).join("")}</div>
+        <div class="sizes">${small(40, "s40")}${small(48, "s48")}${small(64, "s64")}</div>
+      </article>`;
+    }).join("");
+    document.querySelector("#candidate-portraits").innerHTML = renderCards(candidates, true);
+    document.querySelector("#legacy-portraits").innerHTML = renderCards(legacy, false);
+    document.querySelector("#dense-portraits").innerHTML = candidates.map((p) => `<div class="dense-player">
+      ${editorialAvatarSvg(p, { size: 40, kitPrimary: p.primary, kitSecondary: p.secondary, background: p.bg, refinement: 3 })}
+      <div><div class="dense-name">${p.nameZh} · ${p.name}</div><div class="dense-meta">${p.pos} · ${p.club}</div></div>
+    </div>`).join("");
+  </script>
+</body>
+</html>

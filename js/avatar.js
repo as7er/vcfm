@@ -11,9 +11,30 @@
  * v5.4 自然表情：状态表情与天生五官分离；同为 neutral 的球员也会按稳定种子生成
  * 不同眉形、眼型、目光、鼻型与嘴型，默认观感由怒眉坏笑改为平静 / 专注 / 友善。
  *
+ * v5.5 正式肖像资产：当 player.avatarAssetId（等）命中本地 manifest 时，渲染 WebP/PNG
+ * 文件（不重新绘制人物）；失败 onerror 回退本文件的程序生成图。映射见 avatar-assets.js。
+ *
  * 对外 API 与 v4 完全兼容：moodFromPlayer / renderAvatarSvg / avatarHtml /
- * playerAvatarHtml / staffAvatarHtml。
+ * playerAvatarHtml / staffAvatarHtml；并 re-export resolvePlayerAvatar。
  */
+
+import {
+  resolvePlayerAvatar,
+  loadAvatarManifest,
+  getAvatarManifest,
+  playerAppearanceKey,
+  getKitRecoloredSrc,
+  colorDistance,
+} from "./avatar-assets.js";
+
+// 后台刷新磁盘 manifest（失败则保留内置副本）
+if (typeof fetch === "function") {
+  try {
+    loadAvatarManifest();
+  } catch {
+    /* ignore */
+  }
+}
 
 /** @typedef {'neutral'|'happy'|'injured'|'sad'|'tired'} AvatarMood */
 
@@ -758,8 +779,12 @@ export function avatarHtml(person, opts = {}) {
   if (!mood && role === "player") mood = moodFromPlayer(person);
   if (!mood) mood = "neutral";
 
+  // 稳定身份：appearanceSeed → id → name（与资产映射、程序脸一致）
+  const seedKey = playerAppearanceKey(person);
+
   const renderOpts = {
-    seed: person.id || person.name,
+    seed: seedKey,
+    id: person.id,
     name: person.name,
     role,
     pos: person.pos,
@@ -770,11 +795,42 @@ export function avatarHtml(person, opts = {}) {
     size,
     mood,
   };
-  // 首选高分辨率 canvas-PNG；无 DOM 时回退 SVG
+  // 程序生成图：正式资产加载失败时的 fallback；无资产时也是主路径
   const pngUri = renderAvatarPngUri(renderOpts);
-  const inner = pngUri
-    ? `<img class="avatar-px" src="${pngUri}" width="${size}" height="${size}" alt="" draggable="false">`
-    : renderAvatarSvg(renderOpts);
+  const svgFallback = () => renderAvatarSvg(renderOpts);
+
+  let inner;
+  // 仅球员角色尝试正式肖像（职员/经理仍走像素）
+  const tryArt =
+    role === "player" && opts.forceProcedural !== true
+      ? resolvePlayerAvatar(person, getAvatarManifest(), {
+          size,
+          kitPrimary,
+          kitSecondary,
+        })
+      : null;
+
+  if (tryArt && tryArt.kind === "asset" && tryArt.src) {
+    const artSrc = escapeAttr(tryArt.src);
+    const alt = escapeAttr(person.name || "player");
+    // onerror → 程序生成 data-URI；再失败则去掉图（外层 title 仍在）
+    const fb = pngUri ? escapeAttr(pngUri) : "";
+    const onerr = fb
+      ? `this.onerror=null;this.src="${fb}";this.classList.remove("avatar-art");this.classList.add("avatar-px");this.removeAttribute("data-kit-recolor");`
+      : `this.onerror=null;this.remove();`;
+    // 同队必须同色：有俱乐部主色就强制着色（不依赖资产自带球衣色）
+    const needKit = !!kitPrimary;
+    const kitAttr = needKit
+      ? ` data-kit-recolor="${escapeAttr(kitPrimary)}" data-art-src="${artSrc}"`
+      : "";
+    inner = `<img class="avatar-art" src="${artSrc}" width="${size}" height="${size}" alt="${alt}" draggable="false" loading="lazy" decoding="async" data-avatar-id="${escapeAttr(
+      tryArt.id || ""
+    )}"${kitAttr} onerror="${onerr}">`;
+  } else if (pngUri) {
+    inner = `<img class="avatar-px" src="${pngUri}" width="${size}" height="${size}" alt="" draggable="false">`;
+  } else {
+    inner = svgFallback();
+  }
 
   const moodTip =
     mood === "injured"
@@ -786,11 +842,25 @@ export function avatarHtml(person, opts = {}) {
           : mood === "tired"
             ? " · 疲惫"
             : "";
-  const cls = `avatar mood-${mood}${opts.className ? " " + opts.className : ""}`;
+  const label = (person.name || "") + moodTip;
+  const artCls =
+    tryArt && tryArt.kind === "asset" ? " avatar-has-art" : "";
+  const cls = `avatar mood-${mood}${artCls}${opts.className ? " " + opts.className : ""}`;
   return `<span class="${cls}" style="width:${size}px;height:${size}px" title="${escapeAttr(
-    (person.name || "") + moodTip
-  )}">${inner}</span>`;
+    label
+  )}" role="img" aria-label="${escapeAttr(label)}">${inner}</span>`;
 }
+
+// 资产管线公开 re-export（调用方无需改 import 路径也可测）
+export {
+  resolvePlayerAvatar,
+  loadAvatarManifest,
+  getAvatarManifest,
+  playerAppearanceKey,
+  getKitRecoloredSrc,
+  buildAvatarQuery,
+  scoreAvatarEntry,
+} from "./avatar-assets.js";
 
 function escapeAttr(s) {
   return String(s || "")
@@ -806,6 +876,37 @@ const AVATAR_KIT_THEME = {
   steel: { primary: "#64748b", secondary: "#dc2626" },
   mill: { primary: "#166534", secondary: "#eab308" },
 };
+
+/**
+ * 插入 DOM 后调用：对带 data-kit-recolor 的正式肖像做球衣主色对齐。
+ * 可重复调用；已处理过的图会打 data-kit-done。
+ * @param {ParentNode} [root]
+ */
+export function hydrateAvatarKitRecolor(root) {
+  if (typeof document === "undefined") return;
+  const scope = root || document;
+  const nodes = scope.querySelectorAll?.("img.avatar-art[data-kit-recolor]:not([data-kit-done])");
+  if (!nodes || !nodes.length) return;
+  nodes.forEach((img) => {
+    const kit = img.getAttribute("data-kit-recolor");
+    const src = img.getAttribute("data-art-src") || img.getAttribute("src");
+    if (!kit || !src) {
+      img.setAttribute("data-kit-done", "1");
+      return;
+    }
+    const w = Number(img.getAttribute("width")) || img.width || 128;
+    getKitRecoloredSrc(src, kit, Math.max(64, Math.min(256, w * 2)))
+      .then((out) => {
+        if (out && img.isConnected) {
+          img.src = out;
+          img.setAttribute("data-kit-done", "1");
+        }
+      })
+      .catch(() => {
+        img.setAttribute("data-kit-done", "1");
+      });
+  });
+}
 
 /** 球员 + 俱乐部球衣色 + 状态表情 */
 export function playerAvatarHtml(player, club, size = 36) {

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VCFM · 头像池特征匹配验证</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0; padding: 24px;
+      font-family: system-ui, "Segoe UI", sans-serif;
+      background: #0b1220; color: #e2e8f0; line-height: 1.45;
+    }
+    h1 { font-size: 1.2rem; margin: 0 0 0.35rem; }
+    h2 { font-size: 0.95rem; color: #94a3b8; margin: 1.4rem 0 0.55rem; font-weight: 600; }
+    .note { font-size: 0.85rem; color: #64748b; margin-bottom: 1rem; }
+    .row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+    .cell { text-align: center; }
+    .cell .lb { font-size: 11px; color: #8a97ad; margin-top: 6px; max-width: 140px; }
+    .checks { font-size: 0.88rem; background: #121a2b; border: 1px solid #243047; border-radius: 10px; padding: 12px 14px; }
+    .checks li { margin: 0.25rem 0; }
+    .ok { color: #4ade80; } .warn { color: #fbbf24; } .bad { color: #f87171; }
+    code { font-size: 0.84em; color: #93c5fd; }
+    .avatar {
+      display: inline-flex; border-radius: 18%; overflow: hidden; line-height: 0;
+      box-shadow: 0 0 0 1px rgba(255,255,255,.14), 0 2px 6px rgba(0,0,0,.28);
+      background: #1a2233;
+    }
+    .avatar img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center top; }
+    table { border-collapse: collapse; width: 100%; max-width: 960px; font-size: 0.86rem; }
+    th, td { border: 1px solid #243047; padding: 6px 8px; text-align: left; }
+    th { color: #94a3b8; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>正式头像池 · 特征匹配验证</h1>
+  <p class="note">
+    <code>python -m http.server 8765 --bind 127.0.0.1</code>
+    → <code>http://127.0.0.1:8765/avatar-asset-verify.html</code>
+    · assignment=<code>match</code>：年龄 / 地区 / 肤色 / 球衣色打分，避免全员同一张脸
+  </p>
+  <ul class="checks" id="checks"></ul>
+
+  <h2>多样本映射（不同年龄 · 国籍 · 球衣）</h2>
+  <div class="row" id="samples"></div>
+
+  <h2>同队不同人（球衣色一致，脸应不同）</h2>
+  <div class="row" id="sameclub"></div>
+
+  <h2>池预览 64 / 192</h2>
+  <div class="row" id="pool"></div>
+
+  <h2>打分明细</h2>
+  <table id="scoretable">
+    <thead><tr><th>球员</th><th>命中</th><th>分</th><th>traits</th></tr></thead>
+    <tbody></tbody>
+  </table>
+
+  <script type="module">
+    import {
+      playerAvatarHtml,
+      resolvePlayerAvatar,
+      getAvatarManifest,
+      loadAvatarManifest,
+      hydrateAvatarKitRecolor,
+      buildAvatarQuery,
+    } from "./js/avatar.js?v=122";
+
+    const checks = document.getElementById("checks");
+    const log = (cls, html) => {
+      const li = document.createElement("li");
+      li.className = cls;
+      li.innerHTML = html;
+      checks.appendChild(li);
+    };
+
+    await loadAvatarManifest();
+    const m = getAvatarManifest();
+    log(
+      m.assignment === "match" && m.avatars?.length >= 8 ? "ok" : "warn",
+      `manifest v<code>${m.version}</code> assignment=<code>${m.assignment}</code> pool=<code>${m.avatars?.length}</code>`
+    );
+
+    const samples = [
+      { id: "s-jpn", name: "Youth Easia", age: 19, nationality: "JPN", club: { id: "harbor", kit: { primary: "#0ea5e9", secondary: "#f8fafc" } } },
+      { id: "s-nga", name: "WAFR Pace", age: 24, nationality: "NGA", club: { id: "sunset", kit: { primary: "#f97316", secondary: "#5b21b6" } } },
+      { id: "s-swe", name: "Nordic Mid", age: 27, nationality: "SWE", club: { id: "mill", kit: { primary: "#166534", secondary: "#eab308" } } },
+      { id: "s-ita", name: "Seur Vet", age: 31, nationality: "ITA", club: { kit: { primary: "#dc2626", secondary: "#fff" } } },
+      { id: "s-eng", name: "Brit Grey", age: 36, nationality: "ENG", club: { id: "steel", kit: { primary: "#64748b", secondary: "#dc2626" } } },
+      { id: "s-bra", name: "Latam", age: 22, nationality: "BRA", club: { kit: { primary: "#f8fafc", secondary: "#0ea5e9" } } },
+      { id: "s-sen", name: "Dark Vet", age: 38, nationality: "SEN", club: { id: "mill", kit: { primary: "#166534", secondary: "#eab308" } } },
+      { id: "s-chn", name: "CHN U21", age: 20, nationality: "CHN", club: { kit: { primary: "#38bdf8", secondary: "#fff" } } },
+      { id: "s-mar", name: "NAFR", age: 29, nationality: "MAR", club: { kit: { primary: "#1e3a5f", secondary: "#94a3b8" } } },
+      { id: "s-irl", name: "Redhead", age: 23, nationality: "IRL", club: { id: "sunset", kit: { primary: "#f97316", secondary: "#5b21b6" } } },
+    ];
+
+    const sampleEl = document.getElementById("samples");
+    const ids = [];
+    const tbody = document.querySelector("#scoretable tbody");
+    for (const p of samples) {
+      const kitP = p.club.kit.primary;
+      const r = resolvePlayerAvatar(p, m, { size: 80, kitPrimary: kitP });
+      ids.push(r.id);
+      sampleEl.insertAdjacentHTML(
+        "beforeend",
+        `<div class="cell">${playerAvatarHtml(p, p.club, 80)}<div class="lb">${p.nationality} ${p.age}<br/><code>${r.id}</code></div></div>`
+      );
+      const e = r.entry || {};
+      tbody.insertAdjacentHTML(
+        "beforeend",
+        `<tr><td>${p.nationality} ${p.age}</td><td><code>${r.id}</code></td><td>${Math.round(r.score || 0)}</td><td>${e.skinTone || ""} / ${e.hairColor || ""} / ${e.ageBand || ""}</td></tr>`
+      );
+    }
+    const uniq = new Set(ids.filter(Boolean));
+    log(uniq.size >= 7 ? "ok" : "warn", `多样本唯一脸 <code>${uniq.size}</code> / ${ids.length}`);
+
+    // same club different faces
+    const club = { id: "harbor", kit: { primary: "#0ea5e9", secondary: "#f8fafc" } };
+    const mates = [
+      { id: "mate-1", name: "M1", age: 19, nationality: "JPN" },
+      { id: "mate-2", name: "M2", age: 25, nationality: "BRA" },
+      { id: "mate-3", name: "M3", age: 34, nationality: "ENG" },
+      { id: "mate-4", name: "M4", age: 22, nationality: "NGA" },
+    ];
+    const sameEl = document.getElementById("sameclub");
+    const mateIds = mates.map((p) => {
+      const r = resolvePlayerAvatar(p, m, { size: 64, kitPrimary: club.kit.primary });
+      sameEl.insertAdjacentHTML(
+        "beforeend",
+        `<div class="cell">${playerAvatarHtml(p, club, 64)}<div class="lb">${p.nationality} ${p.age}<br/><code>${r.id}</code></div></div>`
+      );
+      return r.id;
+    });
+    log(new Set(mateIds).size >= 3 ? "ok" : "warn", `同队不同人唯一脸 <code>${new Set(mateIds).size}</code> / ${mateIds.length}`);
+
+    // pool strip
+    const pool = document.getElementById("pool");
+    for (const a of m.avatars) {
+      pool.insertAdjacentHTML(
+        "beforeend",
+        `<div class="cell">
+          <span class="avatar" style="width:64px;height:64px"><img src="${a.thumbnail}" width="64" height="64" alt=""></span>
+          <span class="avatar" style="width:96px;height:96px;margin-left:6px"><img src="${a.portrait}" width="96" height="96" alt=""></span>
+          <div class="lb"><code>${a.id}</code><br/>${a.skinTone} · ${a.ageBand}</div>
+        </div>`
+      );
+    }
+
+    // stable
+    const q1 = resolvePlayerAvatar(samples[0], m, { size: 64, kitPrimary: "#0ea5e9" });
+    const q2 = resolvePlayerAvatar(samples[0], m, { size: 64, kitPrimary: "#0ea5e9" });
+    log(q1.id === q2.id ? "ok" : "bad", `同人稳定映射 <code>${q1.id}</code>`);
+
+    requestAnimationFrame(() => hydrateAvatarKitRecolor(document));
+  </script>
+</body>
+</html>

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>日系足球动画头像 · 技术样板</title>
+  <style>
+    :root { color-scheme: light; --ink:#202734; --muted:#687383; --line:#d6dce3; --paper:#f5f7f9; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:var(--paper); font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif; }
+    main { width:min(980px,100%); margin:0 auto; padding:28px 22px 40px; }
+    header { display:flex; justify-content:space-between; align-items:flex-end; gap:20px; padding-bottom:18px; border-bottom:1px solid var(--line); }
+    h1 { margin:0; font-size:1.45rem; letter-spacing:0; }
+    p { margin:6px 0 0; color:var(--muted); }
+    .status { padding:6px 9px; color:#31557e; border:1px solid #bfd0e1; background:#edf3f9; white-space:nowrap; }
+    .stage { display:grid; grid-template-columns:minmax(0,1fr) 240px; align-items:end; gap:28px; margin-top:24px; }
+    .sample { display:grid; justify-items:center; gap:8px; min-width:0; }
+    .frame { display:grid; place-items:center; overflow:hidden; background:#172334; border:1px solid #c9d0d8; }
+    .frame.large { width:min(384px,100%); aspect-ratio:1; }
+    .frame.small { width:192px; height:192px; }
+    .frame svg { display:block; width:100%; height:100%; }
+    .caption { color:var(--muted); font-size:.78rem; }
+    .identity { grid-column:1/-1; padding-top:16px; border-top:1px solid var(--line); text-align:center; }
+    .identity strong { display:block; color:var(--ink); font-size:1rem; }
+    body.focus main { display:grid; place-items:center; width:100%; height:100vh; padding:0; }
+    body.focus header, body.focus .stage { display:none; }
+    body.focus #focus-root { position:fixed; inset:0; display:grid; place-items:center; }
+    .focus-frame { display:grid; place-items:center; overflow:hidden; background:#172334; }
+    .focus-frame svg, .focus-portrait svg { display:block; width:100%; height:100%; }
+    @media (max-width:680px) { .stage { grid-template-columns:1fr; align-items:start; } header { display:block; } .status { display:inline-block; margin-top:10px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div><h1>日系足球动画头像 · 单人技术样板</h1><p>原创青年短碎发球员，仅验证线稿、眼睛、发束与赛璐璐体积。</p></div>
+      <span class="status">未接入正式头像</span>
+    </header>
+    <section class="stage" id="stage"></section>
+    <div id="focus-root"></div>
+  </main>
+  <script type="module">
+    import { renderAnimeStudySvg } from "./js/avatar-anime-study.js?v=1";
+
+    const player = {
+      id: "anime-study-player-01",
+      appearanceSeed: "anime-study-player-01",
+      name: "Adrian Vale",
+      nameZh: "阿德里安·维尔",
+      age: 21,
+      pos: "MID",
+    };
+    const opts = { kitPrimary:"#176b66", kitSecondary:"#d8ad4f", background:"#172334" };
+    const focus = Number(new URLSearchParams(location.search).get("focus"));
+    if (focus === 192 || focus === 384) {
+      document.body.classList.add("focus");
+      const root = document.querySelector("#focus-root");
+      root.className = "focus-frame";
+      root.innerHTML = `<div class="focus-portrait" style="width:${focus}px;height:${focus}px">${renderAnimeStudySvg(player, { ...opts, size:focus })}</div>`;
+    } else {
+      document.querySelector("#stage").innerHTML = `
+        <div class="sample"><div class="frame large">${renderAnimeStudySvg(player,{...opts,size:384})}</div><span class="caption">384px 质量检查</span></div>
+        <div class="sample"><div class="frame small">${renderAnimeStudySvg(player,{...opts,size:192})}</div><span class="caption">192px 详情尺寸</span></div>
+        <div class="identity"><strong>${player.nameZh} · ${player.name}</strong><span>${player.pos} · 21岁 · 原创无品牌球衣</span></div>`;
+    }
+  </script>
+</body>
+</html>

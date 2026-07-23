@@ -3,15 +3,19 @@
 import {
   NATIONALITIES,
   CLUB_TEMPLATES,
+  clubBrandingById,
   FORMATIONS,
   DIVISIONS,
+  DIVISION_IDS,
   START_DIVISION,
+  START_DIVISIONS,
   generatePlayerName,
   PLAYER_ROLES,
   ROLES_BY_POS,
   DEFAULT_ROLE_BY_POS,
   defaultRoleForSlot,
 } from "./data.js";
+import { applyClubBranding } from "./branding.js";
 
 let _id = 1;
 export function uid(prefix = "p") {
@@ -387,34 +391,6 @@ export function fillYouthSquad(club, count = null) {
 /** 球衣样式：solid / stripes / hoops / halves / sash */
 export const KIT_STYLES = ["solid", "stripes", "hoops", "halves", "sash"];
 
-/** 与 clubs.js 主题表同步；此处再列一份避免 models↔clubs 循环依赖 */
-const KIT_THEME_BY_ID = {
-  sunset: {
-    primary: "#f97316",
-    secondary: "#5b21b6",
-    style: "sash",
-    numberColor: "#ffffff",
-  },
-  harbor: {
-    primary: "#0ea5e9",
-    secondary: "#f8fafc",
-    style: "stripes",
-    numberColor: "#0f172a",
-  },
-  steel: {
-    primary: "#64748b",
-    secondary: "#dc2626",
-    style: "halves",
-    numberColor: "#ffffff",
-  },
-  mill: {
-    primary: "#166534",
-    secondary: "#eab308",
-    style: "hoops",
-    numberColor: "#ffffff",
-  },
-};
-
 function hashStr(s) {
   let h = 0;
   const str = String(s || "");
@@ -459,10 +435,13 @@ function shiftHex(hex, delta) {
 /** 为俱乐部生成/补齐球衣配置 */
 export function ensureKit(club) {
   if (!club) return null;
-  // 主题队：始终覆盖（修正旧存档里主题色被随机成灰蓝的问题）
-  const theme = club.id ? KIT_THEME_BY_ID[club.id] : null;
-  if (theme) {
-    club.color = theme.primary;
+  // 所有已映射俱乐部始终按原创品牌参数刷新，旧档的名称/球衣快照不会反向覆盖。
+  const branding = club.id ? clubBrandingById[club.id] : null;
+  if (branding?.kit) {
+    const theme = branding.kit;
+    club.color = branding.colors.primary;
+    club.colors = { ...branding.colors };
+    club.crest = { ...branding.crest };
     club.kit = {
       style: theme.style || "solid",
       primary: theme.primary,
@@ -613,7 +592,7 @@ const SQUAD_SHAPE = [
   ...Array(5).fill("ATT"),
 ];
 
-export function createClub(template) {
+export function createClub(template, lang = "zh") {
   const players = SQUAD_SHAPE.map((pos) => {
     const jitter = rand(-6, 6);
     return createPlayer(pos, template.power + jitter, template.id);
@@ -625,16 +604,26 @@ export function createClub(template) {
   const club = {
     id: template.id,
     name: template.name,
+    nameEn: template.nameEn,
+    nameZh: template.nameZh,
     short: template.short,
+    shortName: template.shortName || template.short,
     color: template.color,
     power: template.power,
     money: template.money,
     division,
+    countryId: template.countryId || DIVISIONS[division]?.countryId || "crownland",
+    countryCode: template.countryCode,
+    leagueId: division,
+    city: template.city ? { ...template.city } : null,
+    stadiumName: template.stadiumName ? { ...template.stadiumName } : null,
+    colors: template.colors ? { ...template.colors } : null,
+    crest: template.crest ? { ...template.crest } : null,
     players,
     tactics: defaultTactics(),
     form: [], // W/D/L 最近
     youth: {
-      level: division === 1 ? 2 : 1,
+      level: DIVISIONS[division]?.tier === 1 ? 2 : 1,
       players: [],
       daysSinceIntake: rand(0, 20),
     },
@@ -643,6 +632,7 @@ export function createClub(template) {
     training: { focus: "balanced", intensity: "normal" },
     facilities: null, // ensureFacilities 时按联赛补默认
   };
+  applyClubBranding(club, clubBrandingById[club.id] || template.branding, lang);
   ensureKit(club);
   fillYouthSquad(club);
   assignSquadNumbers(club);
@@ -1102,14 +1092,17 @@ export function teamStrength(club) {
 
 /** 按级别生成并合并赛程（各级共用相同比赛日） */
 export function generateAllDivisionFixtures(clubs) {
-  const byDiv = { 1: [], 2: [], 3: [] };
+  const byDiv = {};
   for (const c of clubs) {
     const d = c.division || 3;
     if (!byDiv[d]) byDiv[d] = [];
     byDiv[d].push(c.id);
   }
   const all = [];
-  for (const d of [1, 2, 3]) {
+  const divisions = [...new Set([...DIVISION_IDS, ...Object.keys(byDiv).map(Number)])].sort(
+    (a, b) => a - b
+  );
+  for (const d of divisions) {
     const ids = byDiv[d];
     if (!ids || ids.length < 2) continue;
     const fixtures = generateFixtures(ids);
@@ -1123,10 +1116,10 @@ export function generateAllDivisionFixtures(clubs) {
   return all;
 }
 
-export function createWorld(userClubId, managerName) {
+export function createWorld(userClubId, managerName, lang = "zh") {
   resetIdCounter(1);
   const clubs = CLUB_TEMPLATES.map((t) => {
-    const c = createClub(t);
+    const c = createClub(t, lang);
     autoLineup(c);
     return c;
   });
@@ -1134,10 +1127,7 @@ export function createWorld(userClubId, managerName) {
 
   const user = clubs.find((c) => c.id === userClubId);
   if (!user) throw new Error("invalid club");
-  // 开局只能选乙级
-  if (user.division !== START_DIVISION) {
-    user.division = START_DIVISION;
-  }
+  if (!START_DIVISIONS.includes(user.division)) throw new Error("invalid starting division");
 
   const fixtures = generateAllDivisionFixtures(clubs);
   const table = {};
@@ -1148,11 +1138,13 @@ export function createWorld(userClubId, managerName) {
   const divName = DIVISIONS[user.division]?.name || "乙级联赛";
 
   const world = {
-    version: 6,
+    version: 7,
     season: 2026,
     day: 1,
     managerName,
     userClubId,
+    countryId: user.countryId,
+    countryCode: user.countryCode,
     clubs,
     fixtures,
     table,
@@ -1160,7 +1152,12 @@ export function createWorld(userClubId, managerName) {
     retiredPlayers: [],
     freeAgents: [],
     media: [],
-    cup: null, // engine/main 中 ensureCup
+    cup: null, // 旧档兼容；新赛事使用 domesticCups / continentals
+    domesticCups: {},
+    continentals: {},
+    continentalQualifiers: null,
+    // 国家队赛事与历史；旧存档由 intl.ensureInternational 惰性迁移
+    international: { version: 1, matches: [], competitions: {}, history: [], activeCompetitionId: null },
     poachBids: [],
     managerCareer: {
       seasons: 0,
@@ -1182,7 +1179,7 @@ export function createWorld(userClubId, managerName) {
     news: [
       {
         day: 1,
-        text: `${managerName} 正式执教 ${user.name}，从${divName}起步！每级 20 队 · VCFM 杯跨级淘汰 · 注意球员合同年限。`,
+        text: `${managerName} 正式执教 ${user.name}，从${divName}起步！五国联赛与三项大陆赛事已经启航。`,
       },
     ],
     matchIndex: 0,
@@ -1194,7 +1191,65 @@ export function clubsInDivision(clubs, division) {
   return clubs.filter((c) => (c.division || 3) === division);
 }
 
-export { DIVISIONS, START_DIVISION };
+/** 旧存档补齐新增俱乐部；稳定 ID 已存在的俱乐部不会被重建。 */
+export function ensureWorldClubTemplates(world, lang = "zh") {
+  if (!world || !Array.isArray(world.clubs)) return 0;
+  if (!world.table) world.table = {};
+  const known = new Set(world.clubs.map((c) => c.id));
+  let added = 0;
+  for (const template of CLUB_TEMPLATES) {
+    if (known.has(template.id)) continue;
+    const club = createClub(template, lang);
+    autoLineup(club);
+    world.clubs.push(club);
+    world.table[club.id] = { played: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, pts: 0 };
+    added++;
+  }
+  return added;
+}
+
+/**
+ * 只为完全缺失的联赛追加赛程，保留旧档已有赛程、比分和比赛报告。
+ * 返回本次新增的赛程，供加载迁移补齐已经过去的轮次。
+ */
+export function ensureWorldLeagueFixtures(world) {
+  if (!world || !Array.isArray(world.clubs)) return [];
+  if (!Array.isArray(world.fixtures)) world.fixtures = [];
+
+  const divisionByClub = new Map(
+    world.clubs.map((club) => [club.id, Number(club.division || START_DIVISION)])
+  );
+  const scheduledDivisions = new Set();
+  for (const fixture of world.fixtures) {
+    const division = Number(
+      fixture.division ||
+      divisionByClub.get(fixture.home) ||
+      divisionByClub.get(fixture.away)
+    );
+    if (DIVISIONS[division]) {
+      fixture.division = division;
+      scheduledDivisions.add(division);
+    }
+  }
+
+  const added = [];
+  for (const division of DIVISION_IDS) {
+    if (scheduledDivisions.has(division)) continue;
+    const clubIds = clubsInDivision(world.clubs, division).map((club) => club.id);
+    if (clubIds.length < 2) continue;
+    const fixtures = generateFixtures(clubIds);
+    for (const fixture of fixtures) fixture.division = division;
+    added.push(...fixtures);
+  }
+
+  if (added.length) {
+    world.fixtures.push(...added);
+    world.fixtures.sort((a, b) => a.day - b.day || a.division - b.division);
+  }
+  return added;
+}
+
+export { DIVISIONS, DIVISION_IDS, START_DIVISION, START_DIVISIONS };
 
 /** 双循环赛程：每轮 day 间隔 7 */
 export function generateFixtures(clubIds) {

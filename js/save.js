@@ -1,5 +1,9 @@
 /** 本地存档：多槽位 localStorage + 导出/导入文件 */
 
+import { compressToUTF16, decompressFromUTF16 } from "./compress.js";
+import { clubBrandingById } from "./clubs.js";
+import { localizedClubName } from "./branding.js";
+
 // 新键名（VCFM）；旧键兼容读取后迁移
 const LEGACY_KEY = "vcfm_save_v1";
 const SLOT_PREFIX = "vcfm_slot_";
@@ -10,6 +14,107 @@ const OLD_SLOT_PREFIX = "vc_fm_slot_";
 const OLD_ACTIVE_KEY = "vc_fm_active_slot";
 const OLD_META_KEY = "vc_fm_slots_meta";
 export const SLOT_COUNT = 3;
+const COMPRESSED_PREFIX = "VCFMZ1:";
+
+function encodeWorld(world) {
+  return COMPRESSED_PREFIX + compressToUTF16(JSON.stringify(world));
+}
+
+function encodeJson(json) {
+  return COMPRESSED_PREFIX + compressToUTF16(json);
+}
+
+function decodeWorld(raw) {
+  if (!raw) return null;
+  const json = raw.startsWith(COMPRESSED_PREFIX)
+    ? decompressFromUTF16(raw.slice(COMPRESSED_PREFIX.length))
+    : raw;
+  return JSON.parse(json);
+}
+
+let saveWorker = null;
+let activeJob = null;
+let saveToken = 0;
+const queuedJobs = new Map();
+const latestTokenBySlot = new Map();
+const pendingJsonBySlot = new Map();
+
+function emitSaveError(error) {
+  console.error(error);
+  try {
+    window.dispatchEvent(new CustomEvent("vcfm-save-error", { detail: String(error) }));
+  } catch (_) {
+    /* non-browser test environment */
+  }
+}
+
+function writeEncodedSave(job, encoded) {
+  localStorage.setItem(slotKey(job.slot), encoded);
+  if (job.slot === 1) localStorage.removeItem(LEGACY_KEY);
+  const meta = readMeta();
+  meta[job.slot] = job.meta;
+  writeMeta(meta);
+  localStorage.setItem(ACTIVE_KEY, String(job.slot));
+}
+
+function startNextWorkerJob() {
+  if (activeJob || !saveWorker || !queuedJobs.size) return;
+  const job = queuedJobs.values().next().value;
+  queuedJobs.delete(job.slot);
+  activeJob = job;
+  saveWorker.postMessage({ token: job.token, json: job.json });
+}
+
+function ensureSaveWorker() {
+  if (saveWorker) return saveWorker;
+  if (typeof Worker === "undefined") return null;
+  try {
+    saveWorker = new Worker(new URL("./save-worker.js", import.meta.url), { type: "module" });
+    saveWorker.onmessage = (event) => {
+      const job = activeJob;
+      activeJob = null;
+      if (job && event.data?.token === job.token) {
+        if (event.data.error) {
+          emitSaveError(event.data.error);
+        } else if (latestTokenBySlot.get(job.slot) === job.token) {
+          try {
+            writeEncodedSave(job, COMPRESSED_PREFIX + event.data.packed);
+            pendingJsonBySlot.delete(job.slot);
+          } catch (error) {
+            emitSaveError(error);
+          }
+        }
+      }
+      startNextWorkerJob();
+    };
+    saveWorker.onerror = (event) => {
+      activeJob = null;
+      emitSaveError(event.message || "save worker failed");
+      startNextWorkerJob();
+    };
+    return saveWorker;
+  } catch (error) {
+    console.warn("save worker unavailable", error);
+    return null;
+  }
+}
+
+function queueSave(world, slot) {
+  const worker = ensureSaveWorker();
+  if (!worker) return false;
+  const json = JSON.stringify(world);
+  const job = {
+    token: ++saveToken,
+    slot,
+    json,
+    meta: metaFromWorld(world),
+  };
+  latestTokenBySlot.set(slot, job.token);
+  pendingJsonBySlot.set(slot, json);
+  queuedJobs.set(slot, job);
+  startNextWorkerJob();
+  return true;
+}
 
 function slotKey(slot) {
   return `${SLOT_PREFIX}${slot}`;
@@ -65,12 +170,21 @@ function writeMeta(meta) {
 function metaFromWorld(world) {
   if (!world) return null;
   const club = (world.clubs || []).find((c) => c.id === world.userClubId);
+  const branding = clubBrandingById[world.userClubId];
+  let lang = "zh";
+  try {
+    if (localStorage.getItem("vcfm-lang") === "en") lang = "en";
+  } catch (_) {
+    /* non-browser test environment */
+  }
   return {
     season: world.season,
     day: world.day,
     manager: world.managerName || world.manager || "",
     clubId: world.userClubId,
-    clubName: club?.name || world.userClubId || "—",
+    clubName: branding
+      ? localizedClubName(branding, lang)
+      : club?.name || world.userClubId || "—",
     money: club?.money ?? null,
     savedAt: Date.now(),
   };
@@ -86,7 +200,7 @@ export function migrateLegacySave() {
       return false;
     }
     localStorage.setItem(slotKey(1), legacy);
-    const world = JSON.parse(legacy);
+    const world = decodeWorld(legacy);
     const meta = readMeta();
     meta[1] = metaFromWorld(world);
     writeMeta(meta);
@@ -121,15 +235,28 @@ export function listSlots() {
   const meta = readMeta();
   const out = [];
   for (let i = 1; i <= SLOT_COUNT; i++) {
-    const raw = localStorage.getItem(slotKey(i));
+    const pending = pendingJsonBySlot.get(i);
+    const raw = pending || localStorage.getItem(slotKey(i));
     let info = meta[i] || null;
     if (raw && !info) {
       try {
-        info = metaFromWorld(JSON.parse(raw));
+        info = metaFromWorld(pending ? JSON.parse(pending) : decodeWorld(raw));
         meta[i] = info;
         writeMeta(meta);
       } catch {
         info = { clubName: "损坏存档", season: "?", day: "?" };
+      }
+    }
+    const branding = clubBrandingById[info?.clubId];
+    if (branding) {
+      const latestName = localizedClubName(
+        branding,
+        localStorage.getItem("vcfm-lang") === "en" ? "en" : "zh"
+      );
+      if (info.clubName !== latestName) {
+        info = { ...info, clubName: latestName };
+        meta[i] = info;
+        writeMeta(meta);
       }
     }
     out.push({
@@ -145,7 +272,7 @@ export function hasAnySave() {
   migrateKeyNames();
   migrateLegacySave();
   for (let i = 1; i <= SLOT_COUNT; i++) {
-    if (localStorage.getItem(slotKey(i))) return true;
+    if (pendingJsonBySlot.has(i) || localStorage.getItem(slotKey(i))) return true;
   }
   return !!localStorage.getItem(LEGACY_KEY);
 }
@@ -154,23 +281,29 @@ export function hasSave(slot = null) {
   migrateKeyNames();
   migrateLegacySave();
   if (slot == null) {
-    return !!localStorage.getItem(slotKey(getActiveSlot())) || !!localStorage.getItem(LEGACY_KEY);
+    return pendingJsonBySlot.has(getActiveSlot()) || !!localStorage.getItem(slotKey(getActiveSlot())) || !!localStorage.getItem(LEGACY_KEY);
   }
-  return !!localStorage.getItem(slotKey(slot));
+  return pendingJsonBySlot.has(Number(slot)) || !!localStorage.getItem(slotKey(slot));
 }
 
-export function saveGame(world, slot = null) {
+export function saveGame(world, slot = null, { immediate = false } = {}) {
   try {
     migrateKeyNames();
     const s = slot != null ? slot : getActiveSlot();
+    if (!immediate && queueSave(world, s)) {
+      setActiveSlot(s);
+      return true;
+    }
     const key = slotKey(s);
-    localStorage.setItem(key, JSON.stringify(world));
-    // 兼容旧读取路径
-    if (s === 1) localStorage.setItem(LEGACY_KEY, JSON.stringify(world));
+    localStorage.setItem(key, encodeWorld(world));
+    // 槽位已成为唯一写入源，清理旧单键副本避免大型世界存档翻倍。
+    if (s === 1) localStorage.removeItem(LEGACY_KEY);
     const meta = readMeta();
     meta[s] = metaFromWorld(world);
     writeMeta(meta);
     setActiveSlot(s);
+    pendingJsonBySlot.delete(s);
+    latestTokenBySlot.set(s, ++saveToken);
     return true;
   } catch (e) {
     console.error(e);
@@ -183,11 +316,12 @@ export function loadGame(slot = null) {
     migrateKeyNames();
     migrateLegacySave();
     const s = slot != null ? slot : getActiveSlot();
-    let raw = localStorage.getItem(slotKey(s));
+    const pending = pendingJsonBySlot.get(s);
+    let raw = pending || localStorage.getItem(slotKey(s));
     if (!raw && s === 1) raw = localStorage.getItem(LEGACY_KEY);
     if (!raw) return null;
     setActiveSlot(s);
-    return JSON.parse(raw);
+    return pending ? JSON.parse(pending) : decodeWorld(raw);
   } catch (e) {
     console.error(e);
     return null;
@@ -200,6 +334,9 @@ export function clearSave(slot = null) {
   const s = slot != null ? slot : getActiveSlot();
   try {
     localStorage.removeItem(slotKey(s));
+    pendingJsonBySlot.delete(s);
+    queuedJobs.delete(s);
+    latestTokenBySlot.set(s, ++saveToken);
     localStorage.removeItem(oldSlotKey(s));
     if (s === 1) {
       localStorage.removeItem(LEGACY_KEY);

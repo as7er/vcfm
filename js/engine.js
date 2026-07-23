@@ -25,6 +25,7 @@ import {
   ensureKit,
   assignSquadNumbers,
   ensurePlayerNumber,
+  ensureWorldClubTemplates,
 } from "./models.js";
 import { STYLE_MOD, FORMATIONS, POS_LABEL } from "./data.js";
 import {
@@ -82,13 +83,14 @@ import {
   isOnLoan,
 } from "./loans.js";
 import {
-  ensureCup,
-  createLeagueCup,
-  cupFixturesOnDay,
-  getNextUserCupMatch,
-  allCupUserFixtures,
-  advanceCupBracket,
-  STAGE_LABEL,
+  ensureCompetitions,
+  resetCompetitions,
+  competitionFixturesOnDay,
+  getNextUserCompetitionMatch,
+  allUserCompetitionFixtures,
+  allCompetitionFixtures,
+  competitionsComplete,
+  buildContinentalQualifiers,
 } from "./cup.js";
 import { pushMedia } from "./media.js";
 import {
@@ -496,12 +498,12 @@ export function advanceDay(world) {
     runInternationalBreak(world);
   }
 
-  ensureCup(world);
+  ensureCompetitions(world);
 
-  // 今天的比赛：联赛 + VCFM 杯（非用户场次自动踢完）
+  // 今天的比赛：国内联赛、国内杯与大陆赛事（非用户场次自动踢完）
   const todayLeague = world.fixtures.filter((f) => f.day === world.day && !f.played);
-  const todayCup = cupFixturesOnDay(world, world.day);
-  const today = [...todayLeague, ...todayCup];
+  const todayCompetitions = competitionFixturesOnDay(world, world.day);
+  const today = [...todayLeague, ...todayCompetitions];
   const userMatches = [];
   for (const f of today) {
     const isUser = f.home === world.userClubId || f.away === world.userClubId;
@@ -543,7 +545,10 @@ export function advanceDay(world) {
 
   // 赛季结束：只处理一次（年龄 / 下滑 / 退役；可能赛季末解雇）
   let finishResult = null;
-  const allPlayed = world.fixtures.length > 0 && world.fixtures.every((f) => f.played);
+  const allPlayed =
+    world.fixtures.length > 0 &&
+    world.fixtures.every((f) => f.played) &&
+    competitionsComplete(world);
   if (allPlayed && !world.seasonOver) {
     finishResult = finishSeason(world);
   }
@@ -583,6 +588,9 @@ export function finishSeason(world) {
 
   // 合同年限 -1 / 到期
   processContractsEndOfSeason(world);
+
+  // 大陆席位取升降级前的本赛季最终排名。
+  world._nextContinentalQualifiers = buildContinentalQualifiers(world);
 
   // 先算本级排名与升降级（在年龄变化前，用本赛季积分）
   const promoNews = applyPromotionRelegation(world);
@@ -702,7 +710,11 @@ export function finishSeason(world) {
 
 /** 开启下一赛季：归档个人赛季数据 → 重置积分榜、赛程 */
 export function startNextSeason(world) {
-  if (!world.seasonOver && world.fixtures.some((f) => !f.played)) {
+  ensureCompetitions(world);
+  if (
+    !world.seasonOver &&
+    (world.fixtures.some((f) => !f.played) || !competitionsComplete(world))
+  ) {
     return { ok: false, msg: "本赛季尚未结束" };
   }
 
@@ -726,6 +738,8 @@ export function startNextSeason(world) {
   // 全部租借归还，再处理未续约离队
   returnAllLoans(world);
   releaseUnrenewed(world);
+
+  const expandedClubs = ensureWorldClubTemplates(world);
 
   world.season += 1;
   world.day = 1;
@@ -752,12 +766,14 @@ export function startNextSeason(world) {
   }
 
   world.fixtures = generateAllDivisionFixtures(world.clubs);
-  world.cup = createLeagueCup(world);
+  const qualifiers = world._nextContinentalQualifiers || null;
+  delete world._nextContinentalQualifiers;
+  resetCompetitions(world, qualifiers);
   const user = getUserClub(world);
   const divName = DIVISIONS[user.division]?.name || "";
   world.news.unshift({
     day: 1,
-    text: `📅 ${world.season} 赛季开始！${user.name} 征战${divName}。联赛 + VCFM 杯赛程已生成。`,
+    text: `📅 ${world.season} 赛季开始！${user.name} 征战${divName}。国内联赛、杯赛与大陆赛事赛程已生成。${expandedClubs ? ` 世界联赛新增 ${expandedClubs} 家俱乐部。` : ""}`,
   });
   mediaSeasonKickoff(world, user, divName);
   ensureBoardObjective(world);
@@ -809,42 +825,19 @@ export function previewRenew(world, playerId, years) {
 }
 
 export function getNextPlayableMatch(world) {
-  // 优先当天可踢的用户联赛/杯赛
-  const league = world.fixtures.find(
-    (f) =>
-      !f.played &&
-      f.day <= world.day &&
-      (f.home === world.userClubId || f.away === world.userClubId)
-  );
-  const cup = getNextUserCupMatch(world);
-  if (league && cup) {
-    if (league.day === world.day && cup.day === world.day) {
-      // 同日：先联赛后杯？按 day 相同则杯赛也要踢——返回数组由 UI 处理
-      return league.day <= cup.day ? league : cup;
-    }
-    if (league.day <= world.day && league.day <= (cup.day || 999)) return league;
-    if (cup.day <= world.day) return cup;
-  }
-  if (league && league.day <= world.day) return league;
-  if (cup && cup.day <= world.day) return cup;
-  // 下一场未踢（可能未到日）
-  const nextLeague = getNextUserMatch(world);
-  if (nextLeague && cup) {
-    return nextLeague.day <= cup.day ? nextLeague : cup;
-  }
-  return nextLeague || cup || null;
+  return getNextUserMatch(world);
 }
 
 export {
-  ensureCup,
-  getNextUserCupMatch,
-  allCupUserFixtures,
+  ensureCompetitions,
+  getNextUserCompetitionMatch,
+  allUserCompetitionFixtures,
+  allCompetitionFixtures,
   renewOffer,
   ensureContract,
   signFreeAgent,
   needsContractAttention,
   terminateCost,
-  createLeagueCup,
   ensureTraining,
   setTraining,
   trainingSummary,
@@ -886,40 +879,11 @@ export {
   isOnLoan,
 };
 
-/**
- * 升降级（每级 20 队）：
- * - 超联(1)：后 3 名降甲级
- * - 甲级(2)：前 3 升超联，后 3 降乙级
- * - 乙级(3)：前 3 升甲级
- */
+/** 按各国联赛配置执行相邻级别升降级。 */
 export function applyPromotionRelegation(world) {
   const news = [];
   const sortDiv = (d) => getSortedTable(world, d);
-
-  const d1 = sortDiv(1);
-  const d2 = sortDiv(2);
-  const d3 = sortDiv(3);
-
-  const nUp = 3;
-  const nDown = 3;
-
-  if (d1.length < nDown + 2 || d2.length < nUp + nDown || d3.length < nUp) {
-    return news;
-  }
-
   const clubMap = new Map(world.clubs.map((c) => [c.id, c]));
-  const setDiv = (id, div) => {
-    const c = clubMap.get(id);
-    if (c) c.division = div;
-  };
-
-  const upFrom3 = d3.slice(0, nUp).map((r) => r.id);
-  const downFrom2 = d2.slice(-nDown).map((r) => r.id);
-  const upFrom2 = d2
-    .filter((r) => !downFrom2.includes(r.id))
-    .slice(0, nUp)
-    .map((r) => r.id);
-  const downFrom1 = d1.slice(-nDown).map((r) => r.id);
 
   // 记录用户升降前级别与排名（供赛季总结）
   const user = getUserClub(world);
@@ -927,50 +891,59 @@ export function applyPromotionRelegation(world) {
   const ranked = sortDiv(userDivBefore);
   world._lastUserDiv = userDivBefore;
   world._lastUserPos = ranked.findIndex((r) => r.id === user.id) + 1;
-
-  for (const id of upFrom3) setDiv(id, 2);
-  for (const id of downFrom2) setDiv(id, 3);
-  for (const id of upFrom2) setDiv(id, 1);
-  for (const id of downFrom1) setDiv(id, 2);
-
   const nameOf = (id) => clubMap.get(id)?.name || id;
   const list = (ids) => ids.map(nameOf).join("、");
+  const moves = [];
+  const countryIds = [...new Set(Object.values(DIVISIONS).map((d) => d.countryId))];
+  for (const countryId of countryIds) {
+    const leagues = Object.values(DIVISIONS)
+      .filter((d) => d.countryId === countryId)
+      .sort((a, b) => a.tier - b.tier);
+    for (let i = 0; i < leagues.length - 1; i++) {
+      const upper = leagues[i];
+      const lower = leagues[i + 1];
+      const count = Math.min(upper.relegate || 0, lower.promote || 0);
+      if (!count) continue;
+      const upperTable = sortDiv(upper.id);
+      const lowerTable = sortDiv(lower.id);
+      if (upperTable.length < count || lowerTable.length < count) continue;
+      const relegated = upperTable.slice(-count).map((r) => r.id);
+      const promoted = lowerTable.slice(0, count).map((r) => r.id);
+      for (const id of relegated) moves.push({ id, from: upper.id, to: lower.id, promoted: false });
+      for (const id of promoted) moves.push({ id, from: lower.id, to: upper.id, promoted: true });
+      news.push(`⬆️ ${lower.name}升级：${list(promoted)} → ${upper.name}`);
+      news.push(`⬇️ ${upper.name}降级：${list(relegated)} → ${lower.name}`);
+    }
+  }
 
-  if (upFrom3.length) news.push(`⬆️ 乙级升级：${list(upFrom3)} → 甲级联赛`);
-  if (downFrom2.length) news.push(`⬇️ 甲级降级：${list(downFrom2)} → 乙级联赛`);
-  if (upFrom2.length) news.push(`⬆️ 甲级升级：${list(upFrom2)} → 超级联赛`);
-  if (downFrom1.length) news.push(`⬇️ 超联降级：${list(downFrom1)} → 甲级联赛`);
+  for (const move of moves) {
+    const club = clubMap.get(move.id);
+    if (club) club.division = move.to;
+  }
 
-  if (upFrom3.includes(user.id) || upFrom2.includes(user.id)) {
+  const userMove = moves.find((m) => m.id === user.id);
+  if (userMove?.promoted) {
     news.push(`🎉 恭喜！${user.name} 成功升级至${DIVISIONS[user.division]?.name}！`);
   }
-  if (downFrom2.includes(user.id) || downFrom1.includes(user.id)) {
+  if (userMove && !userMove.promoted) {
     news.push(`😢 ${user.name} 不幸降级至${DIVISIONS[user.division]?.name}。`);
   }
 
   // 媒体通稿（用户相关）
-  if (upFrom3.includes(user.id) || upFrom2.includes(user.id)) {
+  if (userMove) {
     mediaPromotion(
       world,
       user.name,
       DIVISIONS[userDivBefore]?.name || "",
       DIVISIONS[user.division]?.name || "",
-      true
-    );
-  } else if (downFrom2.includes(user.id) || downFrom1.includes(user.id)) {
-    mediaPromotion(
-      world,
-      user.name,
-      DIVISIONS[userDivBefore]?.name || "",
-      DIVISIONS[user.division]?.name || "",
-      false
+      userMove.promoted
     );
   }
 
   return news;
 }
 
-/** @param division 不传则全联盟；传 1/2/3 则仅该级 */
+/** @param division 不传则全世界；传联赛 ID 则仅该联赛 */
 export function getSortedTable(world, division = null) {
   let clubs = world.clubs;
   if (division != null) {
@@ -995,7 +968,7 @@ export function getUserClub(world) {
 }
 
 export function getNextUserMatch(world) {
-  // 联赛 + 杯赛里用户下场最早的未赛
+  // 国内联赛、国内杯与大陆赛事里用户下场最早的未赛
   const league = world.fixtures
     .filter(
       (f) =>
@@ -1003,9 +976,11 @@ export function getNextUserMatch(world) {
         (f.home === world.userClubId || f.away === world.userClubId)
     )
     .sort((a, b) => a.day - b.day || (a.round || 0) - (b.round || 0));
-  const cup = getNextUserCupMatch(world);
-  if (league[0] && cup) return league[0].day <= cup.day ? league[0] : cup;
-  return league[0] || cup || null;
+  const competition = getNextUserCompetitionMatch(world);
+  if (league[0] && competition) {
+    return league[0].day <= competition.day ? league[0] : competition;
+  }
+  return league[0] || competition || null;
 }
 
 /** 下一场用户比赛的日期（联赛/杯）；无则 null */

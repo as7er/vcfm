@@ -3,6 +3,7 @@
 import { playerOverall, estimateValue, estimateWage } from "./models.js";
 import { ensureStaff, staffRating, coachGrowthBonus, doctorHealBonus, doctorInjuryMod } from "./staff.js";
 import { trainingGrowthBonus, trainingHealBonus, trainingInjuryMod } from "./facilities.js";
+import { allCompetitionFixtures } from "./cup.js";
 
 export const TRAINING_FOCUSES = {
   recovery: {
@@ -295,7 +296,7 @@ function pickWeighted(pairs) {
 function nextMatchDaysForClub(world, clubId) {
   const fixtures = [
     ...(world.fixtures || []),
-    ...((world.cup && world.cup.fixtures) || []),
+    ...allCompetitionFixtures(world),
   ];
   let best = null;
   for (const f of fixtures) {
