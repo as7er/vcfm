@@ -5509,7 +5509,7 @@ html[data-theme="light"] .brief-chip {
 .match-log .event.coach {
   color: var(--warn);
 }
-/* ���أ���ť����һ�� */
+/* 触屏：按钮加大一档 */
 @media (pointer: coarse) {
   .btn {
     min-height: 2.5rem;

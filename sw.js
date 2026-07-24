@@ -38,7 +38,11 @@ const ASSETS = [
   "./js/board.js",
   "./js/training.js",
   "./js/facilities.js",
-    // 球员正式肖像资产池（manifest + 缩略图；大图按需缓存）
+  // 存档压缩 / Worker / 品牌（离线半残根因）
+  "./js/compress.js",
+  "./js/branding.js",
+  "./js/save-worker.js",
+  // 球员正式肖像资产池（manifest + 缩略图；大图按需缓存）
   "./assets/player-avatars/manifest.json",
   "./assets/player-avatars/thumbnails/avatar-0001.webp",
   "./manifest.webmanifest",

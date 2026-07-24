@@ -21,3 +21,7 @@ dist/
 
 # local match recordings / FMM reference clips (do not upload)
 /rec/
+
+# local health-check dumps & one-off fix scripts
+/artifacts/
+/scripts/_*.py

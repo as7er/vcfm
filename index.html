@@ -982,7 +982,7 @@
             );
           }).catch(function () {});
         }
-        navigator.serviceWorker.register("./sw.js?v=114").then(function (reg) {
+        navigator.serviceWorker.register("./sw.js?v=123").then(function (reg) {
           try { reg.update(); } catch (e) {}
           if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
         }).catch(function () {});
@@ -991,8 +991,8 @@
           if (refreshing) return;
           refreshing = true;
           try {
-            if (!sessionStorage.getItem("vcfm-sw-reloaded-v114")) {
-              sessionStorage.setItem("vcfm-sw-reloaded-v114", "1");
+            if (!sessionStorage.getItem("vcfm-sw-reloaded-v123")) {
+              sessionStorage.setItem("vcfm-sw-reloaded-v123", "1");
               location.reload();
             }
           } catch (e) {
