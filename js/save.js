@@ -10,6 +10,7 @@ import { stringifyWorldForSave } from "./save-serialization.js";
 const LEGACY_KEY = "vcfm_save_v1";
 const SLOT_PREFIX = "vcfm_slot_";
 const ACTIVE_KEY = "vcfm_active_slot";
+const ACTIVE_SESSION_KEY = "vcfm_active_slot_session";
 const META_KEY = "vcfm_slots_meta";
 const OLD_LEGACY_KEY = "vc_fm_save_v1";
 const OLD_SLOT_PREFIX = "vc_fm_slot_";
@@ -111,6 +112,22 @@ function deleteDurableRecord(slot) {
   return saveDbRequest("readwrite", (store) => store.delete(Number(slot)));
 }
 
+function progressKey(world) {
+  if (!world) return 0;
+  const season = Number(world.season) || 0;
+  const day = Number(world.day) || 0;
+  return season * 10000 + day;
+}
+
+function localSaveIsNewer(localMeta, localWorld, durableMeta, durableWorld) {
+  const localSavedAt = Number(localMeta?.savedAt) || 0;
+  const durableSavedAt = Number(durableMeta?.savedAt) || 0;
+  if (localSavedAt && durableSavedAt && localSavedAt !== durableSavedAt) {
+    return localSavedAt > durableSavedAt;
+  }
+  return progressKey(localWorld) > progressKey(durableWorld);
+}
+
 function resolveDurableIdleWaiters() {
   if (activeDurableJob || queuedDurableJobs.size) return;
   for (const resolve of durableIdleWaiters) resolve();
@@ -178,20 +195,32 @@ async function initializeDurableStorage() {
 
     migrateKeyNames();
     migrateLegacySave();
+    const meta = readMeta();
     for (let slot = 1; slot <= SLOT_COUNT; slot++) {
       const key = slotKey(slot);
       const raw = localStorage.getItem(key);
       if (!raw) continue;
-      if (!durableSlots.has(slot)) {
-        const world = decodeWorld(raw);
-        const meta = readMeta()[slot] || metaFromWorld(world);
+      const durable = durableSlots.has(slot) ? await durableRecord(slot) : null;
+      let world = null;
+      try {
+        world = decodeWorld(raw);
+      } catch (error) {
+        if (!durable?.json) throw error;
+      }
+      const localMeta = meta[slot] || metaFromWorld(world, 0);
+      const durableWorld = durable?.json ? JSON.parse(durable.json) : null;
+      if (world && (!durable?.json || localSaveIsNewer(localMeta, world, durable.meta, durableWorld))) {
         await saveDbRequest("readwrite", (store) => store.put({
           slot,
           json: stringifyWorldForSave(world),
-          meta,
+          meta: localMeta,
         }));
         durableSlots.add(slot);
+        meta[slot] = localMeta;
+      } else {
+        meta[slot] = durable.meta || metaFromWorld(durableWorld, 0);
       }
+      writeMeta(meta);
       localStorage.removeItem(key);
       localStorage.removeItem(oldSlotKey(slot));
       if (slot === 1) localStorage.removeItem(LEGACY_KEY);
@@ -222,7 +251,6 @@ function writeEncodedSave(job, encoded) {
   const meta = readMeta();
   meta[job.slot] = job.meta;
   writeMeta(meta);
-  localStorage.setItem(ACTIVE_KEY, String(job.slot));
 }
 
 function disableSaveWorker() {
@@ -387,7 +415,7 @@ function writeMeta(meta) {
   }
 }
 
-function metaFromWorld(world) {
+function metaFromWorld(world, savedAt = Date.now()) {
   if (!world) return null;
   const club = (world.clubs || []).find((c) => c.id === world.userClubId);
   const branding = clubBrandingById[world.userClubId];
@@ -406,7 +434,7 @@ function metaFromWorld(world) {
       ? localizedClubName(branding, lang)
       : club?.name || world.userClubId || "—",
     money: club?.money ?? null,
-    savedAt: Date.now(),
+    savedAt,
   };
 }
 
@@ -422,7 +450,7 @@ export function migrateLegacySave() {
     localStorage.setItem(slotKey(1), legacy);
     const world = decodeWorld(legacy);
     const meta = readMeta();
-    meta[1] = metaFromWorld(world);
+    meta[1] = metaFromWorld(world, 0);
     writeMeta(meta);
     if (!localStorage.getItem(ACTIVE_KEY)) {
       localStorage.setItem(ACTIVE_KEY, "1");
@@ -438,7 +466,13 @@ export function migrateLegacySave() {
 export function getActiveSlot() {
   migrateKeyNames();
   migrateLegacySave();
-  const n = parseInt(localStorage.getItem(ACTIVE_KEY) || "1", 10);
+  let sessionValue = null;
+  try {
+    sessionValue = sessionStorage.getItem(ACTIVE_SESSION_KEY);
+  } catch (_) {
+    /* non-browser test environment */
+  }
+  const n = parseInt(sessionValue || localStorage.getItem(ACTIVE_KEY) || "1", 10);
   if (n >= 1 && n <= SLOT_COUNT) return n;
   return 1;
 }
@@ -449,6 +483,11 @@ export function setActiveSlot(slot) {
     ? Math.max(1, Math.min(SLOT_COUNT, n))
     : 1;
   localStorage.setItem(ACTIVE_KEY, String(s));
+  try {
+    sessionStorage.setItem(ACTIVE_SESSION_KEY, String(s));
+  } catch (_) {
+    /* non-browser test environment */
+  }
   return s;
 }
 
@@ -464,7 +503,7 @@ export function listSlots() {
     let info = meta[i] || null;
     if (raw && !info) {
       try {
-        info = metaFromWorld(pending ? JSON.parse(pending) : decodeWorld(raw));
+        info = metaFromWorld(pending ? JSON.parse(pending) : decodeWorld(raw), 0);
         meta[i] = info;
         writeMeta(meta);
       } catch {

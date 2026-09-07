@@ -1,7 +1,8 @@
 /* VCFM offline cache (GitHub Pages friendly)
  * JS/CSS/HTML: network-first + no-store
  */
-const CACHE = "vcfm-v246";
+const CACHE = "vcfm-v247";
+const isVcfmCache = (name) => /^vcfm-v\d+$/.test(name);
 const ASSETS = [
   "./",
   "./index.html",
@@ -140,7 +141,7 @@ self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
   if (event.data && event.data.type === "CLEAR_ALL_CACHES") {
     event.waitUntil(
-      caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
+      caches.keys().then((keys) => Promise.all(keys.filter(isVcfmCache).map((k) => caches.delete(k))))
     );
   }
 });
@@ -149,9 +150,7 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) =>
-        Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
-      )
+      .then((keys) => Promise.all(keys.filter((k) => isVcfmCache(k) && k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });

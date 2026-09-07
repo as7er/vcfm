@@ -251,3 +251,79 @@ function moveOtherPlayersAway(engine, keep) {
 }
 
 console.log("goalkeeper/open-goal audit passed");
+
+function shotContactFixture() {
+  const engine = makeEngine(() => 0);
+  const goalkeeper = engine._teamGk("away");
+  moveOtherPlayersAway(engine, new Set([goalkeeper.id]));
+  Object.assign(goalkeeper, { x: 50, y: 6 });
+  engine.t = 100;
+  Object.assign(engine.ball, {
+    x: 50, y: 7, z: 0.5, vx: 0, vy: -10, vz: 0,
+    owner: null, state: "shot", kickTeam: "home", lastKicker: "home-p8",
+    _saveChecked: false, settleUntil: 0, shotDistance: 15, shotFlightTime: 0.5,
+  });
+  return { engine, goalkeeper };
+}
+
+for (const state of ["active", "sentOff", "injuredOff", "high", "distant"]) {
+  const { engine, goalkeeper } = shotContactFixture();
+  if (state === "sentOff") {
+    goalkeeper._yellows = 1;
+    assert.equal(engine._rollFoulCard(goalkeeper, 3, true), "red2");
+  }
+  if (state === "injuredOff") goalkeeper.injuredOff = true;
+  if (state === "high") engine.ball.z = 8;
+  if (state === "distant") goalkeeper.x += 5 / 0.68;
+  engine._resolvePossession(0.1);
+  assert.equal(engine.ball.owner, state === "active" ? goalkeeper.id : null,
+    `${state}: only an eligible goalkeeper within reach may save a shot`);
+  assert.equal(engine.events.some((event) => event.type === "save"), state === "active");
+  if (state === "sentOff" || state === "injuredOff") {
+    assert.equal(engine._teamGk("away"), null, "an absent goalkeeper must not cover the goal");
+    goalkeeper.x = 99;
+    engine._restart("goalkick", "away", 50, 6);
+    assert.ok(engine.ball.owner, "a goal kick still needs an eligible taker");
+    assert.notEqual(engine.ball.owner, goalkeeper.id, "an absent goalkeeper cannot take a goal kick");
+    assert.equal(goalkeeper.x, 99, "restart setup must not bring an absent goalkeeper back");
+    engine.random = () => 0.8;
+    engine._penaltyKick("home");
+    assert.equal(engine.pendingPenalty.gkId, null, "penalties must also exclude an absent goalkeeper");
+    assert.notEqual(engine.pendingPenalty.outcome, "save");
+  }
+}
+
+// The closest point is perpendicular to the real, rectangular pitch's shot path.
+{
+  const { engine, goalkeeper } = shotContactFixture();
+  goalkeeper.y = 8;
+  Object.assign(engine.ball, { x: 46, y: 10, z: 0.5, vx: 50, vy: -30 });
+  engine._stepBall(0.1);
+  const end = { x: engine.ball.x, y: engine.ball.y };
+  const rolls = [0.99, 0, 0.5];
+  engine.random = () => rolls.shift() ?? 0.5;
+  engine._resolvePossession(0.1);
+  const contact = engine.ball._deflectPulse;
+  assert.ok(contact, "a failed save can still record a fingertip deflection");
+  const dx = (end.x - 46) * 0.68;
+  const dy = (end.y - 10) * 1.05;
+  const along = (contact.x - 46) * 0.68 * dy - (contact.y - 10) * 1.05 * dx;
+  const normal = (goalkeeper.x - contact.x) * 0.68 * dx + (goalkeeper.y - contact.y) * 1.05 * dy;
+  assert.ok(Math.abs(along) < 1e-8, "contact must lie on the recorded shot segment");
+  assert.ok(Math.abs(normal) < 1e-8, "nearest-point projection must use metres on both axes");
+}
+
+for (const state of ["active", "injuredOff", "high", "distant"]) {
+  const { engine, goalkeeper } = shotContactFixture();
+  goalkeeper.x = 15;
+  const defender = engine.agents.find((agent) => agent.team === "away" && agent.role === "DEF");
+  Object.assign(defender, { x: 50, y: 7, injuredOff: state === "injuredOff" });
+  if (state === "high") engine.ball.z = 8;
+  if (state === "distant") defender.x += 4 / 0.68;
+  engine._tryHandball = () => false;
+  engine._resolvePossession(0.1);
+  assert.equal(engine.events.some((event) => event.type === "block"), state === "active",
+    `${state}: shot blocks require an eligible defender and a reachable ball`);
+}
+
+console.log("shot-contact eligibility, height, reach and metric geometry audit passed");

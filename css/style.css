@@ -6872,6 +6872,28 @@ html[data-theme="light"] .badge-chip {
   flex: 1 1 auto;
   margin-inline: 0;
 }
+
+/* Mobile live play must keep the pitch ratio. The desktop grid can give the
+   body a bounded height; on a narrow screen that would squeeze 2:3 into the
+   remaining strip between commentary and controls. Let the page scroll instead. */
+@media (max-width: 1059px) {
+  .match-layout.live-kick .fmm-match-body,
+  .match-layout.ht-kick .fmm-match-body {
+    flex: 0 0 auto;
+    height: auto;
+  }
+  .match-layout.live-kick .fmm-match-body .fm-pitch-col,
+  .match-layout.ht-kick .fmm-match-body .fm-pitch-col,
+  .match-layout.live-kick .fmm-match-body .mp-wrap,
+  .match-layout.ht-kick .fmm-match-body .mp-wrap {
+    height: auto;
+  }
+  .match-layout.live-kick .fmm-match-body .mp-field,
+  .match-layout.ht-kick .fmm-match-body .mp-field {
+    flex: 0 0 auto;
+    height: auto;
+  }
+}
 .brief-head {
   display: flex;
   flex-wrap: wrap;

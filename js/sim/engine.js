@@ -5050,7 +5050,7 @@ export class SimEngine {
 
   _resolvePossession(dt) {
     const b = this.ball;
-    // 门将轨迹覆盖仍沿用既有画面标尺；控球、抢断和传球拦截统一使用米制。
+    // Contact geometry uses metres; legacy probability calibration uses field units.
     const speed = Math.hypot(b.vx, b.vy);
     const speedMps = pitchSpeedMps(b.vx, b.vy);
 
@@ -5058,7 +5058,9 @@ export class SimEngine {
     // 轨迹线段判定 + 每脚只掷一次；空门/球已过身几乎不扑；成功后扑倒姿态。
     if (b.state === "shot" && !b.owner && !b._saveChecked) {
       for (const gk of this.agents) {
-        if (gk.role !== "GK") continue;
+        if (gk.role !== "GK" || gk.sentOff || gk.injuredOff) continue;
+        // This shot-contact model has no jumping save above the crossbar.
+        if ((b.z || 0) > 2.44) continue;
         if (gk.id === b.lastKicker) continue;
         const goalY = gk.team === "home" ? SIM.HOME_GOAL_Y : SIM.AWAY_GOAL_Y;
         const towardGoal = gk.team === "home" ? b.vy > 1.2 : b.vy < -1.2;
@@ -5067,24 +5069,25 @@ export class SimEngine {
         const nearBox = gk.team === "home" ? b.y > 68 : b.y < 32;
         if (!nearBox) continue;
 
-        // 本帧轨迹：step 后位置 - 速度*dt → 上帧位置
+        // Use the recorded start: friction has already changed the velocity.
         const x1 = b.x;
         const y1 = b.y;
-        const x0 = b.x - b.vx * dt;
-        const y0 = b.y - b.vy * dt;
-        // 点到线段最短距离
-        const segLen2 = (x1 - x0) ** 2 + (y1 - y0) ** 2 || 1e-6;
-        let tt = ((gk.x - x0) * (x1 - x0) + (gk.y - y0) * (y1 - y0)) / segLen2;
+        const x0 = Number.isFinite(b._prevX) ? b._prevX : b.x - b.vx * dt;
+        const y0 = Number.isFinite(b._prevY) ? b._prevY : b.y - b.vy * dt;
+        const segment = pitchVectorMetres(x1 - x0, y1 - y0);
+        const offset = pitchVectorMetres(gk.x - x0, gk.y - y0);
+        const segLen2 = segment.x ** 2 + segment.y ** 2 || 1e-6;
+        let tt = (offset.x * segment.x + offset.y * segment.y) / segLen2;
         tt = clamp(tt, 0, 1);
         const cx = x0 + (x1 - x0) * tt;
         const cy = y0 + (y1 - y0) * tt;
-        const dPath = dist(gk.x, gk.y, cx, cy);
-        const lateral = Math.abs(gk.x - cx);
+        const dPath = pitchDistanceBetween(gk.x, gk.y, cx, cy);
+        const lateral = Math.abs(gk.x - cx) * (SIM.PITCH_W_METRES / SIM.FIELD_W);
 
         const ref = gk.attr.reflexes || 0.5;
         const hand = gk.attr.handling || 0.5;
         // 可扑范围：必须球路擦过门将，不能站着吸远处的球
-        const reach = 4.8 + 3.4 * ref + Math.min(1.2, speed * 0.022);
+        const reach = 2.2 + 1.6 * ref + Math.min(0.8, speedMps * 0.016);
         if (dPath > reach) continue;
 
         // 球已越过门将朝球门线 → 无法回头捞（防「离谱反应」）
@@ -5207,7 +5210,7 @@ export class SimEngine {
         if (this.random() < 0.18) {
           b.vx += diveDir * (1.5 + this.random() * 2);
           b.vy *= 0.96;
-          b._deflectPulse = { x: b.x, y: b.y, byId: gk.id, t: this.t + (this._emitTimeOffset || 0) };
+          b._deflectPulse = { x: cx, y: cy, byId: gk.id, t: this.t + (this._emitTimeOffset || 0) };
         }
         break; // 已判定本脚，不再换门将
       }
@@ -5222,12 +5225,13 @@ export class SimEngine {
     // 高速射门不能走下方普通“接管球权”逻辑，否则后卫会像停传球一样把球吸住。
     // 每名路径附近的防守者只判一次：成功则折射成 loose ball，失败则球继续飞向球门。
     if (b.state === "shot" && !b.owner) {
+      if ((b.z || 0) > 2.44) return;
       const checked = b._blockersChecked instanceof Set ? b._blockersChecked : new Set();
       b._blockersChecked = checked;
       for (const o of this.agents) {
-        if (o.team === b.kickTeam || o.role === "GK" || o.sentOff || checked.has(o.id)) continue;
-        const d = dist(o.x, o.y, b.x, b.y);
-        if (d > 3.2 + Math.min(1.2, speed * 0.018)) continue;
+        if (o.team === b.kickTeam || o.role === "GK" || o.sentOff || o.injuredOff || checked.has(o.id)) continue;
+        const d = pitchDistanceBetween(o.x, o.y, b.x, b.y);
+        if (d > 2.2 + Math.min(0.8, speedMps * 0.014)) continue;
         if (this._tryHandball(o, { isShot: true })) return;
         checked.add(o.id);
         const blockSkill = 0.55 * o.attr.positioning + 0.45 * o.attr.tackling;
@@ -5980,7 +5984,7 @@ export class SimEngine {
       );
     const taker = takers[0] || null;
     const oppTeam = team === "home" ? "away" : "home";
-    const gk = this.agents.find((a) => a.team === oppTeam && a.role === "GK") || null;
+    const gk = this._teamGk(oppTeam);
 
     if (!taker) {
       // 兜底：没人可罚，直接门球给对方
@@ -6675,7 +6679,7 @@ export class SimEngine {
     const fkSetPiece = fkClass && fkClass !== "simple";
 
     for (const a of this.agents) {
-      if (a.sentOff) continue; // 已离场者不参与死球摆位（否则每次重启都被传送回场内）
+      if (a.sentOff || a.injuredOff) continue; // 已离场者不参与死球摆位
       a.vx = 0;
       a.vy = 0;
       a.intent = null;
@@ -6776,7 +6780,9 @@ export class SimEngine {
     // 发球者
     let taker = null;
     if (type === "goalkick") {
-      taker = this.agents.find((a) => a.team === restartTeam && a.role === "GK") || null;
+      taker = this.agents.find(
+        (a) => a.team === restartTeam && a.role === "GK" && !a.sentOff && !a.injuredOff
+      ) || null;
     }
     if (type === "corner") {
       taker = cornerTaker;
@@ -7280,7 +7286,7 @@ export class SimEngine {
 
   /** 某队门将 agent */
   _teamGk(team) {
-    return this.agents.find((a) => a.team === team && a.role === "GK") || null;
+    return this.agents.find((a) => a.team === team && a.role === "GK" && !a.sentOff && !a.injuredOff) || null;
   }
 
   integrationSummary() {

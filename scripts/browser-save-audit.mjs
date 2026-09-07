@@ -122,7 +122,116 @@ try {
   assert.equal(reloaded.hasAfterClear, false);
   assert.equal(reloaded.otherSlotAfterClear, 30, "clearing one slot must not remove another slot");
 
-  console.log(JSON.stringify({ migrated, saved, reloaded }, null, 2));
+  await page.evaluate(async () => {
+    const save = await import("/js/save.js");
+    window.slotOneWorld = await save.loadGame(1);
+  });
+  const otherTab = await context.newPage();
+  await otherTab.goto(`${baseUrl}/__save_audit__`);
+  await otherTab.evaluate(async () => (await import("/js/save.js")).loadGame(3));
+  const crossTab = await page.evaluate(async () => {
+    const save = await import("/js/save.js");
+    const active = save.getActiveSlot();
+    window.slotOneWorld.day = 12;
+    save.saveGame(window.slotOneWorld);
+    await save.waitForPendingSaves();
+    return { active, first: (await save.loadGame(1)).day, third: (await save.loadGame(3)).day };
+  });
+  assert.deepEqual(crossTab, { active: 1, first: 12, third: 30 },
+    "another tab's selection must not redirect an autosave into its career");
+  await otherTab.reload();
+  assert.equal(await otherTab.evaluate(async () => (await import("/js/save.js")).getActiveSlot()), 3,
+    "a reloaded tab must retain its selected slot");
+  await otherTab.close();
+
+  const recoveryResults = [];
+  const cases = [
+    { name: "newer fallback", localDay: 9, localTime: 200, durableDay: 5, durableTime: 100, expectedDay: 9 },
+    { name: "stale fallback", localDay: 9, localTime: 100, durableDay: 12, durableTime: 200, expectedDay: 12 },
+    { name: "timestamp tie", localDay: 9, localTime: 100, durableDay: 5, durableTime: 100, expectedDay: 9 },
+    { name: "missing metadata", localDay: 3, durableDay: 12, durableTime: 200, expectedDay: 12 },
+    { name: "newer undated fallback", localDay: 16, durableDay: 12, durableTime: 200, expectedDay: 16 },
+    { name: "old single-key save", localDay: 3, legacy: true, durableDay: 12, durableTime: 200, expectedDay: 12 },
+    { name: "damaged fallback", corrupt: true, durableDay: 12, durableTime: 200, expectedDay: 12 },
+  ];
+  for (const scenario of cases) {
+    const recovery = await browser.newContext({ serviceWorkers: "block" });
+    try {
+      const recoveryPage = await recovery.newPage();
+      await recoveryPage.goto(`${baseUrl}/__save_audit__`);
+      const result = await recoveryPage.evaluate(async (scenario) => {
+        const world = (day) => ({ season: 2026, day, managerName: "Recovery", clubs: [] });
+        const durableWorld = world(scenario.durableDay);
+        const localWorld = world(scenario.localDay);
+        const db = await new Promise((resolve, reject) => {
+          const request = indexedDB.open("vcfm-saves", 1);
+          request.onupgradeneeded = () => request.result.createObjectStore("slots", { keyPath: "slot" });
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        await new Promise((resolve, reject) => {
+          const transaction = db.transaction("slots", "readwrite");
+          transaction.objectStore("slots").put({
+            slot: 1, json: JSON.stringify(durableWorld),
+            meta: { season: 2026, day: scenario.durableDay, savedAt: scenario.durableTime },
+          });
+          transaction.oncomplete = resolve;
+          transaction.onerror = () => reject(transaction.error);
+        });
+        db.close();
+        localStorage.setItem(scenario.legacy ? "vcfm_save_v1" : "vcfm_slot_1",
+          scenario.corrupt ? "{broken" : JSON.stringify(localWorld));
+        if (scenario.localTime != null) {
+          localStorage.setItem("vcfm_slots_meta", JSON.stringify({
+            1: { season: 2026, day: scenario.localDay, savedAt: scenario.localTime },
+          }));
+        }
+        const save = await import("/js/save.js");
+        const loaded = await save.loadGame(1);
+        return { day: loaded?.day, metadataDay: save.listSlots()[0]?.day,
+          fallbackPresent: localStorage.getItem("vcfm_slot_1") != null };
+      }, scenario);
+      assert.equal(result.day, scenario.expectedDay, `${scenario.name}: recovery selected the wrong snapshot`);
+      assert.equal(result.metadataDay, scenario.expectedDay, `${scenario.name}: slot metadata must describe the loaded snapshot`);
+      assert.equal(result.fallbackPresent, false, `${scenario.name}: reconciled fallback must be removed`);
+      recoveryResults.push({ name: scenario.name, ...result });
+    } finally {
+      await recovery.close();
+    }
+  }
+
+  const offline = await browser.newContext();
+  let cacheScope;
+  try {
+    const offlinePage = await offline.newPage();
+    await offlinePage.goto(`${baseUrl}/__save_audit__`);
+    const foreignCaches = ["unrelated-project-v1", "vcfm-export-backup", "vcfm-v1-preview"];
+    await offlinePage.evaluate(async (names) => {
+      for (const name of [...names, "vcfm-v1"]) await caches.open(name);
+      await navigator.serviceWorker.register("/sw.js");
+      await navigator.serviceWorker.ready;
+    }, foreignCaches);
+    await offlinePage.waitForFunction(() => !!navigator.serviceWorker.controller);
+    const afterActivation = await offlinePage.evaluate(() => caches.keys());
+    for (const name of foreignCaches) assert.ok(afterActivation.includes(name), `activation removed ${name}`);
+    assert.ok(!afterActivation.includes("vcfm-v1"), "activation must remove old game versions");
+    await offlinePage.goto(`${baseUrl}/?menu=1`, { waitUntil: "networkidle" });
+    await offlinePage.waitForFunction(() => !!window.vcfmMainApi);
+    const afterBoot = await offlinePage.evaluate(() => caches.keys());
+    for (const name of foreignCaches) assert.ok(afterBoot.includes(name), `page startup removed ${name}`);
+    await offline.setOffline(true);
+    await offlinePage.reload({ waitUntil: "networkidle" });
+    await offlinePage.waitForFunction(() => !!window.vcfmMainApi);
+    await offlinePage.evaluate(() => navigator.serviceWorker.controller.postMessage({ type: "CLEAR_ALL_CACHES" }));
+    await offlinePage.waitForFunction(async () => !(await caches.keys()).some((name) => /^vcfm-v\d+$/.test(name)));
+    const afterClear = await offlinePage.evaluate(() => caches.keys());
+    assert.deepEqual(afterClear.sort(), foreignCaches.sort(), "explicit clearing must preserve other applications' caches");
+    cacheScope = { offlineBoot: true, preserved: afterClear };
+  } finally {
+    await offline.close();
+  }
+
+  console.log(JSON.stringify({ migrated, saved, reloaded, crossTab, recoveryResults, cacheScope }, null, 2));
 } finally {
   await browser?.close();
 }

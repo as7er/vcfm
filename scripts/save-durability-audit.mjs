@@ -18,6 +18,7 @@ class MemoryStorage {
 const events = [];
 const unloadListeners = [];
 globalThis.localStorage = new MemoryStorage();
+globalThis.sessionStorage = new MemoryStorage();
 globalThis.CustomEvent = class CustomEvent {
   constructor(type, init = {}) {
     this.type = type;
@@ -67,7 +68,10 @@ function makeWorld(day, clubId = "audit-club") {
 assert.equal(save.saveGame(makeWorld(1), 1), true);
 assert.equal(save.saveGame(makeWorld(2), 1), true);
 assert.equal(save.saveGame(makeWorld(3, "second-club"), 2), true);
+save.setActiveSlot(3);
 await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(save.getActiveSlot(), 3, "a delayed fallback write must not change the selected slot");
+assert.equal(localStorage.getItem("vcfm_active_slot"), "3");
 
 assert.equal(workerInstances.length, 1, "one worker should serve the queue");
 assert.equal(workerInstances[0].terminated, true, "failed worker should be terminated");

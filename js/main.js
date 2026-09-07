@@ -57,8 +57,8 @@ import {
   habitLabel,
   startHabitTraining,
 } from "./player-habits.js";
-import { nationFlagHtml } from "./flags.js?v=246";
-import { clubCrestHtml } from "./club-crest.js?v=246";
+import { nationFlagHtml } from "./flags.js?v=247";
+import { clubCrestHtml } from "./club-crest.js?v=247";
 import { applyWorldClubBranding, localizedClubName } from "./branding.js";
 import { recordFinanceEntry } from "./finance-ledger.js";
 import { renderFinance as renderFinanceView } from "./ui/finance.js";
@@ -323,7 +323,7 @@ import {
   selectPlannedSaleCandidate,
   squadPlayerPlan,
   squadPositionPlan,
-} from "./squad-planning.js?v=246";
+} from "./squad-planning.js?v=247";
 import {
   TRAINING_MODES,
   ensureTrainingBoost,
@@ -390,7 +390,7 @@ import {
   staffAvatarHtml,
   avatarHtml,
   hydrateAvatarKitRecolor,
-} from "./avatar.js?v=246";
+} from "./avatar.js?v=247";
 import { attributeArchetypeLabel } from "./player-attributes.js";
 import {
   MANAGER_ONBOARDING_TAB_STEPS,
@@ -490,7 +490,7 @@ let matchViewModulePromise = null;
 
 function loadMatchViewModule() {
   if (!matchViewModulePromise) {
-    matchViewModulePromise = import("./matchview.js?v=246").then((module) => {
+    matchViewModulePromise = import("./matchview.js?v=247").then((module) => {
       matchViewApi = module;
       return module;
     });
@@ -8813,9 +8813,27 @@ function showAdvanceSummary(events, days) {
 }
 
 let calendarAdvanceBusy = false;
+let calendarBlockedControls = [];
 
 function setCalendarAdvanceBusy(busy) {
+  if (calendarAdvanceBusy === !!busy) return;
   calendarAdvanceBusy = !!busy;
+  const screen = $("#screen-main");
+  if (screen) {
+    screen.inert = calendarAdvanceBusy;
+    screen.setAttribute("aria-busy", String(calendarAdvanceBusy));
+  }
+  if (calendarAdvanceBusy) {
+    calendarBlockedControls = [...document.querySelectorAll(
+      "#screen-main button, #screen-main input, #screen-main select, #screen-main textarea"
+    )].map((control) => ({ control, disabled: control.disabled }));
+    for (const { control } of calendarBlockedControls) control.disabled = true;
+  } else {
+    for (const { control, disabled } of calendarBlockedControls) {
+      if (control.isConnected) control.disabled = disabled;
+    }
+    calendarBlockedControls = [];
+  }
   const en = getLang() === "en";
   const status = $("#calendar-advance-status");
   if (status) {
