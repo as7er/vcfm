@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 const variant = process.argv[2] || "route";
 const count = process.argv[3] || "6";
@@ -13,6 +14,19 @@ assert.ok(["control", "route", "contact", "flight", "flight_contact", "finish", 
 const space = variant.startsWith("space");
 const engineURL = new URL("../js/sim/engine.js", import.meta.url).href;
 const reports = [];
+const preloadSources = [];
+for (let index = 0; index < process.execArgv.length; index++) {
+  const argument = process.execArgv[index];
+  const specifier = argument === "--import" ? process.execArgv[++index] :
+    argument.startsWith("--import=") ? argument.slice("--import=".length) : null;
+  if (!specifier) continue;
+  try {
+    const path = specifier.startsWith("file:") ? new URL(specifier) : resolve(specifier);
+    preloadSources.push({ specifier, sha256: createHash("sha256").update(readFileSync(path)).digest("hex") });
+  } catch {
+    preloadSources.push({ specifier, sha256: null });
+  }
+}
 let evidenceFile = null;
 const log = console.log.bind(console);
 console.log = (...args) => {
@@ -28,6 +42,8 @@ console.log = (...args) => {
 };
 const evidence = {
   variant, count: Number(count), audit, profile, node: process.version,
+  command: process.argv.slice(1), preloads: process.execArgv,
+  preloadSources,
   startedAt: new Date().toISOString(),
   engineSha256: createHash("sha256").update(readFileSync(new URL(engineURL))).digest("hex"),
   candidateSha256: createHash("sha256").update(readFileSync(new URL(import.meta.url))).digest("hex"),
@@ -35,7 +51,9 @@ const evidence = {
 process.on("uncaughtExceptionMonitor", (error) => { evidence.error = error.message; });
 registerHooks({ load(url, context, nextLoad) {
   const result = nextLoad(url, context);
-  if (url !== engineURL || variant === "control") return result;
+  if (url !== engineURL) return result;
+  evidence.loadedEngineSha256 = createHash("sha256").update(String(result.source)).digest("hex");
+  if (variant === "control") return result;
   let source = String(result.source).replace(/\r\n/g, "\n");
   function replace(anchor, replacement) {
     assert.equal(source.split(anchor).length, 2, `unique engine anchor: ${anchor}`);
@@ -58,6 +76,7 @@ registerHooks({ load(url, context, nextLoad) {
         ["_penaltyKick(team) {", "this._cornerAttackUntil = { home: 0, away: 0 };"],
       ]) replace(anchor, `${anchor}\n    ${addition}`);
     }
+    evidence.loadedEngineSha256 = createHash("sha256").update(source).digest("hex");
     return { ...result, source };
   }
   if (variant.endsWith("contact") || variant === "finish" || space) {
@@ -91,6 +110,7 @@ registerHooks({ load(url, context, nextLoad) {
       '      const cdBlocked = this.t < (this._teamShotUntil[a.team] || 0) && !this._probeHasCloseShot(a);');
   }
   source += '\nexport { estimateBallArrivalSeconds as probeArrival, estimateBallHeightAtDistance as probeHeight };\n';
+  evidence.loadedEngineSha256 = createHash("sha256").update(source).digest("hex");
   return { ...result, source };
 } });
 
@@ -282,6 +302,7 @@ if (variant === "space_timed") {
 console.log(`Pass-route candidate: ${variant}`);
 process.argv[2] = count;
 process.argv[3] = profile;
+if (process.argv.includes("equal-only")) process.argv[4] = "equal-only";
 const audits = { lanes: "./_pass-lane-contact-probe.mjs", box: "./box-possession-sampling-audit.mjs",
   shots: "./_shot-chain-sample.mjs",
   realism: "./match-realism-audit.mjs", contact: "./_short-pass-contact-probe.mjs",

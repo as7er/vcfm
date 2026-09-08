@@ -234,8 +234,9 @@ function applyFreeBallForces(ball, dt) {
     ball.z = 0;
     ball.vz = 0;
   }
+  // Both retention factors describe SIM.DT seconds, not one caller tick.
   const groundFriction = Math.pow(SIM.BALL_FRICTION, dt / SIM.DT);
-  const horizontalFriction = ball.z > 0.4 ? 0.992 : groundFriction;
+  const horizontalFriction = ball.z > 0.4 ? Math.pow(0.992, dt / SIM.DT) : groundFriction;
   ball.vx *= horizontalFriction;
   ball.vy *= horizontalFriction;
 }

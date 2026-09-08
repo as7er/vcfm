@@ -28,10 +28,23 @@ try {
     await dialog[/urgent inbox|\u7d27\u6025\u4fe1\u7bb1/i.test(dialog.message()) ? "dismiss" : "accept"]();
   });
   await page.goto(baseUrl, { waitUntil: "networkidle" });
+  // Match the E2E bootstrap: first-install SW activation can reload this page.
+  await page.waitForFunction(() => (
+    !("serviceWorker" in navigator) ||
+    Object.keys(sessionStorage).some((key) => key.startsWith("vcfm-sw-reloaded-"))
+  ));
+  await page.waitForLoadState("networkidle");
   await page.waitForFunction(() => !!window.vcfmMainApi, null, { timeout: 90000 });
   await page.fill("#input-manager", "Continuity Audit");
   await page.click("#btn-new-game");
-  await page.waitForSelector("#screen-main.active", { timeout: 90000 });
+  try {
+    await page.waitForSelector("#screen-main.active", { timeout: 90000 });
+  } catch (error) {
+    await page.screenshot({ path: fileURLToPath(new URL("boot-failure.png", out)) });
+    const hint = await page.locator("#start-hint").textContent().catch(() => "");
+    writeFileSync(new URL("boot-failure.json", out), JSON.stringify({ hint, errors, error: error.message }, null, 2));
+    throw new Error(`new game did not open: ${hint || "no start hint"}; ${errors.join(" | ") || error.message}`);
+  }
   let matchReady = false;
   for (let day = 0; day < 25 && !matchReady; day++) {
     const before = await page.locator("#date-label").innerText();
