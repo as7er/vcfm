@@ -150,6 +150,7 @@ const audits = {
   realism: "./match-realism-audit.mjs",
   contact: "./_short-pass-contact-probe.mjs",
   timing: "./_pass-reception-timing-probe.mjs",
+  lanes: "./_pass-lane-contact-probe.mjs",
 };
 assert.ok(audits[audit], `unknown audit: ${audit}`);
 process.on("exit", () => console.log(JSON.stringify({ passProtection: totals }, null, 2)));

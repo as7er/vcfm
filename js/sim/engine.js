@@ -239,29 +239,6 @@ function applyFreeBallForces(ball, dt) {
   ball.vx *= horizontalFriction;
   ball.vy *= horizontalFriction;
 }
-function applyShotForces(ball, dt) {
-  ball.z = (ball.z || 0) + (ball.vz || 0) * dt;
-  ball.vz = (ball.vz || 0) - 18 * dt;
-  if (ball.z > 10) {
-    ball.z = 10;
-    if ((ball.vz || 0) > 0) ball.vz *= 0.4;
-  }
-  if (ball.z <= 0) {
-    ball.z = 0;
-    if ((ball.vz || 0) < 0) {
-      const impact = Math.abs(ball.vz);
-      ball.vz = impact * (impact > 4 ? 0.38 : 0.26);
-      if (ball.vz < 1.05) ball.vz = 0;
-      else ball.z = 0.05;
-      ball.vx *= 0.86;
-      ball.vy *= 0.86;
-    }
-  }
-  const groundFriction = Math.pow(SIM.BALL_FRICTION, dt / SIM.DT);
-  const horizontalFriction = ball.z > 0.4 ? 0.992 : groundFriction;
-  ball.vx *= horizontalFriction;
-  ball.vy *= horizontalFriction;
-}
 function estimateBallArrivalSeconds(distanceMetres, speedMps, z, vz) {
   const motion = { vx: speedMps, vy: 0, z, vz };
   let travelled = 0;
@@ -4859,8 +4836,8 @@ export class SimEngine {
       // 自由球：滚动 + 摩擦（不夹 x/y，出界由 _resolveBounds 判定）
       b.x += b.vx * dt;
       b.y += b.vy * dt;
-      if (b.state === "shot") applyShotForces(b, dt);
-      else applyFreeBallForces(b, dt);
+      // Shots share the ballistic height used by launch aiming and goal-line checks.
+      applyFreeBallForces(b, dt);
     }
     if (Math.hypot(b.vx, b.vy) < 0.05 && b.z <= 0) {
       b.vx = 0;
