@@ -92,7 +92,7 @@ const mean = (v) => (v.length ? Number((v.reduce((a, b) => a + b, 0) / v.length)
 const pct = (n, d) => Number(((n / Math.max(1, d)) * 100).toFixed(1));
 
 /** 档位开关。depthScale：把三个抢点区 + 落点区的深度按比例外推（1.0=现状 5m，避开门将出击圈用） */
-const V = { slots: false, delivery: false, runs: false, restDef: false, outlet: false, gkOnLine: false, depthScale: 1.0 };
+const V = { slots: false, delivery: false, runs: false, releaseRuns: false, restDef: false, outlet: false, gkOnLine: false, depthScale: 1.0 };
 
 /**
  * 角球计划：`_restart` 包装里算好，`_think` / `_bestCross` 包装读它。
@@ -307,7 +307,7 @@ SimEngine.prototype._restart = function _restartProbe(type, team, x, y, ...rest)
   // ⚠ 3.0m 不是随手取的：主罚暂停只有 1.6s（`engine.js:6558`），而引擎无球球员实测
   //   只跑得动约 1.2 m/s（2 场烟测：退 5m 时 2.5s 位移中位 3.06m、无人跑满 5m），
   //   退太远就赶不到落点，量出来会是「跑了但没到」。
-  const RUN_BACK = 3.0;
+  const RUN_BACK = V.releaseRuns ? 5.0 : 3.0;
   const staged = [];
   for (const a of this.agents) {
     if (a.sentOff) continue;
@@ -318,7 +318,7 @@ SimEngine.prototype._restart = function _restartProbe(type, team, x, y, ...rest)
     }
     const spot = a.team === attTeam ? plan.attack.get(a.id) : plan.defend.get(a.id);
     if (!spot) continue;
-    const isRunner = V.runs && plan.runners.some((r) => r.id === a.id);
+    const isRunner = (V.runs || V.releaseRuns) && plan.runners.some((r) => r.id === a.id);
     a.x = spot.x;
     a.y = isRunner ? clamp(spot.y + L.dir * (-RUN_BACK / MY), 1.5, 98.5) : spot.y;
     a.vx = 0;
@@ -336,7 +336,12 @@ SimEngine.prototype._restart = function _restartProbe(type, team, x, y, ...rest)
 /** `runs` 档：冻结窗口内把抢点者的目标点设成他的争点区，盯人者跟到球门侧 */
 SimEngine.prototype._think = function _thinkProbe(a, ...rest) {
   const out = ORIG.think.call(this, a, ...rest);
-  if (!V.runs || !plan || this.t > plan.until || a.sentOff || a.role === "GK") return out;
+  if ((!V.runs && !V.releaseRuns) || !plan || a.sentOff || a.injuredOff || a.role === "GK") return out;
+  if (V.releaseRuns) {
+    const ball = this.ball;
+    if (ball.state !== "pass" || ball.lastKicker !== plan.takerId ||
+        ball.lastPassAt < plan.until - 4.2 || this.t > ball.expectedAt + 0.4) return out;
+  } else if (this.t > plan.until) return out;
   if (a.id === plan.takerId) return out;
   if (a.team === plan.attTeam) {
     const target = plan.runners.find((r) => r.id === a.id);
@@ -529,6 +534,7 @@ const LEVELS = [
   { label: "slots + delivery", set: { slots: true, delivery: true } },
   { label: "slots + delivery −门将上线", set: { slots: true, delivery: true, gkOnLine: false } },
   { label: "slots + delivery + runs", set: { slots: true, delivery: true, runs: true } },
+  { label: "releaseRuns", set: { slots: true, delivery: true, releaseRuns: true } },
   // —— 落点深度扫描（2026-09-04 新增）：诊断表证实 slots+delivery 的射门率塌陷是
   //    「门将解围」翻 3 倍造成的（球被精确吊进门将 1.5m 出击圈）。落点与抢点点一起
   //    外推（depthScale），只测「离门将多远」这一个变量，找回射门率而不吊进无人区。
@@ -541,6 +547,7 @@ function sweep(level) {
   V.slots = !!level.set.slots;
   V.delivery = !!level.set.delivery;
   V.runs = !!level.set.runs;
+  V.releaseRuns = !!level.set.releaseRuns;
   // 未显式指定时跟随 slots，保证既有档位与已留档的数字逐位可比
   V.restDef = level.set.restDef ?? V.slots;
   V.outlet = level.set.outlet ?? V.slots;
@@ -628,7 +635,8 @@ if (!faithful) process.exit(1);
 
 const rows = [];
 console.log("\n[1] 🔑 角球产出（★ = 每角球进球率进 3.3~5.0%，⚠ = 撞护栏）：");
-for (const level of LEVELS) {
+for (const level of LEVELS.filter((level) => !process.argv[3] || level === LEVELS[0] ||
+  process.argv[3].split(",").some((filter) => level.label.includes(filter)))) {
   const r = level === LEVELS[0] ? control : sweep(level);
   rows.push({ label: level.label, ...r });
   const warn = [];

@@ -617,7 +617,7 @@ export class MatchView {
         ? Math.max(0, simT - previousOfficialsSimT)
         : null;
     this._updateOfficials(soft, officialsSimDt, sceneCut);
-    this._recordMotionDiagnostic(sim);
+    this._recordMotionDiagnostic(sim, opts.interpolationSource);
     // 直播用 soft follow（见 update）；非时间轴时默认 follow
     if (!this._simPlay && this.simDrive) this.camMode = this.camMode === "box" ? "box" : "follow";
     return true;
@@ -626,10 +626,11 @@ export class MatchView {
   /** 两帧之间插值（对齐 sim-viewer：10Hz 模拟 → 屏幕 60fps 平滑） */
   applySimSnapshotLerped(fa, fb, alpha) {
     if (!fa?.players?.length) return false;
+    const interpolationSource = { from: fa, to: fb || fa, alpha: clamp(alpha, 0, 1) };
     if (!fb?.players?.length || alpha <= 0) {
-      return this.applySimSnapshot(fa, { soft: false });
+      return this.applySimSnapshot(fa, { soft: false, interpolationSource });
     }
-    if (alpha >= 1) return this.applySimSnapshot(fb, { soft: false });
+    if (alpha >= 1) return this.applySimSnapshot(fb, { soft: false, interpolationSource });
     const t = clamp(alpha, 0, 1);
     const byB = new Map(fb.players.map((p) => [p.id, p]));
     // 重启搬迁（引擎 _restart 单 tick 把球+全员搬到定位球槽位）落在相邻录制帧上
@@ -711,7 +712,7 @@ export class MatchView {
         players,
         motionContext: t < 0.5 ? fa.motionContext || null : fb.motionContext || null,
       },
-      { soft: false }
+      { soft: false, interpolationSource }
     );
   }
 
@@ -2751,7 +2752,7 @@ export class MatchView {
     }
   }
 
-  _recordMotionDiagnostic(engineFrame) {
+  _recordMotionDiagnostic(engineFrame, interpolationSource = null) {
     if (!engineFrame?.players?.length || !engineFrame.ball) return;
     const displayFrame = {
       t: engineFrame.t,
@@ -2786,6 +2787,7 @@ export class MatchView {
       cameraPreset: this.cameraPreset,
       replay: !!(this._fmmReplay?.active || this._simPlay?.label === "replay"),
       label: this._simPlay?.label || null,
+      interpolationSource,
     });
     this._notifyMotionStatus();
   }

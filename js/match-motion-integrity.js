@@ -241,6 +241,13 @@ export class MotionIntegrityMonitor {
       t: engine.t,
       engine,
       display,
+      // The engine argument can already be interpolated by MatchView. Preserve
+      // its actual recording endpoints so a reported jump can be attributed.
+      source: context.interpolationSource ? {
+        alpha: context.interpolationSource.alpha,
+        from: structuredClone(context.interpolationSource.from),
+        to: structuredClone(context.interpolationSource.to),
+      } : null,
       context: {
         cameraPreset: context.cameraPreset || null,
         replay: !!context.replay,
@@ -646,6 +653,7 @@ export class MotionIntegrityMonitor {
         t: frame.t,
         engine: frame.engine,
         display: frame.display,
+        source: frame.source,
         context: { ...frame.context },
       })),
     };

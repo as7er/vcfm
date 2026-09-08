@@ -104,6 +104,23 @@ for (const alpha of [0, 0.25, 0.5, 0.75, 1]) {
   assert.ok(Math.abs(view.ball.y - expected.y) < 1e-8);
 }
 
+const sourceView = makeView(base);
+const sourceA = structuredClone(at(7.4));
+const sourceB = structuredClone(at(7.5));
+sourceB.players[1].y += 1.2;
+sourceView.applySimSnapshotLerped(sourceA, sourceB, 0.4);
+const sourceRecord = sourceView.createMotionClip().frames.at(-1);
+assert.deepEqual(sourceRecord.source, { from: sourceA, to: sourceB, alpha: 0.4 },
+  "an interpolated diagnostic must retain the original recording endpoints");
+assert.ok(sourceRecord.engine.t > sourceRecord.source.from.t &&
+  sourceRecord.engine.t < sourceRecord.source.to.t);
+sourceB.players[1].y += 20;
+assert.notEqual(sourceRecord.source.to.players[1].y, sourceB.players[1].y,
+  "later frame mutations must not overwrite captured evidence");
+sourceView.applySimSnapshot(at(8));
+assert.equal(sourceView.createMotionClip().frames.at(-1).source, null,
+  "a direct snapshot must not inherit a preceding interpolation pair");
+
 const contact = { t: 0.2, x: 61, y: 60, byId: owner.id };
 const incoming = at(0.1);
 const deflected = at(0.2, { ...base.ball, x: 61, state: "loose", deflect: contact });
