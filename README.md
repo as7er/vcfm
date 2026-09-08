@@ -12,7 +12,7 @@ VCFM（**V**C **F**ootball **M**anager）是一款轻量网页足球经理游戏
 
 ### 在线游玩
 
-**https://as7er.github.io/vcfm/**
+**https://as7er.github.io/VCFM/**
 
 | 说明 | 详情 |
 |------|------|
