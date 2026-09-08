@@ -10,12 +10,15 @@ assert.ok(["arrive", "timed", "timed_coarse", "duel", "phase"].includes(mode), `
 const timing = mode !== "arrive";
 const duel = mode === "duel";
 const endOnTurnover = mode === "phase";
+const integrated = typeof SimEngine.prototype._integrateMotion === "function";
+assert.ok(!integrated || mode === "timed", "historical corner modes require --baseline-v250");
 console.log(`Corner routine: mode=${mode}, audit=${audit}, matches=${count}, profile=${profile || "standard"}`);
 const movement = [];
 const metres = (a, b) => Math.hypot((a.x - b.x) * 0.68, (a.y - b.y) * 1.05);
 const restart = SimEngine.prototype._restart;
 SimEngine.prototype._restart = function (type, ...args) {
   const result = restart.call(this, type, ...args);
+  if (integrated) return result;
   this._cornerRoutine = null;
   if (type !== "corner") return result;
   const ball = this.ball;
@@ -35,6 +38,7 @@ SimEngine.prototype._restart = function (type, ...args) {
 const think = SimEngine.prototype._think;
 SimEngine.prototype._think = function (a, ...args) {
   const result = think.call(this, a, ...args);
+  if (integrated) return result;
   let target = cornerMovementTarget(this._cornerRoutine, a, this.ball, this.agents, this.t);
   const markedId = this._cornerRoutine?.marks.get(a.id);
   const markedRun = duel && target && this.ball.state === "pass" &&
@@ -57,7 +61,7 @@ SimEngine.prototype._think = function (a, ...args) {
 // attacker meeting a cross must reach the contest while the ball is there.
 const integrate = SimEngine.prototype._integrate;
 SimEngine.prototype._integrate = function (a, dt) {
-  if (!Number.isFinite(a._probeArrivalAt) || this.ball.owner || this.ball.state !== "pass") {
+  if (integrated || !Number.isFinite(a._probeArrivalAt) || this.ball.owner || this.ball.state !== "pass") {
     return integrate.call(this, a, dt);
   }
   const tx = a.tx;
@@ -123,6 +127,7 @@ SimEngine.prototype.step = function (...args) {
 const cross = SimEngine.prototype._bestCross;
 SimEngine.prototype._bestCross = function (a) {
   const result = cross.call(this, a);
+  if (integrated) return result;
   return this.ball.state === "corner" && this.ball.owner === a.id
     ? cornerDelivery(this._cornerRoutine, this.agents, a) || result : result;
 };
@@ -133,7 +138,9 @@ const audits = {
   realism: "./match-realism-audit.mjs",
   structure: "./corner-structure-audit.mjs",
   defending: "./box-defending-audit.mjs",
+  box: "./box-possession-sampling-audit.mjs",
   arrival: "./_corner-arrival-probe.mjs",
+  trace: "./_corner-integration-sample.mjs",
 };
 if (!audits[audit]) throw new Error(`Unknown audit: ${audit}`);
 const median = (key) => {

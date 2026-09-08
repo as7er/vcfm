@@ -24,6 +24,8 @@ const checks = [
   "scripts/pass-speed-audit.mjs",
   "scripts/shot-flight-audit.mjs",
   "scripts/ball-drag-audit.mjs",
+  "scripts/substep-contact-audit.mjs",
+  "scripts/corner-routine-audit.mjs",
   "scripts/set-piece-presentation-audit.mjs",
   "scripts/player-traits-set-pieces-audit.mjs",
   "scripts/player-attributes-audit.mjs",

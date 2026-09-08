@@ -29,6 +29,7 @@ import {
   getSetPieceTakerId,
 } from "./../models.js";
 import { positionCoverage } from "../player-positions.js";
+import { buildCornerRoutine, cornerDelivery, cornerMovementTarget } from "../corner-routines.js";
 import { roleBehavior } from "../player-roles.js";
 import {
   TEAM_SHAPE_PHASES,
@@ -500,6 +501,7 @@ export class SimEngine {
     this.celebrateCornerX = 50;
     this.celebrateParticipants = null;
     this.cornerShapeUntil = 0;
+    this._cornerRoutine = null;
     this.pendingPenalty = null;
     this._advantage = null;
     this._varReviewSeq = 0;
@@ -1633,27 +1635,21 @@ export class SimEngine {
       this.stats[this.possession].poss += dt;
     }
     this._samplePossession();
-    for (const a of this.agents) this._think(a, dt, owner, controlTeam, phaseActor);
-    this._separateSupportTargets();
-    // 2) 积分运动
     for (const a of this.agents) {
-      if (this._goalkeeperNeedsFineMovement(a, dt)) {
-        const movementSubsteps = Math.max(2, Math.ceil(dt / SIM.DT - 1e-9));
-        const movementDt = dt / movementSubsteps;
-        for (let index = 0; index < movementSubsteps; index++) this._integrate(a, movementDt);
-        this.integrationStats.reasons["goalkeeper-motion"] =
-          (this.integrationStats.reasons["goalkeeper-motion"] || 0) + 1;
-      } else {
-        this._integrate(a, dt);
+      this._think(a, dt, owner, controlTeam, phaseActor);
+      const target = cornerMovementTarget(this._cornerRoutine, a, this.ball, this.agents, this.t);
+      if (target) {
+        a.tx = target.x;
+        a.ty = target.y;
+        a.offBallTarget = null;
       }
+      a._cornerArrivalAt = target && this.ball.state === "pass" && this._cornerRoutine?.runs.has(a.id)
+        ? this.ball.expectedAt : null;
     }
-    // 2b) 近距离约束求解，避免禁区争抢时球员互相穿透或叠成一团。
-    // 阵型分散的帧首轮即退出，只有真正的禁区混战才用满迭代预算。
-    this._separateAgents(this.separationPasses, dt, this._motionStepEpoch);
-    // 3-5) 无风险跑位仍使用粗步；只有未来一个粗步内会接触球员、门将或边界的
-    // 球路才细分球物理与接管。全队决策/跑位不会重复计算。
+    this._separateSupportTargets();
+    // 球与球员共用接触时钟。否则先走完 0.3s 的球员会在第一个 0.1s
+    // 球子步中提前触球。决策保持外层频率，低风险区间仍只积分一次。
     const physicsReason = this._ballPhysicsFineReason(dt);
-    const contactReason = this._contactFineReason();
     const physicsSubsteps = physicsReason
       ? Math.max(2, Math.ceil(dt / SIM.DT - 1e-9))
       : 1;
@@ -1665,24 +1661,38 @@ export class SimEngine {
       this.integrationStats.reasons[physicsReason] =
         (this.integrationStats.reasons[physicsReason] || 0) + 1;
     }
-    if (contactReason) {
-      this.integrationStats.reasons[contactReason] =
-        (this.integrationStats.reasons[contactReason] || 0) + 1;
-    }
     const stepStartedAt = this.t;
-    const startingBallState = this.ball.state;
     for (let index = 0; index < physicsSubsteps; index++) {
       this.t = stepStartedAt + index * physicsDt;
-      this._activeStepDt = contactReason ? SIM.DT : physicsDt;
+      this._activeStepDt = physicsDt;
       // 见 `_emit`：子步内发出的事件描述的是这一步之后的几何，时间戳要相应前推。
       this._emitTimeOffset = physicsDt;
+      // 每次新运动都重置分离预算，不能把前一子步的正常位移当作碰撞修正。
+      if (index > 0) this._motionStepEpoch++;
+      for (const a of this.agents) {
+        if (this._goalkeeperNeedsFineMovement(a, physicsDt)) {
+          const movementSubsteps = Math.max(2, Math.ceil(physicsDt / SIM.DT - 1e-9));
+          const movementDt = physicsDt / movementSubsteps;
+          for (let movement = 0; movement < movementSubsteps; movement++) this._integrate(a, movementDt);
+          this.integrationStats.reasons["goalkeeper-motion"] =
+            (this.integrationStats.reasons["goalkeeper-motion"] || 0) + 1;
+        } else {
+          this._integrate(a, physicsDt);
+        }
+      }
+      this._separateAgents(this.separationPasses, physicsDt, this._motionStepEpoch);
+      const contactReason = this._contactFineReason();
+      this._activeStepDt = contactReason ? Math.min(SIM.DT, physicsDt) : physicsDt;
+      if (contactReason) {
+        this.integrationStats.reasons[contactReason] =
+          (this.integrationStats.reasons[contactReason] || 0) + 1;
+      }
+      const restartBeforeContact = this._restartStepEpoch || 0;
       this._stepBall(physicsDt);
       this._resolvePossession(physicsDt);
       this._resolveBounds();
-      const flightResolved =
-        (startingBallState === "pass" || startingBallState === "shot") &&
-        (this.ball.owner || this.ball.state !== startingBallState);
-      if (this.pendingPenalty || this.celebrateUntil || flightResolved) break;
+      // 接球、折射与扑救仍消耗余下时间；只有新重启/点球/进球结束旧场景。
+      if (this.pendingPenalty || this.celebrateUntil || (this._restartStepEpoch || 0) !== restartBeforeContact) break;
     }
     this._emitTimeOffset = 0;
     this.t = stepStartedAt;
@@ -2784,7 +2794,8 @@ export class SimEngine {
         best = { agent: m, value, through: true, tx, ty, cross: true };
       }
     }
-    return best;
+    return this.ball.state === "corner" && this.ball.owner === a.id
+      ? cornerDelivery(this._cornerRoutine, this.agents, a) || best : best;
   }
 
   /** 底线附近的倒三角/回做，防止低角度持球者继续撞向边界。 */
@@ -3143,6 +3154,9 @@ export class SimEngine {
     if (isThrough) this._teamThroughUntil[a.team] = this.t + 3.2;
     // 传球后短暂不可立刻被自己接回
     a.noReclaimUntil = this.t + 0.25;
+    if (fromCorner && this._cornerRoutine?.takerId === a.id) {
+      this._cornerRoutine.releasedAt = b.lastPassAt;
+    }
   }
 
   /** 执行射门：给球高速飞向球门，门将可扑（远射：更吃 shooting、误差更大） */
@@ -4688,6 +4702,40 @@ export class SimEngine {
 
   /** 惯性移动：arrive + 加速度上限（与 matchview 表演层同源，保证观感一致） */
   _integrate(a, dt) {
+    if (!Number.isFinite(a._cornerArrivalAt) || this.ball.owner || this.ball.state !== "pass") {
+      return this._integrateMotion(a, dt);
+    }
+    // 争顶按球到时间收敛，而非提前在普通 arrive 的 5 格减速圈内停住。
+    // 跑动仍由同一运动积分器限制速度、加速度、转向与体能。
+    const tx = a.tx;
+    const ty = a.ty;
+    const steps = Math.max(1, Math.ceil(dt / SIM.DT - 1e-9));
+    const stepDt = dt / steps;
+    for (let step = 0; step < steps; step++) {
+      const dx = tx - a.x;
+      const dy = ty - a.y;
+      const gap = Math.hypot(dx, dy);
+      if (gap > 0.05) {
+        const speed = SIM.MAX_PLAYER_SPEED * (0.55 + 0.45 * a.attr.pace) *
+          (0.76 + Math.max(0.3, (a.fitness ?? 100) / 100) * 0.24);
+        const accel = speed * (2.5 + 2.5 * a.attr.accel) * (0.94 + (a.attr.agility || 0.55) * 0.08);
+        const along = Math.max(0, ((a.vx || 0) * dx + (a.vy || 0) * dy) / gap);
+        const time = Math.max(stepDt, a._cornerArrivalAt - this.t - step * stepDt -
+          Math.max(0, speed - along) / (2 * accel));
+        const lookAhead = Math.max(gap, Math.min(5, gap / time / speed * 5));
+        a.tx = a.x + dx / gap * lookAhead;
+        a.ty = a.y + dy / gap * lookAhead;
+      } else {
+        a.tx = tx;
+        a.ty = ty;
+      }
+      this._integrateMotion(a, stepDt);
+    }
+    a.tx = tx;
+    a.ty = ty;
+  }
+
+  _integrateMotion(a, dt) {
     let speed = SIM.MAX_PLAYER_SPEED * (0.55 + 0.45 * a.attr.pace);
     const pressing = this._stepPressing[a.team] || 3;
     const fit = clamp((a.fitness ?? 100) / 100, 0.3, 1);
@@ -5939,6 +5987,7 @@ export class SimEngine {
    * @param {"home"|"away"} team 主罚方
    */
   _penaltyKick(team) {
+    this._restartStepEpoch = (this._restartStepEpoch || 0) + 1;
     const b = this.ball;
     const dir = this.attackDir(team); // 主罚方进攻方向
     const spotY = team === "home" ? 12 : 88; // 罚球点（对方禁区内）
@@ -6431,6 +6480,8 @@ export class SimEngine {
    * @param {"corner"|"goalkick"|"throwin"|"offside"|"freekick"|"indirect"} type
    */
   _restart(type, restartTeam, x, y) {
+    this._restartStepEpoch = (this._restartStepEpoch || 0) + 1;
+    this._cornerRoutine = null;
     this.pendingPenalty = null;
     const b = this.ball;
     b.x = x;
@@ -6806,6 +6857,19 @@ export class SimEngine {
       setPiece: type,
       indirect: type === EDGE_RESTART_TYPES.INDIRECT_FREE_KICK,
     });
+    if (type === "corner" && b.state === "corner") {
+      this._cornerRoutine = buildCornerRoutine({ agents: this.agents, team: b.kickTeam,
+        takerId: b.owner, ball: b, now: this.t, attackDirection: this.attackDir(b.kickTeam),
+        goalY: this.targetGoalY(b.kickTeam) });
+      for (const a of this.agents) {
+        const spot = this._cornerRoutine.positions.get(a.id);
+        if (!spot) continue;
+        a.x = a.tx = spot.x;
+        a.y = a.ty = spot.y;
+        a.vx = a.vy = 0;
+        a.offBallTarget = null;
+      }
+    }
   }
 
   /**
@@ -7017,6 +7081,7 @@ export class SimEngine {
 
   /** 开球：双方留在己方半场，非开球队退出中圈 */
   _kickoff(team) {
+    this._restartStepEpoch = (this._restartStepEpoch || 0) + 1;
     this.celebrateParticipants = null;
     this.cornerShapeUntil = 0;
     for (const a of this.agents) {
