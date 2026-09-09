@@ -1,4 +1,4 @@
-// Controlled route cases for the process-local candidate. These assert visible
+// Controlled route cases for the production engine and archived candidate. These assert visible
 // football geometry, not a desired result from a seeded full match.
 import assert from "node:assert/strict";
 import { SimEngine, SIM } from "../js/sim/engine.js";
@@ -18,7 +18,8 @@ for (const team of ["home", "away"]) {
     for (const side of [-1, 1]) {
       let draws = 0;
       const engine = new SimEngine(club("home"), club("away"), { random: () => { draws++; return 0.5; } });
-      assert.equal(typeof engine._probeLaunchRouteClear, "function", "run through the flight route wrapper");
+      const routeClear = (engine._launchRouteClear || engine._probeLaunchRouteClear)?.bind(engine);
+      assert.equal(typeof routeClear, "function", "the engine must assess the actual launch line");
       const passer = engine.agents.find((a) => a.team === team && a.role === "MID");
       const receiver = engine.agents.find((a) => a.team === team && a.role === "ATT");
       const defender = engine.agents.find((a) => a.team !== team && a.role === "DEF");
@@ -37,15 +38,17 @@ for (const team of ["home", "away"]) {
       const target = { tx: receiver.x, ty: receiver.y, agent: receiver };
 
       const before = draws;
-      assert.equal(engine._probeLaunchRouteClear(passer, target), false, "a defender blocks a ground launch lane");
+      assert.equal(routeClear(passer, target), false, "a defender blocks a ground launch lane");
       assert.equal(draws, before, "route prediction consumes no random draws");
       assert.ok(!engine._passCandidates(passer).some((option) => option.agent === receiver),
         "the passer must consider another action when its only lane is blocked");
       cases++;
 
       Object.assign(defender, position(4, 2));
-      assert.equal(engine._probeLaunchRouteClear(passer, target), true, "a two-metre lateral gap is a viable launch lane");
+      assert.equal(routeClear(passer, target), true, "a two-metre lateral gap is a viable launch lane");
       const safety = engine._laneSafety(passer, receiver);
+      if (engine._launchRouteClear || process.argv.includes("--metric-lanes")) assert.ok(Math.abs(safety - 0.25) < 1e-10,
+        "the same two-metre gap must receive the same safety in either field direction");
       Object.assign(passer, position(-0.6));
       assert.equal(engine._laneSafety(passer, receiver), safety,
         "carrier-body offset must not change the same ball-to-target line");
@@ -53,28 +56,28 @@ for (const team of ["home", "away"]) {
 
       Object.assign(defender, position(-0.8));
       assert.equal(engine._laneSafety(passer, receiver), 1, "a defender behind the ball cannot obstruct an escape pass");
-      assert.equal(engine._probeLaunchRouteClear(passer, target), true);
+      assert.equal(routeClear(passer, target), true);
       cases++;
 
       Object.assign(defender, position(6), { [other === "x" ? "vx" : "vy"]: 5 / otherScale });
-      assert.equal(engine._probeLaunchRouteClear(passer, target), true,
+      assert.equal(routeClear(passer, target), true,
         "a defender moving clear before ball arrival does not block the future lane");
       cases++;
 
       Object.assign(defender, position(1.5), { vx: 0, vy: 0, sentOff: true });
-      assert.equal(engine._probeLaunchRouteClear(passer, target), true, "a sent-off player is not an obstacle");
+      assert.equal(routeClear(passer, target), true, "a sent-off player is not an obstacle");
       defender.sentOff = false;
       defender.injuredOff = true;
-      assert.equal(engine._probeLaunchRouteClear(passer, target), true, "an injured-off player is not an obstacle");
+      assert.equal(routeClear(passer, target), true, "an injured-off player is not an obstacle");
       defender.injuredOff = false;
       cases += 2;
 
       const longSpot = position(31);
       const lofted = { ...target, tx: longSpot.x, ty: longSpot.y };
-      assert.equal(engine._probeLaunchRouteClear(passer, lofted), false,
+      assert.equal(routeClear(passer, lofted), false,
         "a lofted pass is still low beside a defender immediately after launch");
       Object.assign(defender, position(6));
-      assert.equal(engine._probeLaunchRouteClear(passer, lofted), true,
+      assert.equal(routeClear(passer, lofted), true,
         "the same lofted pass clears a more distant defender once it gains height");
       cases += 2;
 

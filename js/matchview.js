@@ -44,14 +44,14 @@ function lerp(a, b, t) {
 }
 
 /**
- * 重启搬运过渡（见 `applySimSnapshot`）。跳变门槛按物理上限定：0.1s 一个 tick 里
- * 球最快约 4.4 格（30 m/s 纵向）、球员约 0.6 格（6 格/s），所以球 6 格、球员 3 格
- * 以上的单 tick 位移只在重启语义下按搬运处理。700ms 是压缩后的摆位过渡，
+ * 重启搬运过渡（见 `applySimSnapshot`）。球员门槛按帧间模拟秒与米制速度计算，
+ * 包含正常跑动和身体分离的余量；旧的 3 格门槛会漏掉约 1~3 米的短促摆位。
+ * 只在重启语义下按搬运处理。700ms 是压缩后的摆位过渡，
  * 不代表真实跑动或活球轨迹；重启判罚与目标点仍以引擎为准。
  */
 const RELOCATE_MS = 700;
 const RELOCATE_BALL_JUMP = 6;
-const RELOCATE_PLAYER_JUMP = 3;
+const RELOCATE_PLAYER_MAX_SPEED_MPS = 10;
 
 /**
  * 关键事件横幅停留时长（ms）。
@@ -416,15 +416,18 @@ export class MatchView {
     if (Number.isFinite(simT)) this._relocLastSimT = simT;
     // 门槛按实际帧间隔放大：跳过几帧时合法位移也成比例变大
     const dtScale = adjacent ? Math.max(1, (simT - lastSimT) / 0.1) : 1;
-    const relocate = (entity, tx, ty, jumpLimit) => {
+    const relocate = (entity, tx, ty, jumpLimit, metric = false, followOwner = false) => {
       if (sceneCut) entity._relocAt = 0;
+      const distance = metric
+        ? Math.hypot((tx - entity.x) * OFFICIAL_MX, (ty - entity.y) * OFFICIAL_MY)
+        : Math.hypot(tx - entity.x, ty - entity.y);
       // 只在「没有缓动在进行」时武装。武装检查在缓动读取之前，若不加这道闸，
       // 只要目标与显示位置的距离仍超阈值，就会每次调用都重新武装（_relocFrom
       // 重设为当前显示位、u 重置为 0），缓动一步都走不了——实测球员被冻在
       // 原地几十秒、离引擎位置 38 m（display-divergence 刷屏的根因）。
       if (
         adjacent && restartFrame && !entity._relocAt &&
-        Math.hypot(tx - entity.x, ty - entity.y) > jumpLimit * dtScale
+        (distance > jumpLimit + 1e-8 || followOwner)
       ) {
         entity._relocFromX = entity.x;
         entity._relocFromY = entity.y;
@@ -454,7 +457,8 @@ export class MatchView {
       const ty = clamp(s.y, 0, 100);
       const ox = pl.x;
       const oy = pl.y;
-      const reloc = relocate(pl, tx, ty, RELOCATE_PLAYER_JUMP);
+      const reloc = relocate(pl, tx, ty,
+        RELOCATE_PLAYER_MAX_SPEED_MPS * (simT - lastSimT), true);
       if (reloc) {
         pl.x = reloc.x;
         pl.y = reloc.y;
@@ -518,7 +522,9 @@ export class MatchView {
       const by = clamp(sim.ball.y, 0, 100);
       const bz = clamp(Number(sim.ball.z) || 0, 0, 12);
       const prevZ = this.ball.z || 0;
-      const ballReloc = relocate(this.ball, bx, by, RELOCATE_BALL_JUMP);
+      const ownerRelocating = !!sim.ball.owner && this.players.some((p) =>
+        p.id === sim.ball.owner && p._relocAt);
+      const ballReloc = relocate(this.ball, bx, by, RELOCATE_BALL_JUMP * dtScale, false, ownerRelocating);
       if (ballReloc) {
         this.ball.x = ballReloc.x;
         this.ball.y = ballReloc.y;
@@ -649,7 +655,8 @@ export class MatchView {
     if (pairAdjacent && restartPair) {
       for (const a of fa.players) {
         const b = byB.get(a.id);
-        if (b && Math.hypot(b.x - a.x, b.y - a.y) > RELOCATE_PLAYER_JUMP) heldIds.add(a.id);
+        if (b && Math.hypot((b.x - a.x) * OFFICIAL_MX, (b.y - a.y) * OFFICIAL_MY) >
+          RELOCATE_PLAYER_MAX_SPEED_MPS * pairDt + 1e-8) heldIds.add(a.id);
       }
     }
     const players = fa.players.map((a) => {
@@ -685,10 +692,11 @@ export class MatchView {
     if (
       pairAdjacent &&
       restartPair &&
-      Math.hypot(
-        (fb.ball?.x ?? 0) - (fa.ball?.x ?? 0),
-        (fb.ball?.y ?? 0) - (fa.ball?.y ?? 0)
-      ) > RELOCATE_BALL_JUMP
+      (heldIds.has(fa.ball?.owner) || heldIds.has(fb.ball?.owner) ||
+        Math.hypot(
+          (fb.ball?.x ?? 0) - (fa.ball?.x ?? 0),
+          (fb.ball?.y ?? 0) - (fa.ball?.y ?? 0)
+        ) > RELOCATE_BALL_JUMP)
     ) {
       // While geometry still belongs to the preceding frame, ownership must
       // also stay there. Switching to the new taker early creates a remote owner.

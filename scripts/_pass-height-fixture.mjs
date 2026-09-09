@@ -14,7 +14,7 @@ function club(id) {
 
 const results = [];
 const scheduling = [];
-if (process.argv.includes("--height-aware-substeps")) {
+if (!process.argv.includes("--report") || process.argv.includes("--height-aware-substeps")) {
   for (const role of ["ATT", "GK"]) {
     for (const scenario of ["above", "falling", "below", "boundary"]) {
       const engine = new SimEngine(club("home"), club("away"));

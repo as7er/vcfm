@@ -1,0 +1,2771 @@
+{
+  "baselineRevision": "524589d7c825d2b5113751a0588f9d1d0f8b5111",
+  "description": "All contiguous 96 equal-strength and 96 strength-gap seeds per profile; failed shards retained. Aggregates reconstruct integer totals from the 24-match reports, not average percentages.",
+  "sourceSha256": {
+    "js/sim/engine.js": "708aee9c29c345228a69a21d47d29b19e7e018de1ba3c363bacaffb6ad535b24",
+    "js/corner-routines.js": "b9107415117691b5ecd7095d6005f1058894c28ab2e338dea0d04cfeb7557918",
+    "js/matchview.js": "d43d8d57da3f85ef95e5ac1dfdfbc86913a60b06be5463758425595e1af52c62"
+  },
+  "beforeCloseOpportunity": {
+    "standard": {
+      "matches": 96,
+      "strongMatches": 96,
+      "perMatch": {
+        "goals": 2.38,
+        "shots": 26.46,
+        "saves": 6.66,
+        "passes": 1051.31,
+        "completedPasses": 851.05,
+        "crosses": 58.79,
+        "throughPasses": 2.04,
+        "tackles": 41.83,
+        "interceptions": 45.26,
+        "fouls": 24.63,
+        "handballs": 0.49,
+        "varReviews": 2.67,
+        "varOverturns": 0.04,
+        "yellows": 3.07,
+        "reds": 0.17,
+        "penalties": 0.29,
+        "corners": 4.29,
+        "cornerShots": 1.51,
+        "cornerGoals": 0.15,
+        "injuries": 0.11,
+        "stalls": 0,
+        "openGoalShots": 0.28,
+        "goalkeeperClaims": 14.38,
+        "goalkeeperBlocks": 8.96,
+        "goalkeeperChallenges": 6.84,
+        "goalkeeperFouls": 0.23,
+        "unattributedGoals": 0,
+        "ownGoals": 0.01,
+        "penaltyGoals": 0.23
+      },
+      "conversion": 8.98,
+      "completion": 80.95,
+      "distance": {
+        "under16": {
+          "shots": 1440,
+          "goals": 126
+        },
+        "16to22": {
+          "shots": 1000,
+          "goals": 95
+        },
+        "22to30": {
+          "shots": 99,
+          "goals": 7
+        },
+        "30plus": {
+          "shots": 1,
+          "goals": 0
+        }
+      },
+      "strong": {
+        "points": 2.16,
+        "goalsFor": 177,
+        "goalsAgainst": 90
+      }
+    },
+    "background": {
+      "matches": 96,
+      "strongMatches": 96,
+      "perMatch": {
+        "goals": 2.8,
+        "shots": 26.21,
+        "saves": 6.23,
+        "passes": 999.08,
+        "completedPasses": 821.44,
+        "crosses": 60.56,
+        "throughPasses": 2.06,
+        "tackles": 40.78,
+        "interceptions": 42.6,
+        "fouls": 23.45,
+        "handballs": 0.48,
+        "varReviews": 3.09,
+        "varOverturns": 0.02,
+        "yellows": 2.9,
+        "reds": 0.14,
+        "penalties": 0.28,
+        "corners": 4.45,
+        "cornerShots": 1.57,
+        "cornerGoals": 0.14,
+        "injuries": 0.15,
+        "stalls": 0,
+        "openGoalShots": 0.57,
+        "goalkeeperClaims": 17.31,
+        "goalkeeperBlocks": 10.23,
+        "goalkeeperChallenges": 7.86,
+        "goalkeeperFouls": 0.26,
+        "unattributedGoals": 0,
+        "ownGoals": 0.02,
+        "penaltyGoals": 0.23
+      },
+      "conversion": 10.69,
+      "completion": 82.22,
+      "distance": {
+        "under16": {
+          "shots": 1416,
+          "goals": 167
+        },
+        "16to22": {
+          "shots": 995,
+          "goals": 97
+        },
+        "22to30": {
+          "shots": 100,
+          "goals": 5
+        },
+        "30plus": {
+          "shots": 5,
+          "goals": 0
+        }
+      },
+      "strong": {
+        "points": 1.84,
+        "goalsFor": 168,
+        "goalsAgainst": 120
+      }
+    }
+  },
+  "afterCloseOpportunity": {
+    "standard": {
+      "matches": 96,
+      "strongMatches": 96,
+      "perMatch": {
+        "goals": 3.17,
+        "shots": 31.96,
+        "saves": 8.91,
+        "passes": 1052.36,
+        "completedPasses": 853.41,
+        "crosses": 59.69,
+        "throughPasses": 1.7,
+        "tackles": 42.89,
+        "interceptions": 44.5,
+        "fouls": 26.02,
+        "handballs": 0.61,
+        "varReviews": 3.41,
+        "varOverturns": 0,
+        "yellows": 3.26,
+        "reds": 0.16,
+        "penalties": 0.24,
+        "corners": 5.79,
+        "cornerShots": 2.16,
+        "cornerGoals": 0.23,
+        "injuries": 0.1,
+        "stalls": 0,
+        "openGoalShots": 0.35,
+        "goalkeeperClaims": 13.97,
+        "goalkeeperBlocks": 8.42,
+        "goalkeeperChallenges": 6.16,
+        "goalkeeperFouls": 0.19,
+        "unattributedGoals": 0,
+        "ownGoals": 0.01,
+        "penaltyGoals": 0.17
+      },
+      "conversion": 9.91,
+      "completion": 81.09,
+      "distance": {
+        "under16": {
+          "shots": 1994,
+          "goals": 224
+        },
+        "16to22": {
+          "shots": 969,
+          "goals": 73
+        },
+        "22to30": {
+          "shots": 101,
+          "goals": 6
+        },
+        "30plus": {
+          "shots": 4,
+          "goals": 1
+        }
+      },
+      "strong": {
+        "points": 1.8,
+        "goalsFor": 163,
+        "goalsAgainst": 91
+      }
+    },
+    "background": {
+      "matches": 96,
+      "strongMatches": 96,
+      "perMatch": {
+        "goals": 2.94,
+        "shots": 29.51,
+        "saves": 7.77,
+        "passes": 997.19,
+        "completedPasses": 818.3,
+        "crosses": 60.92,
+        "throughPasses": 1.86,
+        "tackles": 39.92,
+        "interceptions": 43.24,
+        "fouls": 23.75,
+        "handballs": 0.53,
+        "varReviews": 3.19,
+        "varOverturns": 0.01,
+        "yellows": 2.89,
+        "reds": 0.17,
+        "penalties": 0.25,
+        "corners": 4.98,
+        "cornerShots": 1.9,
+        "cornerGoals": 0.26,
+        "injuries": 0.21,
+        "stalls": 0,
+        "openGoalShots": 0.54,
+        "goalkeeperClaims": 17.43,
+        "goalkeeperBlocks": 10.01,
+        "goalkeeperChallenges": 7.29,
+        "goalkeeperFouls": 0.22,
+        "unattributedGoals": 0,
+        "ownGoals": 0.01,
+        "penaltyGoals": 0.18
+      },
+      "conversion": 9.95,
+      "completion": 82.06,
+      "distance": {
+        "under16": {
+          "shots": 1745,
+          "goals": 195
+        },
+        "16to22": {
+          "shots": 981,
+          "goals": 81
+        },
+        "22to30": {
+          "shots": 103,
+          "goals": 4
+        },
+        "30plus": {
+          "shots": 4,
+          "goals": 2
+        }
+      },
+      "strong": {
+        "points": 2.23,
+        "goalsFor": 201,
+        "goalsAgainst": 101
+      }
+    }
+  },
+  "samples": {
+    "standard": [
+      {
+        "file": "space_timed-realism-24-standard-1788911807957.json",
+        "offset": 0,
+        "exitCode": 1,
+        "error": "standard shots diverged from the fixed-seed standard profile — the frozen STANDARD_PROFILE_REFERENCE_24 is stale; refresh it deliberately",
+        "startedAt": "2026-09-08T23:49:34.708Z",
+        "completedAt": "2026-09-08T23:56:47.957Z",
+        "command": [
+          "F:\\VCFM\\scripts\\_pass-route-calibration-probe.mjs",
+          "space_timed",
+          "24",
+          "realism",
+          "standard",
+          "--mid-support",
+          "--flight-anticipation",
+          "--sustain-runs",
+          "--all-free-heights",
+          "--height-aware-substeps",
+          "--metric-lanes",
+          "--cross-offside",
+          "--close-shot-eligibility",
+          "--angular-window",
+          "--contact-window"
+        ],
+        "loadedEngineSha256": "05d7a146caca2224dd4e1429fb99afa0010bfb5f89d69df24246dd5474465394",
+        "preloadSources": [
+          {
+            "specifier": "./scripts/_third-man-run-candidate.mjs",
+            "sha256": "a58df86053a9e830e39d068aeea9ed53e9529017140df2abe1921ad3a1e0d435"
+          },
+          {
+            "specifier": "./scripts/_reception-ready-candidate.mjs",
+            "sha256": "e231dc1bfe4974f65d85c5e51ce403d45e6af7691220b859dc6ab6457fe109c2"
+          },
+          {
+            "specifier": "./scripts/_corner-dynamic-candidate.mjs",
+            "sha256": "30ae88d80cf1e4d3cd71009d76a6a45614fff8b86f97ef3b9406eb1245f9d99b"
+          },
+          {
+            "specifier": "./scripts/_pass-height-candidate.mjs",
+            "sha256": "321e63ad9c05fdddbaeee9d474ef18d2875d8709b0b47ce2b40dc5f5f70d610b"
+          },
+          {
+            "specifier": "./scripts/_pass-arrival-candidate.mjs",
+            "sha256": "596dc3d7e5d3a4cd630ec823a30451308e06f0ea85d25f913ff23d4ef3528e79"
+          },
+          {
+            "specifier": "./scripts/_cross-flight-candidate.mjs",
+            "sha256": "fc5c39d49aead571696253cc35efeaa8aeea8f9666f41d1b5d9c2c3c24abf732"
+          },
+          {
+            "specifier": "./scripts/_cross-target-candidate.mjs",
+            "sha256": "c78f626cd891d5f3d0bea119f2e924351aa0998b3d1089ae52038b9b8a6950f1"
+          },
+          {
+            "specifier": "./scripts/_receiver-arrival-candidate.mjs",
+            "sha256": "ea58f1240e34aba4905bd1c2af146bf28e95add18b48a9b7a0154c18dca9d226"
+          },
+          {
+            "specifier": "./scripts/_cross-reach-candidate.mjs",
+            "sha256": "45f9058eafe4d489b44f1169ccda86299b48369d97d0859ce489d2dfe50e5162"
+          },
+          {
+            "specifier": "./scripts/_shot-aim-source-candidate.mjs",
+            "sha256": "7e13a5dc4885f6046555b70e6dcf1d5ede535fea60d1bb5b96018b2dac7880f4"
+          }
+        ],
+        "report": {
+          "simulationProfile": "standard",
+          "timeStep": 0.1,
+          "separationPasses": 8,
+          "integration": {
+            "fineSharePct": 0,
+            "extraStepSharePct": 0,
+            "reasons": {}
+          },
+          "stallSeeds": [],
+          "longShots": [
+            {
+              "seed": 165018,
+              "team": "away",
+              "t": 5179.400000001311,
+              "distance": 30.507003602055438,
+              "agentId": "away-165018-p8",
+              "openGoal": false,
+              "bin": "30plus"
+            }
+          ],
+          "equalMatches": 24,
+          "perMatch": {
+            "goals": 3.17,
+            "shots": 32.13,
+            "saves": 8.58,
+            "passes": 1064.83,
+            "completedPasses": 863.67,
+            "crosses": 59.17,
+            "throughPasses": 2,
+            "tackles": 42.04,
+            "interceptions": 44.88,
+            "fouls": 26.17,
+            "handballs": 0.5,
+            "varReviews": 3.42,
+            "varOverturns": 0,
+            "yellows": 3.08,
+            "reds": 0.04,
+            "penalties": 0.25,
+            "corners": 5.38,
+            "cornerShots": 2.04,
+            "cornerGoals": 0.21,
+            "injuries": 0.04,
+            "stalls": 0,
+            "openGoalShots": 0.21,
+            "goalkeeperClaims": 13.96,
+            "goalkeeperBlocks": 7.42,
+            "goalkeeperChallenges": 7.5,
+            "goalkeeperFouls": 0.17,
+            "unattributedGoals": 0,
+            "ownGoals": 0,
+            "penaltyGoals": 0.21
+          },
+          "shotConversionPct": 9.9,
+          "passCompletionPct": 81.1,
+          "crossSharePct": 5.6,
+          "throughPassSharePct": 0.2,
+          "openGoalReasons": {
+            "rounded_goalkeeper": 0.21
+          },
+          "outsideBoxSharePct": 35.8,
+          "distance": {
+            "under16": {
+              "shots": 495,
+              "goals": 56,
+              "sharePct": 64.2,
+              "conversionPct": 11.3
+            },
+            "16to22": {
+              "shots": 250,
+              "goals": 20,
+              "sharePct": 32.4,
+              "conversionPct": 8
+            },
+            "22to30": {
+              "shots": 25,
+              "goals": 0,
+              "sharePct": 3.2,
+              "conversionPct": 0
+            },
+            "30plus": {
+              "shots": 1,
+              "goals": 0,
+              "sharePct": 0.1,
+              "conversionPct": 0
+            }
+          },
+          "strongVsWeak": {
+            "matches": 24,
+            "pointsPerMatch": 1.92,
+            "winRatePct": 54.2,
+            "goalsFor": 41,
+            "goalsAgainst": 16
+          },
+          "standardProfileReference": {
+            "goals": 2.67,
+            "shots": 28.88,
+            "passes": 1108.04,
+            "passCompletionPct": 78.6,
+            "fouls": 27.29,
+            "openGoalShots": 0.75,
+            "goalkeeperClaims": 17.46,
+            "goalkeeperChallenges": 7.25,
+            "strongPointsPerMatch": 1.88
+          },
+          "referenceDelta": {
+            "goals": 0.5,
+            "shots": 3.25,
+            "passes": -43.21,
+            "passCompletionPct": 2.5,
+            "fouls": -1.12,
+            "openGoalShots": -0.54,
+            "goalkeeperClaims": -3.5,
+            "goalkeeperChallenges": 0.25,
+            "strongPointsPerMatch": 0.04
+          }
+        }
+      },
+      {
+        "file": "space_timed-realism-24-standard-1788912558072.json",
+        "offset": 24,
+        "exitCode": 1,
+        "error": "strong teams must retain a visible ability advantage",
+        "startedAt": "2026-09-09T00:01:13.766Z",
+        "completedAt": "2026-09-09T00:09:18.072Z",
+        "command": [
+          "F:\\VCFM\\scripts\\_pass-route-calibration-probe.mjs",
+          "space_timed",
+          "24",
+          "realism",
+          "standard",
+          "--mid-support",
+          "--flight-anticipation",
+          "--sustain-runs",
+          "--all-free-heights",
+          "--height-aware-substeps",
+          "--metric-lanes",
+          "--cross-offside",
+          "--close-shot-eligibility",
+          "--angular-window",
+          "--contact-window",
+          "--seed-offset=24"
+        ],
+        "loadedEngineSha256": "05d7a146caca2224dd4e1429fb99afa0010bfb5f89d69df24246dd5474465394",
+        "preloadSources": [
+          {
+            "specifier": "./scripts/_third-man-run-candidate.mjs",
+            "sha256": "a58df86053a9e830e39d068aeea9ed53e9529017140df2abe1921ad3a1e0d435"
+          },
+          {
+            "specifier": "./scripts/_reception-ready-candidate.mjs",
+            "sha256": "e231dc1bfe4974f65d85c5e51ce403d45e6af7691220b859dc6ab6457fe109c2"
+          },
+          {
+            "specifier": "./scripts/_corner-dynamic-candidate.mjs",
+            "sha256": "30ae88d80cf1e4d3cd71009d76a6a45614fff8b86f97ef3b9406eb1245f9d99b"
+          },
+          {
+            "specifier": "./scripts/_pass-height-candidate.mjs",
+            "sha256": "321e63ad9c05fdddbaeee9d474ef18d2875d8709b0b47ce2b40dc5f5f70d610b"
+          },
+          {
+            "specifier": "./scripts/_pass-arrival-candidate.mjs",
+            "sha256": "596dc3d7e5d3a4cd630ec823a30451308e06f0ea85d25f913ff23d4ef3528e79"
+          },
+          {
+            "specifier": "./scripts/_cross-flight-candidate.mjs",
+            "sha256": "fc5c39d49aead571696253cc35efeaa8aeea8f9666f41d1b5d9c2c3c24abf732"
+          },
+          {
+            "specifier": "./scripts/_cross-target-candidate.mjs",
+            "sha256": "c78f626cd891d5f3d0bea119f2e924351aa0998b3d1089ae52038b9b8a6950f1"
+          },
+          {
+            "specifier": "./scripts/_receiver-arrival-candidate.mjs",
+            "sha256": "ea58f1240e34aba4905bd1c2af146bf28e95add18b48a9b7a0154c18dca9d226"
+          },
+          {
+            "specifier": "./scripts/_cross-reach-candidate.mjs",
+            "sha256": "45f9058eafe4d489b44f1169ccda86299b48369d97d0859ce489d2dfe50e5162"
+          },
+          {
+            "specifier": "./scripts/_shot-aim-source-candidate.mjs",
+            "sha256": "7e13a5dc4885f6046555b70e6dcf1d5ede535fea60d1bb5b96018b2dac7880f4"
+          },
+          {
+            "specifier": "./.tmp-continuity/realism-shard.mjs",
+            "sha256": "6724a415bb81c73ea1f9c3cd93664ee3fa04681344cffa976d381ea468b74fdf"
+          }
+        ],
+        "report": {
+          "simulationProfile": "standard",
+          "timeStep": 0.1,
+          "separationPasses": 8,
+          "integration": {
+            "fineSharePct": 0,
+            "extraStepSharePct": 0,
+            "reasons": {}
+          },
+          "stallSeeds": [],
+          "longShots": [
+            {
+              "seed": 165038,
+              "team": "home",
+              "t": 3980.0999999974756,
+              "distance": 36.17429050612118,
+              "agentId": "home-165038-p8",
+              "openGoal": false,
+              "bin": "30plus"
+            }
+          ],
+          "equalMatches": 24,
+          "perMatch": {
+            "goals": 3.08,
+            "shots": 32.21,
+            "saves": 9.04,
+            "passes": 1042.38,
+            "completedPasses": 843.83,
+            "crosses": 59.13,
+            "throughPasses": 1.67,
+            "tackles": 42.88,
+            "interceptions": 44.42,
+            "fouls": 26.13,
+            "handballs": 0.54,
+            "varReviews": 3.33,
+            "varOverturns": 0,
+            "yellows": 3.79,
+            "reds": 0.17,
+            "penalties": 0.25,
+            "corners": 6.42,
+            "cornerShots": 2.46,
+            "cornerGoals": 0.17,
+            "injuries": 0.08,
+            "stalls": 0,
+            "openGoalShots": 0.38,
+            "goalkeeperClaims": 13.83,
+            "goalkeeperBlocks": 9,
+            "goalkeeperChallenges": 5.79,
+            "goalkeeperFouls": 0.25,
+            "unattributedGoals": 0,
+            "ownGoals": 0,
+            "penaltyGoals": 0.13
+          },
+          "shotConversionPct": 9.6,
+          "passCompletionPct": 81,
+          "crossSharePct": 5.7,
+          "throughPassSharePct": 0.2,
+          "openGoalReasons": {
+            "rounded_goalkeeper": 0.38
+          },
+          "outsideBoxSharePct": 34.7,
+          "distance": {
+            "under16": {
+              "shots": 505,
+              "goals": 59,
+              "sharePct": 65.3,
+              "conversionPct": 11.7
+            },
+            "16to22": {
+              "shots": 235,
+              "goals": 14,
+              "sharePct": 30.4,
+              "conversionPct": 6
+            },
+            "22to30": {
+              "shots": 32,
+              "goals": 1,
+              "sharePct": 4.1,
+              "conversionPct": 3.1
+            },
+            "30plus": {
+              "shots": 1,
+              "goals": 0,
+              "sharePct": 0.1,
+              "conversionPct": 0
+            }
+          },
+          "strongVsWeak": {
+            "matches": 24,
+            "pointsPerMatch": 1.46,
+            "winRatePct": 45.8,
+            "goalsFor": 38,
+            "goalsAgainst": 30
+          },
+          "standardProfileReference": {
+            "goals": 2.67,
+            "shots": 28.88,
+            "passes": 1108.04,
+            "passCompletionPct": 78.6,
+            "fouls": 27.29,
+            "openGoalShots": 0.75,
+            "goalkeeperClaims": 17.46,
+            "goalkeeperChallenges": 7.25,
+            "strongPointsPerMatch": 1.88
+          },
+          "referenceDelta": {
+            "goals": 0.41,
+            "shots": 3.33,
+            "passes": -65.66,
+            "passCompletionPct": 2.4,
+            "fouls": -1.16,
+            "openGoalShots": -0.37,
+            "goalkeeperClaims": -3.63,
+            "goalkeeperChallenges": -1.46,
+            "strongPointsPerMatch": -0.42
+          },
+          "sampleOffset": 24
+        }
+      },
+      {
+        "file": "space_timed-realism-24-standard-1788912551211.json",
+        "offset": 48,
+        "exitCode": 1,
+        "error": "standard shots diverged from the fixed-seed standard profile — the frozen STANDARD_PROFILE_REFERENCE_24 is stale; refresh it deliberately",
+        "startedAt": "2026-09-09T00:01:13.668Z",
+        "completedAt": "2026-09-09T00:09:11.211Z",
+        "command": [
+          "F:\\VCFM\\scripts\\_pass-route-calibration-probe.mjs",
+          "space_timed",
+          "24",
+          "realism",
+          "standard",
+          "--mid-support",
+          "--flight-anticipation",
+          "--sustain-runs",
+          "--all-free-heights",
+          "--height-aware-substeps",
+          "--metric-lanes",
+          "--cross-offside",
+          "--close-shot-eligibility",
+          "--angular-window",
+          "--contact-window",
+          "--seed-offset=48"
+        ],
+        "loadedEngineSha256": "05d7a146caca2224dd4e1429fb99afa0010bfb5f89d69df24246dd5474465394",
+        "preloadSources": [
+          {
+            "specifier": "./scripts/_third-man-run-candidate.mjs",
+            "sha256": "a58df86053a9e830e39d068aeea9ed53e9529017140df2abe1921ad3a1e0d435"
+          },
+          {
+            "specifier": "./scripts/_reception-ready-candidate.mjs",
+            "sha256": "e231dc1bfe4974f65d85c5e51ce403d45e6af7691220b859dc6ab6457fe109c2"
+          },
+          {
+            "specifier": "./scripts/_corner-dynamic-candidate.mjs",
+            "sha256": "30ae88d80cf1e4d3cd71009d76a6a45614fff8b86f97ef3b9406eb1245f9d99b"
+          },
+          {
+            "specifier": "./scripts/_pass-height-candidate.mjs",
+            "sha256": "321e63ad9c05fdddbaeee9d474ef18d2875d8709b0b47ce2b40dc5f5f70d610b"
+          },
+          {
+            "specifier": "./scripts/_pass-arrival-candidate.mjs",
+            "sha256": "596dc3d7e5d3a4cd630ec823a30451308e06f0ea85d25f913ff23d4ef3528e79"
+          },
+          {
+            "specifier": "./scripts/_cross-flight-candidate.mjs",
+            "sha256": "fc5c39d49aead571696253cc35efeaa8aeea8f9666f41d1b5d9c2c3c24abf732"
+          },
+          {
+            "specifier": "./scripts/_cross-target-candidate.mjs",
+            "sha256": "c78f626cd891d5f3d0bea119f2e924351aa0998b3d1089ae52038b9b8a6950f1"
+          },
+          {
+            "specifier": "./scripts/_receiver-arrival-candidate.mjs",
+            "sha256": "ea58f1240e34aba4905bd1c2af146bf28e95add18b48a9b7a0154c18dca9d226"
+          },
+          {
+            "specifier": "./scripts/_cross-reach-candidate.mjs",
+            "sha256": "45f9058eafe4d489b44f1169ccda86299b48369d97d0859ce489d2dfe50e5162"
+          },
+          {
+            "specifier": "./scripts/_shot-aim-source-candidate.mjs",
+            "sha256": "7e13a5dc4885f6046555b70e6dcf1d5ede535fea60d1bb5b96018b2dac7880f4"
+          },
+          {
+            "specifier": "./.tmp-continuity/realism-shard.mjs",
+            "sha256": "6724a415bb81c73ea1f9c3cd93664ee3fa04681344cffa976d381ea468b74fdf"
+          }
+        ],
+        "report": {
+          "simulationProfile": "standard",
+          "timeStep": 0.1,
+          "separationPasses": 8,
+          "integration": {
+            "fineSharePct": 0,
+            "extraStepSharePct": 0,
+            "reasons": {}
+          },
+          "stallSeeds": [],
+          "longShots": [
+            {
+              "seed": 165068,
+              "team": "away",
+              "t": 2739.6999999986037,
+              "distance": 38.158826861970326,
+              "agentId": "away-165068-p10",
+              "openGoal": false,
+              "bin": "30plus"
+            }
+          ],
+          "equalMatches": 24,
+          "perMatch": {
+            "goals": 3.13,
+            "shots": 32.13,
+            "saves": 9.58,
+            "passes": 1043.13,
+            "completedPasses": 846.29,
+            "crosses": 62.46,
+            "throughPasses": 1.46,
+            "tackles": 43.79,
+            "interceptions": 43.96,
+            "fouls": 25.79,
+            "handballs": 0.92,
+            "varReviews": 3.38,
+            "varOverturns": 0,
+            "yellows": 2.92,
+            "reds": 0.33,
+            "penalties": 0.25,
+            "corners": 6.04,
+            "cornerShots": 2.29,
+            "cornerGoals": 0.25,
+            "injuries": 0.13,
+            "stalls": 0,
+            "openGoalShots": 0.29,
+            "goalkeeperClaims": 13.58,
+            "goalkeeperBlocks": 7.75,
+            "goalkeeperChallenges": 6.08,
+            "goalkeeperFouls": 0.17,
+            "unattributedGoals": 0,
+            "ownGoals": 0.04,
+            "penaltyGoals": 0.13
+          },
+          "shotConversionPct": 9.7,
+          "passCompletionPct": 81.1,
+          "crossSharePct": 6,
+          "throughPassSharePct": 0.1,
+          "openGoalReasons": {
+            "rounded_goalkeeper": 0.29
+          },
+          "outsideBoxSharePct": 33.9,
+          "distance": {
+            "under16": {
+              "shots": 510,
+              "goals": 57,
+              "sharePct": 66.1,
+              "conversionPct": 11.2
+            },
+            "16to22": {
+              "shots": 239,
+              "goals": 16,
+              "sharePct": 31,
+              "conversionPct": 6.7
+            },
+            "22to30": {
+              "shots": 21,
+              "goals": 2,
+              "sharePct": 2.7,
+              "conversionPct": 9.5
+            },
+            "30plus": {
+              "shots": 1,
+              "goals": 0,
+              "sharePct": 0.1,
+              "conversionPct": 0
+            }
+          },
+          "strongVsWeak": {
+            "matches": 24,
+            "pointsPerMatch": 2,
+            "winRatePct": 54.2,
+            "goalsFor": 46,
+            "goalsAgainst": 22
+          },
+          "standardProfileReference": {
+            "goals": 2.67,
+            "shots": 28.88,
+            "passes": 1108.04,
+            "passCompletionPct": 78.6,
+            "fouls": 27.29,
+            "openGoalShots": 0.75,
+            "goalkeeperClaims": 17.46,
+            "goalkeeperChallenges": 7.25,
+            "strongPointsPerMatch": 1.88
+          },
+          "referenceDelta": {
+            "goals": 0.46,
+            "shots": 3.25,
+            "passes": -64.91,
+            "passCompletionPct": 2.5,
+            "fouls": -1.5,
+            "openGoalShots": -0.46,
+            "goalkeeperClaims": -3.88,
+            "goalkeeperChallenges": -1.17,
+            "strongPointsPerMatch": 0.12
+          },
+          "sampleOffset": 48
+        }
+      },
+      {
+        "file": "space_timed-realism-24-standard-1788912557787.json",
+        "offset": 72,
+        "exitCode": 1,
+        "error": "standard goals diverged from the fixed-seed standard profile — the frozen STANDARD_PROFILE_REFERENCE_24 is stale; refresh it deliberately",
+        "startedAt": "2026-09-09T00:01:13.822Z",
+        "completedAt": "2026-09-09T00:09:17.787Z",
+        "command": [
+          "F:\\VCFM\\scripts\\_pass-route-calibration-probe.mjs",
+          "space_timed",
+          "24",
+          "realism",
+          "standard",
+          "--mid-support",
+          "--flight-anticipation",
+          "--sustain-runs",
+          "--all-free-heights",
+          "--height-aware-substeps",
+          "--metric-lanes",
+          "--cross-offside",
+          "--close-shot-eligibility",
+          "--angular-window",
+          "--contact-window",
+          "--seed-offset=72"
+        ],
+        "loadedEngineSha256": "05d7a146caca2224dd4e1429fb99afa0010bfb5f89d69df24246dd5474465394",
+        "preloadSources": [
+          {
+            "specifier": "./scripts/_third-man-run-candidate.mjs",
+            "sha256": "a58df86053a9e830e39d068aeea9ed53e9529017140df2abe1921ad3a1e0d435"
+          },
+          {
+            "specifier": "./scripts/_reception-ready-candidate.mjs",
+            "sha256": "e231dc1bfe4974f65d85c5e51ce403d45e6af7691220b859dc6ab6457fe109c2"
+          },
+          {
+            "specifier": "./scripts/_corner-dynamic-candidate.mjs",
+            "sha256": "30ae88d80cf1e4d3cd71009d76a6a45614fff8b86f97ef3b9406eb1245f9d99b"
+          },
+          {
+            "specifier": "./scripts/_pass-height-candidate.mjs",
+            "sha256": "321e63ad9c05fdddbaeee9d474ef18d2875d8709b0b47ce2b40dc5f5f70d610b"
+          },
+          {
+            "specifier": "./scripts/_pass-arrival-candidate.mjs",
+            "sha256": "596dc3d7e5d3a4cd630ec823a30451308e06f0ea85d25f913ff23d4ef3528e79"
+          },
+          {
+            "specifier": "./scripts/_cross-flight-candidate.mjs",
+            "sha256": "fc5c39d49aead571696253cc35efeaa8aeea8f9666f41d1b5d9c2c3c24abf732"
+          },
+          {
+            "specifier": "./scripts/_cross-target-candidate.mjs",
+            "sha256": "c78f626cd891d5f3d0bea119f2e924351aa0998b3d1089ae52038b9b8a6950f1"
+          },
+          {
+            "specifier": "./scripts/_receiver-arrival-candidate.mjs",
+            "sha256": "ea58f1240e34aba4905bd1c2af146bf28e95add18b48a9b7a0154c18dca9d226"
+          },
+          {
+            "specifier": "./scripts/_cross-reach-candidate.mjs",
+            "sha256": "45f9058eafe4d489b44f1169ccda86299b48369d97d0859ce489d2dfe50e5162"
+          },
+          {
+            "specifier": "./scripts/_shot-aim-source-candidate.mjs",
+            "sha256": "7e13a5dc4885f6046555b70e6dcf1d5ede535fea60d1bb5b96018b2dac7880f4"
+          },
+          {
+            "specifier": "./.tmp-continuity/realism-shard.mjs",
+            "sha256": "6724a415bb81c73ea1f9c3cd93664ee3fa04681344cffa976d381ea468b74fdf"
+          }
+        ],
+        "report": {
+          "simulationProfile": "standard",
+          "timeStep": 0.1,
+          "separationPasses": 8,
+          "integration": {
+            "fineSharePct": 0,
+            "extraStepSharePct": 0,
+            "reasons": {}
+          },
+          "stallSeeds": [],
+          "longShots": [
+            {
+              "seed": 165093,
+              "team": "away",
+              "t": 1070.0000000001223,
+              "distance": 31.889506739618362,
+              "agentId": "away-165093-p8",
+              "openGoal": false,
+              "bin": "30plus",
+              "goal": true
+            }
+          ],
+          "equalMatches": 24,
+          "perMatch": {
+            "goals": 3.29,
+            "shots": 31.38,
+            "saves": 8.42,
+            "passes": 1059.13,
+            "completedPasses": 859.83,
+            "crosses": 58,
+            "throughPasses": 1.67,
+            "tackles": 42.83,
+            "interceptions": 44.75,
+            "fouls": 26,
+            "handballs": 0.5,
+            "varReviews": 3.5,
+            "varOverturns": 0,
+            "yellows": 3.25,
+            "reds": 0.08,
+            "penalties": 0.21,
+            "corners": 5.33,
+            "cornerShots": 1.83,
+            "cornerGoals": 0.29,
+            "injuries": 0.17,
+            "stalls": 0,
+            "openGoalShots": 0.54,
+            "goalkeeperClaims": 14.5,
+            "goalkeeperBlocks": 9.5,
+            "goalkeeperChallenges": 5.25,
+            "goalkeeperFouls": 0.17,
+            "unattributedGoals": 0,
+            "ownGoals": 0,
+            "penaltyGoals": 0.21
+          },
+          "shotConversionPct": 10.5,
+          "passCompletionPct": 81.2,
+          "crossSharePct": 5.5,
+          "throughPassSharePct": 0.2,
+          "openGoalReasons": {
+            "rounded_goalkeeper": 0.54
+          },
+          "outsideBoxSharePct": 35.7,
+          "distance": {
+            "under16": {
+              "shots": 484,
+              "goals": 52,
+              "sharePct": 64.3,
+              "conversionPct": 10.7
+            },
+            "16to22": {
+              "shots": 245,
+              "goals": 23,
+              "sharePct": 32.5,
+              "conversionPct": 9.4
+            },
+            "22to30": {
+              "shots": 23,
+              "goals": 3,
+              "sharePct": 3.1,
+              "conversionPct": 13
+            },
+            "30plus": {
+              "shots": 1,
+              "goals": 1,
+              "sharePct": 0.1,
+              "conversionPct": 100
+            }
+          },
+          "strongVsWeak": {
+            "matches": 24,
+            "pointsPerMatch": 1.83,
+            "winRatePct": 54.2,
+            "goalsFor": 38,
+            "goalsAgainst": 23
+          },
+          "standardProfileReference": {
+            "goals": 2.67,
+            "shots": 28.88,
+            "passes": 1108.04,
+            "passCompletionPct": 78.6,
+            "fouls": 27.29,
+            "openGoalShots": 0.75,
+            "goalkeeperClaims": 17.46,
+            "goalkeeperChallenges": 7.25,
+            "strongPointsPerMatch": 1.88
+          },
+          "referenceDelta": {
+            "goals": 0.62,
+            "shots": 2.5,
+            "passes": -48.91,
+            "passCompletionPct": 2.6,
+            "fouls": -1.29,
+            "openGoalShots": -0.21,
+            "goalkeeperClaims": -2.96,
+            "goalkeeperChallenges": -2,
+            "strongPointsPerMatch": -0.05
+          },
+          "sampleOffset": 72
+        }
+      }
+    ],
+    "background": [
+      {
+        "file": "space_timed-realism-24-background-1788911521029.json",
+        "offset": 0,
+        "exitCode": 1,
+        "error": "background pass volume diverged from the fixed-seed standard profile",
+        "startedAt": "2026-09-08T23:49:34.719Z",
+        "completedAt": "2026-09-08T23:52:01.029Z",
+        "command": [
+          "F:\\VCFM\\scripts\\_pass-route-calibration-probe.mjs",
+          "space_timed",
+          "24",
+          "realism",
+          "background",
+          "--mid-support",
+          "--flight-anticipation",
+          "--sustain-runs",
+          "--all-free-heights",
+          "--height-aware-substeps",
+          "--metric-lanes",
+          "--cross-offside",
+          "--close-shot-eligibility",
+          "--angular-window",
+          "--contact-window"
+        ],
+        "loadedEngineSha256": "05d7a146caca2224dd4e1429fb99afa0010bfb5f89d69df24246dd5474465394",
+        "preloadSources": [
+          {
+            "specifier": "./scripts/_third-man-run-candidate.mjs",
+            "sha256": "a58df86053a9e830e39d068aeea9ed53e9529017140df2abe1921ad3a1e0d435"
+          },
+          {
+            "specifier": "./scripts/_reception-ready-candidate.mjs",
+            "sha256": "e231dc1bfe4974f65d85c5e51ce403d45e6af7691220b859dc6ab6457fe109c2"
+          },
+          {
+            "specifier": "./scripts/_corner-dynamic-candidate.mjs",
+            "sha256": "30ae88d80cf1e4d3cd71009d76a6a45614fff8b86f97ef3b9406eb1245f9d99b"
+          },
+          {
+            "specifier": "./scripts/_pass-height-candidate.mjs",
+            "sha256": "321e63ad9c05fdddbaeee9d474ef18d2875d8709b0b47ce2b40dc5f5f70d610b"
+          },
+          {
+            "specifier": "./scripts/_pass-arrival-candidate.mjs",
+            "sha256": "596dc3d7e5d3a4cd630ec823a30451308e06f0ea85d25f913ff23d4ef3528e79"
+          },
+          {
+            "specifier": "./scripts/_cross-flight-candidate.mjs",
+            "sha256": "fc5c39d49aead571696253cc35efeaa8aeea8f9666f41d1b5d9c2c3c24abf732"
+          },
+          {
+            "specifier": "./scripts/_cross-target-candidate.mjs",
+            "sha256": "c78f626cd891d5f3d0bea119f2e924351aa0998b3d1089ae52038b9b8a6950f1"
+          },
+          {
+            "specifier": "./scripts/_receiver-arrival-candidate.mjs",
+            "sha256": "ea58f1240e34aba4905bd1c2af146bf28e95add18b48a9b7a0154c18dca9d226"
+          },
+          {
+            "specifier": "./scripts/_cross-reach-candidate.mjs",
+            "sha256": "45f9058eafe4d489b44f1169ccda86299b48369d97d0859ce489d2dfe50e5162"
+          },
+          {
+            "specifier": "./scripts/_shot-aim-source-candidate.mjs",
+            "sha256": "7e13a5dc4885f6046555b70e6dcf1d5ede535fea60d1bb5b96018b2dac7880f4"
+          }
+        ],
+        "report": {
+          "simulationProfile": "background",
+          "timeStep": 0.3,
+          "separationPasses": 4,
+          "integration": {
+            "fineSharePct": 13.5,
+            "extraStepSharePct": 26.9,
+            "reasons": {
+              "pass-interaction": 54039,
+              "close-contest": 7052,
+              "goalkeeper-motion": 101008,
+              "goalkeeper-contest": 13131,
+              "shot-flight": 1091,
+              "loose-interaction": 2996
+            }
+          },
+          "stallSeeds": [],
+          "longShots": [],
+          "equalMatches": 24,
+          "perMatch": {
+            "goals": 3.04,
+            "shots": 29.5,
+            "saves": 7.33,
+            "passes": 1002.08,
+            "completedPasses": 825.83,
+            "crosses": 59.08,
+            "throughPasses": 1.71,
+            "tackles": 40.29,
+            "interceptions": 43.08,
+            "fouls": 22.42,
+            "handballs": 0.17,
+            "varReviews": 3.21,
+            "varOverturns": 0,
+            "yellows": 2.83,
+            "reds": 0.21,
+            "penalties": 0.17,
+            "corners": 4.83,
+            "cornerShots": 2.08,
+            "cornerGoals": 0.21,
+            "injuries": 0.08,
+            "stalls": 0,
+            "openGoalShots": 0.75,
+            "goalkeeperClaims": 17.04,
+            "goalkeeperBlocks": 10.5,
+            "goalkeeperChallenges": 7.08,
+            "goalkeeperFouls": 0.13,
+            "unattributedGoals": 0,
+            "ownGoals": 0,
+            "penaltyGoals": 0.17
+          },
+          "shotConversionPct": 10.3,
+          "passCompletionPct": 82.4,
+          "crossSharePct": 5.9,
+          "throughPassSharePct": 0.2,
+          "openGoalReasons": {
+            "rounded_goalkeeper": 0.75
+          },
+          "outsideBoxSharePct": 38.3,
+          "distance": {
+            "under16": {
+              "shots": 437,
+              "goals": 56,
+              "sharePct": 61.7,
+              "conversionPct": 12.8
+            },
+            "16to22": {
+              "shots": 246,
+              "goals": 16,
+              "sharePct": 34.7,
+              "conversionPct": 6.5
+            },
+            "22to30": {
+              "shots": 25,
+              "goals": 1,
+              "sharePct": 3.5,
+              "conversionPct": 4
+            },
+            "30plus": {
+              "shots": 0,
+              "goals": 0,
+              "sharePct": 0,
+              "conversionPct": 0
+            }
+          },
+          "strongVsWeak": {
+            "matches": 24,
+            "pointsPerMatch": 2.33,
+            "winRatePct": 70.8,
+            "goalsFor": 54,
+            "goalsAgainst": 24
+          },
+          "standardProfileReference": {
+            "goals": 2.67,
+            "shots": 28.88,
+            "passes": 1108.04,
+            "passCompletionPct": 78.6,
+            "fouls": 27.29,
+            "openGoalShots": 0.75,
+            "goalkeeperClaims": 17.46,
+            "goalkeeperChallenges": 7.25,
+            "strongPointsPerMatch": 1.88
+          },
+          "referenceDelta": {
+            "goals": 0.37,
+            "shots": 0.62,
+            "passes": -105.96,
+            "passCompletionPct": 3.8,
+            "fouls": -4.87,
+            "openGoalShots": 0,
+            "goalkeeperClaims": -0.42,
+            "goalkeeperChallenges": -0.17,
+            "strongPointsPerMatch": 0.45
+          },
+          "profileDelta": {
+            "goals": 0.37,
+            "shots": 0.62,
+            "passes": -105.96,
+            "passCompletionPct": 3.8,
+            "fouls": -4.87,
+            "openGoalShots": 0,
+            "goalkeeperClaims": -0.42,
+            "goalkeeperChallenges": -0.17,
+            "strongPointsPerMatch": 0.45
+          }
+        }
+      },
+      {
+        "file": "space_timed-realism-24-background-1788912269768.json",
+        "offset": 24,
+        "exitCode": 1,
+        "error": "background pass volume diverged from the fixed-seed standard profile",
+        "startedAt": "2026-09-09T00:01:13.799Z",
+        "completedAt": "2026-09-09T00:04:29.768Z",
+        "command": [
+          "F:\\VCFM\\scripts\\_pass-route-calibration-probe.mjs",
+          "space_timed",
+          "24",
+          "realism",
+          "background",
+          "--mid-support",
+          "--flight-anticipation",
+          "--sustain-runs",
+          "--all-free-heights",
+          "--height-aware-substeps",
+          "--metric-lanes",
+          "--cross-offside",
+          "--close-shot-eligibility",
+          "--angular-window",
+          "--contact-window",
+          "--seed-offset=24"
+        ],
+        "loadedEngineSha256": "05d7a146caca2224dd4e1429fb99afa0010bfb5f89d69df24246dd5474465394",
+        "preloadSources": [
+          {
+            "specifier": "./scripts/_third-man-run-candidate.mjs",
+            "sha256": "a58df86053a9e830e39d068aeea9ed53e9529017140df2abe1921ad3a1e0d435"
+          },
+          {
+            "specifier": "./scripts/_reception-ready-candidate.mjs",
+            "sha256": "e231dc1bfe4974f65d85c5e51ce403d45e6af7691220b859dc6ab6457fe109c2"
+          },
+          {
+            "specifier": "./scripts/_corner-dynamic-candidate.mjs",
+            "sha256": "30ae88d80cf1e4d3cd71009d76a6a45614fff8b86f97ef3b9406eb1245f9d99b"
+          },
+          {
+            "specifier": "./scripts/_pass-height-candidate.mjs",
+            "sha256": "321e63ad9c05fdddbaeee9d474ef18d2875d8709b0b47ce2b40dc5f5f70d610b"
+          },
+          {
+            "specifier": "./scripts/_pass-arrival-candidate.mjs",
+            "sha256": "596dc3d7e5d3a4cd630ec823a30451308e06f0ea85d25f913ff23d4ef3528e79"
+          },
+          {
+            "specifier": "./scripts/_cross-flight-candidate.mjs",
+            "sha256": "fc5c39d49aead571696253cc35efeaa8aeea8f9666f41d1b5d9c2c3c24abf732"
+          },
+          {
+            "specifier": "./scripts/_cross-target-candidate.mjs",
+            "sha256": "c78f626cd891d5f3d0bea119f2e924351aa0998b3d1089ae52038b9b8a6950f1"
+          },
+          {
+            "specifier": "./scripts/_receiver-arrival-candidate.mjs",
+            "sha256": "ea58f1240e34aba4905bd1c2af146bf28e95add18b48a9b7a0154c18dca9d226"
+          },
+          {
+            "specifier": "./scripts/_cross-reach-candidate.mjs",
+            "sha256": "45f9058eafe4d489b44f1169ccda86299b48369d97d0859ce489d2dfe50e5162"
+          },
+          {
+            "specifier": "./scripts/_shot-aim-source-candidate.mjs",
+            "sha256": "7e13a5dc4885f6046555b70e6dcf1d5ede535fea60d1bb5b96018b2dac7880f4"
+          },
+          {
+            "specifier": "./.tmp-continuity/realism-shard.mjs",
+            "sha256": "6724a415bb81c73ea1f9c3cd93664ee3fa04681344cffa976d381ea468b74fdf"
+          }
+        ],
+        "report": {
+          "simulationProfile": "background",
+          "timeStep": 0.3,
+          "separationPasses": 4,
+          "integration": {
+            "fineSharePct": 13.6,
+            "extraStepSharePct": 27.3,
+            "reasons": {
+              "pass-interaction": 54654,
+              "close-contest": 7183,
+              "goalkeeper-motion": 96238,
+              "goalkeeper-contest": 12478,
+              "shot-flight": 1128,
+              "loose-interaction": 3179
+            }
+          },
+          "stallSeeds": [],
+          "longShots": [
+            {
+              "seed": 165039,
+              "team": "away",
+              "t": 5318.100000001764,
+              "distance": 31.752497145805567,
+              "agentId": "away-165039-p8",
+              "openGoal": false,
+              "bin": "30plus"
+            }
+          ],
+          "equalMatches": 24,
+          "perMatch": {
+            "goals": 3.13,
+            "shots": 30.42,
+            "saves": 8.46,
+            "passes": 1003.88,
+            "completedPasses": 823.63,
+            "crosses": 59.21,
+            "throughPasses": 1.75,
+            "tackles": 39.58,
+            "interceptions": 43.08,
+            "fouls": 25.63,
+            "handballs": 0.38,
+            "varReviews": 3.38,
+            "varOverturns": 0,
+            "yellows": 3.42,
+            "reds": 0.08,
+            "penalties": 0.25,
+            "corners": 5.29,
+            "cornerShots": 1.96,
+            "cornerGoals": 0.21,
+            "injuries": 0.21,
+            "stalls": 0,
+            "openGoalShots": 0.5,
+            "goalkeeperClaims": 16.67,
+            "goalkeeperBlocks": 9.92,
+            "goalkeeperChallenges": 7.21,
+            "goalkeeperFouls": 0.25,
+            "unattributedGoals": 0,
+            "ownGoals": 0.04,
+            "penaltyGoals": 0.25
+          },
+          "shotConversionPct": 10.3,
+          "passCompletionPct": 82,
+          "crossSharePct": 5.9,
+          "throughPassSharePct": 0.2,
+          "openGoalReasons": {
+            "rounded_goalkeeper": 0.5
+          },
+          "outsideBoxSharePct": 37.7,
+          "distance": {
+            "under16": {
+              "shots": 455,
+              "goals": 47,
+              "sharePct": 62.3,
+              "conversionPct": 10.3
+            },
+            "16to22": {
+              "shots": 244,
+              "goals": 27,
+              "sharePct": 33.4,
+              "conversionPct": 11.1
+            },
+            "22to30": {
+              "shots": 30,
+              "goals": 1,
+              "sharePct": 4.1,
+              "conversionPct": 3.3
+            },
+            "30plus": {
+              "shots": 1,
+              "goals": 0,
+              "sharePct": 0.1,
+              "conversionPct": 0
+            }
+          },
+          "strongVsWeak": {
+            "matches": 24,
+            "pointsPerMatch": 2.21,
+            "winRatePct": 66.7,
+            "goalsFor": 42,
+            "goalsAgainst": 16
+          },
+          "standardProfileReference": {
+            "goals": 2.67,
+            "shots": 28.88,
+            "passes": 1108.04,
+            "passCompletionPct": 78.6,
+            "fouls": 27.29,
+            "openGoalShots": 0.75,
+            "goalkeeperClaims": 17.46,
+            "goalkeeperChallenges": 7.25,
+            "strongPointsPerMatch": 1.88
+          },
+          "referenceDelta": {
+            "goals": 0.46,
+            "shots": 1.54,
+            "passes": -104.16,
+            "passCompletionPct": 3.4,
+            "fouls": -1.66,
+            "openGoalShots": -0.25,
+            "goalkeeperClaims": -0.79,
+            "goalkeeperChallenges": -0.04,
+            "strongPointsPerMatch": 0.33
+          },
+          "profileDelta": {
+            "goals": 0.46,
+            "shots": 1.54,
+            "passes": -104.16,
+            "passCompletionPct": 3.4,
+            "fouls": -1.66,
+            "openGoalShots": -0.25,
+            "goalkeeperClaims": -0.79,
+            "goalkeeperChallenges": -0.04,
+            "strongPointsPerMatch": 0.33
+          },
+          "sampleOffset": 24
+        }
+      },
+      {
+        "file": "space_timed-realism-24-background-1788912263735.json",
+        "offset": 48,
+        "exitCode": 1,
+        "error": "background pass volume diverged from the fixed-seed standard profile",
+        "startedAt": "2026-09-09T00:01:13.852Z",
+        "completedAt": "2026-09-09T00:04:23.735Z",
+        "command": [
+          "F:\\VCFM\\scripts\\_pass-route-calibration-probe.mjs",
+          "space_timed",
+          "24",
+          "realism",
+          "background",
+          "--mid-support",
+          "--flight-anticipation",
+          "--sustain-runs",
+          "--all-free-heights",
+          "--height-aware-substeps",
+          "--metric-lanes",
+          "--cross-offside",
+          "--close-shot-eligibility",
+          "--angular-window",
+          "--contact-window",
+          "--seed-offset=48"
+        ],
+        "loadedEngineSha256": "05d7a146caca2224dd4e1429fb99afa0010bfb5f89d69df24246dd5474465394",
+        "preloadSources": [
+          {
+            "specifier": "./scripts/_third-man-run-candidate.mjs",
+            "sha256": "a58df86053a9e830e39d068aeea9ed53e9529017140df2abe1921ad3a1e0d435"
+          },
+          {
+            "specifier": "./scripts/_reception-ready-candidate.mjs",
+            "sha256": "e231dc1bfe4974f65d85c5e51ce403d45e6af7691220b859dc6ab6457fe109c2"
+          },
+          {
+            "specifier": "./scripts/_corner-dynamic-candidate.mjs",
+            "sha256": "30ae88d80cf1e4d3cd71009d76a6a45614fff8b86f97ef3b9406eb1245f9d99b"
+          },
+          {
+            "specifier": "./scripts/_pass-height-candidate.mjs",
+            "sha256": "321e63ad9c05fdddbaeee9d474ef18d2875d8709b0b47ce2b40dc5f5f70d610b"
+          },
+          {
+            "specifier": "./scripts/_pass-arrival-candidate.mjs",
+            "sha256": "596dc3d7e5d3a4cd630ec823a30451308e06f0ea85d25f913ff23d4ef3528e79"
+          },
+          {
+            "specifier": "./scripts/_cross-flight-candidate.mjs",
+            "sha256": "fc5c39d49aead571696253cc35efeaa8aeea8f9666f41d1b5d9c2c3c24abf732"
+          },
+          {
+            "specifier": "./scripts/_cross-target-candidate.mjs",
+            "sha256": "c78f626cd891d5f3d0bea119f2e924351aa0998b3d1089ae52038b9b8a6950f1"
+          },
+          {
+            "specifier": "./scripts/_receiver-arrival-candidate.mjs",
+            "sha256": "ea58f1240e34aba4905bd1c2af146bf28e95add18b48a9b7a0154c18dca9d226"
+          },
+          {
+            "specifier": "./scripts/_cross-reach-candidate.mjs",
+            "sha256": "45f9058eafe4d489b44f1169ccda86299b48369d97d0859ce489d2dfe50e5162"
+          },
+          {
+            "specifier": "./scripts/_shot-aim-source-candidate.mjs",
+            "sha256": "7e13a5dc4885f6046555b70e6dcf1d5ede535fea60d1bb5b96018b2dac7880f4"
+          },
+          {
+            "specifier": "./.tmp-continuity/realism-shard.mjs",
+            "sha256": "6724a415bb81c73ea1f9c3cd93664ee3fa04681344cffa976d381ea468b74fdf"
+          }
+        ],
+        "report": {
+          "simulationProfile": "background",
+          "timeStep": 0.3,
+          "separationPasses": 4,
+          "integration": {
+            "fineSharePct": 13.4,
+            "extraStepSharePct": 26.9,
+            "reasons": {
+              "pass-interaction": 53978,
+              "close-contest": 7449,
+              "goalkeeper-motion": 91442,
+              "goalkeeper-contest": 11070,
+              "shot-flight": 1052,
+              "loose-interaction": 3055
+            }
+          },
+          "stallSeeds": [],
+          "longShots": [
+            {
+              "seed": 165050,
+              "team": "away",
+              "t": 4251.300000001117,
+              "distance": 32.43517408894024,
+              "agentId": "away-165050-p8",
+              "openGoal": false,
+              "bin": "30plus"
+            }
+          ],
+          "equalMatches": 24,
+          "perMatch": {
+            "goals": 2.54,
+            "shots": 28.33,
+            "saves": 7.96,
+            "passes": 982.42,
+            "completedPasses": 802.75,
+            "crosses": 62.71,
+            "throughPasses": 1.83,
+            "tackles": 41.21,
+            "interceptions": 42.46,
+            "fouls": 24.04,
+            "handballs": 0.79,
+            "varReviews": 2.79,
+            "varOverturns": 0.04,
+            "yellows": 2.79,
+            "reds": 0.21,
+            "penalties": 0.25,
+            "corners": 4.75,
+            "cornerShots": 1.67,
+            "cornerGoals": 0.29,
+            "injuries": 0.42,
+            "stalls": 0,
+            "openGoalShots": 0.33,
+            "goalkeeperClaims": 16.92,
+            "goalkeeperBlocks": 9.83,
+            "goalkeeperChallenges": 7.21,
+            "goalkeeperFouls": 0.25,
+            "unattributedGoals": 0,
+            "ownGoals": 0,
+            "penaltyGoals": 0.08
+          },
+          "shotConversionPct": 9,
+          "passCompletionPct": 81.7,
+          "crossSharePct": 6.4,
+          "throughPassSharePct": 0.2,
+          "openGoalReasons": {
+            "rounded_goalkeeper": 0.33
+          },
+          "outsideBoxSharePct": 36,
+          "distance": {
+            "under16": {
+              "shots": 435,
+              "goals": 42,
+              "sharePct": 64,
+              "conversionPct": 9.7
+            },
+            "16to22": {
+              "shots": 230,
+              "goals": 18,
+              "sharePct": 33.8,
+              "conversionPct": 7.8
+            },
+            "22to30": {
+              "shots": 14,
+              "goals": 1,
+              "sharePct": 2.1,
+              "conversionPct": 7.1
+            },
+            "30plus": {
+              "shots": 1,
+              "goals": 0,
+              "sharePct": 0.1,
+              "conversionPct": 0
+            }
+          },
+          "strongVsWeak": {
+            "matches": 24,
+            "pointsPerMatch": 2.13,
+            "winRatePct": 66.7,
+            "goalsFor": 52,
+            "goalsAgainst": 35
+          },
+          "standardProfileReference": {
+            "goals": 2.67,
+            "shots": 28.88,
+            "passes": 1108.04,
+            "passCompletionPct": 78.6,
+            "fouls": 27.29,
+            "openGoalShots": 0.75,
+            "goalkeeperClaims": 17.46,
+            "goalkeeperChallenges": 7.25,
+            "strongPointsPerMatch": 1.88
+          },
+          "referenceDelta": {
+            "goals": -0.13,
+            "shots": -0.55,
+            "passes": -125.62,
+            "passCompletionPct": 3.1,
+            "fouls": -3.25,
+            "openGoalShots": -0.42,
+            "goalkeeperClaims": -0.54,
+            "goalkeeperChallenges": -0.04,
+            "strongPointsPerMatch": 0.25
+          },
+          "profileDelta": {
+            "goals": -0.13,
+            "shots": -0.55,
+            "passes": -125.62,
+            "passCompletionPct": 3.1,
+            "fouls": -3.25,
+            "openGoalShots": -0.42,
+            "goalkeeperClaims": -0.54,
+            "goalkeeperChallenges": -0.04,
+            "strongPointsPerMatch": 0.25
+          },
+          "sampleOffset": 48
+        }
+      },
+      {
+        "file": "space_timed-realism-24-background-1788912268139.json",
+        "offset": 72,
+        "exitCode": 1,
+        "error": "30+ distance goal frequency is too high",
+        "startedAt": "2026-09-09T00:01:14.448Z",
+        "completedAt": "2026-09-09T00:04:28.139Z",
+        "command": [
+          "F:\\VCFM\\scripts\\_pass-route-calibration-probe.mjs",
+          "space_timed",
+          "24",
+          "realism",
+          "background",
+          "--mid-support",
+          "--flight-anticipation",
+          "--sustain-runs",
+          "--all-free-heights",
+          "--height-aware-substeps",
+          "--metric-lanes",
+          "--cross-offside",
+          "--close-shot-eligibility",
+          "--angular-window",
+          "--contact-window",
+          "--seed-offset=72"
+        ],
+        "loadedEngineSha256": "05d7a146caca2224dd4e1429fb99afa0010bfb5f89d69df24246dd5474465394",
+        "preloadSources": [
+          {
+            "specifier": "./scripts/_third-man-run-candidate.mjs",
+            "sha256": "a58df86053a9e830e39d068aeea9ed53e9529017140df2abe1921ad3a1e0d435"
+          },
+          {
+            "specifier": "./scripts/_reception-ready-candidate.mjs",
+            "sha256": "e231dc1bfe4974f65d85c5e51ce403d45e6af7691220b859dc6ab6457fe109c2"
+          },
+          {
+            "specifier": "./scripts/_corner-dynamic-candidate.mjs",
+            "sha256": "30ae88d80cf1e4d3cd71009d76a6a45614fff8b86f97ef3b9406eb1245f9d99b"
+          },
+          {
+            "specifier": "./scripts/_pass-height-candidate.mjs",
+            "sha256": "321e63ad9c05fdddbaeee9d474ef18d2875d8709b0b47ce2b40dc5f5f70d610b"
+          },
+          {
+            "specifier": "./scripts/_pass-arrival-candidate.mjs",
+            "sha256": "596dc3d7e5d3a4cd630ec823a30451308e06f0ea85d25f913ff23d4ef3528e79"
+          },
+          {
+            "specifier": "./scripts/_cross-flight-candidate.mjs",
+            "sha256": "fc5c39d49aead571696253cc35efeaa8aeea8f9666f41d1b5d9c2c3c24abf732"
+          },
+          {
+            "specifier": "./scripts/_cross-target-candidate.mjs",
+            "sha256": "c78f626cd891d5f3d0bea119f2e924351aa0998b3d1089ae52038b9b8a6950f1"
+          },
+          {
+            "specifier": "./scripts/_receiver-arrival-candidate.mjs",
+            "sha256": "ea58f1240e34aba4905bd1c2af146bf28e95add18b48a9b7a0154c18dca9d226"
+          },
+          {
+            "specifier": "./scripts/_cross-reach-candidate.mjs",
+            "sha256": "45f9058eafe4d489b44f1169ccda86299b48369d97d0859ce489d2dfe50e5162"
+          },
+          {
+            "specifier": "./scripts/_shot-aim-source-candidate.mjs",
+            "sha256": "7e13a5dc4885f6046555b70e6dcf1d5ede535fea60d1bb5b96018b2dac7880f4"
+          },
+          {
+            "specifier": "./.tmp-continuity/realism-shard.mjs",
+            "sha256": "6724a415bb81c73ea1f9c3cd93664ee3fa04681344cffa976d381ea468b74fdf"
+          }
+        ],
+        "report": {
+          "simulationProfile": "background",
+          "timeStep": 0.3,
+          "separationPasses": 4,
+          "integration": {
+            "fineSharePct": 13.7,
+            "extraStepSharePct": 27.3,
+            "reasons": {
+              "pass-interaction": 54667,
+              "close-contest": 7174,
+              "goalkeeper-motion": 96292,
+              "shot-flight": 1147,
+              "goalkeeper-contest": 12403,
+              "loose-interaction": 3181
+            }
+          },
+          "stallSeeds": [],
+          "longShots": [
+            {
+              "seed": 165079,
+              "team": "away",
+              "t": 35.10000000000002,
+              "distance": 31.883553289860348,
+              "agentId": "away-165079-p8",
+              "openGoal": false,
+              "bin": "30plus",
+              "goal": true
+            },
+            {
+              "seed": 165082,
+              "team": "home",
+              "t": 1166.0999999999146,
+              "distance": 36.494679523562574,
+              "agentId": "home-165082-p8",
+              "openGoal": false,
+              "bin": "30plus",
+              "goal": true
+            }
+          ],
+          "equalMatches": 24,
+          "perMatch": {
+            "goals": 3.04,
+            "shots": 29.79,
+            "saves": 7.33,
+            "passes": 1000.38,
+            "completedPasses": 821,
+            "crosses": 62.67,
+            "throughPasses": 2.17,
+            "tackles": 38.58,
+            "interceptions": 44.33,
+            "fouls": 22.92,
+            "handballs": 0.79,
+            "varReviews": 3.38,
+            "varOverturns": 0,
+            "yellows": 2.5,
+            "reds": 0.17,
+            "penalties": 0.33,
+            "corners": 5.04,
+            "cornerShots": 1.88,
+            "cornerGoals": 0.33,
+            "injuries": 0.13,
+            "stalls": 0,
+            "openGoalShots": 0.58,
+            "goalkeeperClaims": 19.08,
+            "goalkeeperBlocks": 9.79,
+            "goalkeeperChallenges": 7.67,
+            "goalkeeperFouls": 0.25,
+            "unattributedGoals": 0,
+            "ownGoals": 0,
+            "penaltyGoals": 0.21
+          },
+          "shotConversionPct": 10.2,
+          "passCompletionPct": 82.1,
+          "crossSharePct": 6.3,
+          "throughPassSharePct": 0.2,
+          "openGoalReasons": {
+            "rounded_goalkeeper": 0.58
+          },
+          "outsideBoxSharePct": 41.5,
+          "distance": {
+            "under16": {
+              "shots": 418,
+              "goals": 50,
+              "sharePct": 58.5,
+              "conversionPct": 12
+            },
+            "16to22": {
+              "shots": 261,
+              "goals": 20,
+              "sharePct": 36.5,
+              "conversionPct": 7.7
+            },
+            "22to30": {
+              "shots": 34,
+              "goals": 1,
+              "sharePct": 4.8,
+              "conversionPct": 2.9
+            },
+            "30plus": {
+              "shots": 2,
+              "goals": 2,
+              "sharePct": 0.3,
+              "conversionPct": 100
+            }
+          },
+          "strongVsWeak": {
+            "matches": 24,
+            "pointsPerMatch": 2.25,
+            "winRatePct": 66.7,
+            "goalsFor": 53,
+            "goalsAgainst": 26
+          },
+          "standardProfileReference": {
+            "goals": 2.67,
+            "shots": 28.88,
+            "passes": 1108.04,
+            "passCompletionPct": 78.6,
+            "fouls": 27.29,
+            "openGoalShots": 0.75,
+            "goalkeeperClaims": 17.46,
+            "goalkeeperChallenges": 7.25,
+            "strongPointsPerMatch": 1.88
+          },
+          "referenceDelta": {
+            "goals": 0.37,
+            "shots": 0.91,
+            "passes": -107.66,
+            "passCompletionPct": 3.5,
+            "fouls": -4.37,
+            "openGoalShots": -0.17,
+            "goalkeeperClaims": 1.62,
+            "goalkeeperChallenges": 0.42,
+            "strongPointsPerMatch": 0.37
+          },
+          "profileDelta": {
+            "goals": 0.37,
+            "shots": 0.91,
+            "passes": -107.66,
+            "passCompletionPct": 3.5,
+            "fouls": -4.37,
+            "openGoalShots": -0.17,
+            "goalkeeperClaims": 1.62,
+            "goalkeeperChallenges": 0.42,
+            "strongPointsPerMatch": 0.37
+          },
+          "sampleOffset": 72
+        }
+      }
+    ]
+  },
+  "traces": {
+    "standard": {
+      "candidate": {
+        "profile": "standard",
+        "matches": [
+          {
+            "seed": 165000,
+            "uneven": false,
+            "score": {
+              "home": 2,
+              "away": 0
+            },
+            "randomDraws": 181282,
+            "frameHash": "6001ecb9d0bbacba0beb09bc522b825fec063ef26efe73041684d3dc895acdda",
+            "eventHash": "b76d4617effcb466ca190c49dc248f6de545e9a3dd304be187827c7fc079dc0b"
+          },
+          {
+            "seed": 265000,
+            "uneven": true,
+            "score": {
+              "home": 3,
+              "away": 0
+            },
+            "randomDraws": 183531,
+            "frameHash": "2bc552cea6f6a83db6a9cfbdd2e25e3f58bb7fa28c7596847b3d56f05a32eee2",
+            "eventHash": "e17420e31c41d04b4584c5e7013e96d2d2e6271b8833f40e85a310ac02096665"
+          }
+        ]
+      },
+      "integrated": {
+        "profile": "standard",
+        "matches": [
+          {
+            "seed": 165000,
+            "uneven": false,
+            "score": {
+              "home": 2,
+              "away": 0
+            },
+            "randomDraws": 181282,
+            "frameHash": "6001ecb9d0bbacba0beb09bc522b825fec063ef26efe73041684d3dc895acdda",
+            "eventHash": "b76d4617effcb466ca190c49dc248f6de545e9a3dd304be187827c7fc079dc0b"
+          },
+          {
+            "seed": 265000,
+            "uneven": true,
+            "score": {
+              "home": 3,
+              "away": 0
+            },
+            "randomDraws": 183531,
+            "frameHash": "2bc552cea6f6a83db6a9cfbdd2e25e3f58bb7fa28c7596847b3d56f05a32eee2",
+            "eventHash": "e17420e31c41d04b4584c5e7013e96d2d2e6271b8833f40e85a310ac02096665"
+          }
+        ]
+      }
+    },
+    "background": {
+      "candidate": {
+        "profile": "background",
+        "matches": [
+          {
+            "seed": 165000,
+            "uneven": false,
+            "score": {
+              "home": 1,
+              "away": 0
+            },
+            "randomDraws": 161827,
+            "frameHash": "6ad1ad60c07bb1bacd6bde69f07e687533903f862454b7a6918b6bd3e3ed7e3f",
+            "eventHash": "cb4888c4b2f23923d8f700ab4b1f5127fff2e1e1afccbec18b98c91c37ee221f"
+          },
+          {
+            "seed": 265000,
+            "uneven": true,
+            "score": {
+              "home": 3,
+              "away": 1
+            },
+            "randomDraws": 154237,
+            "frameHash": "dbe31072d5a7eb7df2c7bb6274b1b922a22ec30a726b3b4beab54c755f6ccb78",
+            "eventHash": "81c5e0c6a92ff2da81163c85c40a76fbfbbae60fbac5c90d68516215747ea838"
+          }
+        ]
+      },
+      "integrated": {
+        "profile": "background",
+        "matches": [
+          {
+            "seed": 165000,
+            "uneven": false,
+            "score": {
+              "home": 1,
+              "away": 0
+            },
+            "randomDraws": 161827,
+            "frameHash": "6ad1ad60c07bb1bacd6bde69f07e687533903f862454b7a6918b6bd3e3ed7e3f",
+            "eventHash": "cb4888c4b2f23923d8f700ab4b1f5127fff2e1e1afccbec18b98c91c37ee221f"
+          },
+          {
+            "seed": 265000,
+            "uneven": true,
+            "score": {
+              "home": 3,
+              "away": 1
+            },
+            "randomDraws": 154237,
+            "frameHash": "dbe31072d5a7eb7df2c7bb6274b1b922a22ec30a726b3b4beab54c755f6ccb78",
+            "eventHash": "81c5e0c6a92ff2da81163c85c40a76fbfbbae60fbac5c90d68516215747ea838"
+          }
+        ]
+      }
+    }
+  },
+  "production": {
+    "sourceGitBlobs": {
+      "js/sim/engine.js": "8257125448ffe6b7e67c409078fb5e5164964fba",
+      "js/corner-routines.js": "0ad72389335eaf5b25af98249d880c86e0ca43e5",
+      "js/matchview.js": "378b71e8a4ae4e1ff1212f688af598a978c3a70e"
+    },
+    "fullVerification": {
+      "exitCode": 0,
+      "suites": 90,
+      "marker": "VCFM verification passed"
+    },
+    "realism96": {
+      "standard": {
+        "simulationProfile": "standard",
+        "timeStep": 0.1,
+        "separationPasses": 8,
+        "integration": {
+          "fineSharePct": 0,
+          "extraStepSharePct": 0,
+          "reasons": {}
+        },
+        "stallSeeds": [],
+        "longShots": [
+          {
+            "seed": 165018,
+            "team": "away",
+            "t": 5179.400000001311,
+            "distance": 30.507003602055438,
+            "agentId": "away-165018-p8",
+            "openGoal": false,
+            "bin": "30plus"
+          },
+          {
+            "seed": 165038,
+            "team": "home",
+            "t": 3980.0999999974756,
+            "distance": 36.17429050612118,
+            "agentId": "home-165038-p8",
+            "openGoal": false,
+            "bin": "30plus"
+          },
+          {
+            "seed": 165068,
+            "team": "away",
+            "t": 2739.6999999986037,
+            "distance": 38.158826861970326,
+            "agentId": "away-165068-p10",
+            "openGoal": false,
+            "bin": "30plus"
+          },
+          {
+            "seed": 165093,
+            "team": "away",
+            "t": 1070.0000000001223,
+            "distance": 31.889506739618362,
+            "agentId": "away-165093-p8",
+            "openGoal": false,
+            "bin": "30plus",
+            "goal": true
+          }
+        ],
+        "equalMatches": 96,
+        "perMatch": {
+          "goals": 3.17,
+          "shots": 31.96,
+          "saves": 8.91,
+          "passes": 1052.36,
+          "completedPasses": 853.41,
+          "crosses": 59.69,
+          "throughPasses": 1.7,
+          "tackles": 42.89,
+          "interceptions": 44.5,
+          "fouls": 26.02,
+          "handballs": 0.61,
+          "varReviews": 3.41,
+          "varOverturns": 0,
+          "yellows": 3.26,
+          "reds": 0.16,
+          "penalties": 0.24,
+          "corners": 5.79,
+          "cornerShots": 2.16,
+          "cornerGoals": 0.23,
+          "injuries": 0.1,
+          "stalls": 0,
+          "openGoalShots": 0.35,
+          "goalkeeperClaims": 13.97,
+          "goalkeeperBlocks": 8.42,
+          "goalkeeperChallenges": 6.16,
+          "goalkeeperFouls": 0.19,
+          "unattributedGoals": 0,
+          "ownGoals": 0.01,
+          "penaltyGoals": 0.17
+        },
+        "shotConversionPct": 9.9,
+        "passCompletionPct": 81.1,
+        "crossSharePct": 5.7,
+        "throughPassSharePct": 0.2,
+        "openGoalReasons": {
+          "rounded_goalkeeper": 0.35
+        },
+        "outsideBoxSharePct": 35,
+        "distance": {
+          "under16": {
+            "shots": 1994,
+            "goals": 224,
+            "sharePct": 65,
+            "conversionPct": 11.2
+          },
+          "16to22": {
+            "shots": 969,
+            "goals": 73,
+            "sharePct": 31.6,
+            "conversionPct": 7.5
+          },
+          "22to30": {
+            "shots": 101,
+            "goals": 6,
+            "sharePct": 3.3,
+            "conversionPct": 5.9
+          },
+          "30plus": {
+            "shots": 4,
+            "goals": 1,
+            "sharePct": 0.1,
+            "conversionPct": 25
+          }
+        },
+        "strongVsWeak": {
+          "matches": 96,
+          "pointsPerMatch": 1.8,
+          "winRatePct": 52.1,
+          "goalsFor": 163,
+          "goalsAgainst": 91
+        }
+      },
+      "background": {
+        "simulationProfile": "background",
+        "timeStep": 0.3,
+        "separationPasses": 4,
+        "integration": {
+          "fineSharePct": 13.6,
+          "extraStepSharePct": 27.1,
+          "reasons": {
+            "pass-interaction": 217338,
+            "close-contest": 28858,
+            "goalkeeper-motion": 384980,
+            "goalkeeper-contest": 49082,
+            "shot-flight": 4418,
+            "loose-interaction": 12411
+          }
+        },
+        "stallSeeds": [],
+        "longShots": [
+          {
+            "seed": 165039,
+            "team": "away",
+            "t": 5318.100000001764,
+            "distance": 31.752497145805567,
+            "agentId": "away-165039-p8",
+            "openGoal": false,
+            "bin": "30plus"
+          },
+          {
+            "seed": 165050,
+            "team": "away",
+            "t": 4251.300000001117,
+            "distance": 32.43517408894024,
+            "agentId": "away-165050-p8",
+            "openGoal": false,
+            "bin": "30plus"
+          },
+          {
+            "seed": 165079,
+            "team": "away",
+            "t": 35.10000000000002,
+            "distance": 31.883553289860348,
+            "agentId": "away-165079-p8",
+            "openGoal": false,
+            "bin": "30plus",
+            "goal": true
+          },
+          {
+            "seed": 165082,
+            "team": "home",
+            "t": 1166.0999999999146,
+            "distance": 36.494679523562574,
+            "agentId": "home-165082-p8",
+            "openGoal": false,
+            "bin": "30plus",
+            "goal": true
+          }
+        ],
+        "equalMatches": 96,
+        "perMatch": {
+          "goals": 2.94,
+          "shots": 29.51,
+          "saves": 7.77,
+          "passes": 997.19,
+          "completedPasses": 818.3,
+          "crosses": 60.92,
+          "throughPasses": 1.86,
+          "tackles": 39.92,
+          "interceptions": 43.24,
+          "fouls": 23.75,
+          "handballs": 0.53,
+          "varReviews": 3.19,
+          "varOverturns": 0.01,
+          "yellows": 2.89,
+          "reds": 0.17,
+          "penalties": 0.25,
+          "corners": 4.98,
+          "cornerShots": 1.9,
+          "cornerGoals": 0.26,
+          "injuries": 0.21,
+          "stalls": 0,
+          "openGoalShots": 0.54,
+          "goalkeeperClaims": 17.43,
+          "goalkeeperBlocks": 10.01,
+          "goalkeeperChallenges": 7.29,
+          "goalkeeperFouls": 0.22,
+          "unattributedGoals": 0,
+          "ownGoals": 0.01,
+          "penaltyGoals": 0.18
+        },
+        "shotConversionPct": 10,
+        "passCompletionPct": 82.1,
+        "crossSharePct": 6.1,
+        "throughPassSharePct": 0.2,
+        "openGoalReasons": {
+          "rounded_goalkeeper": 0.54
+        },
+        "outsideBoxSharePct": 38.4,
+        "distance": {
+          "under16": {
+            "shots": 1745,
+            "goals": 195,
+            "sharePct": 61.6,
+            "conversionPct": 11.2
+          },
+          "16to22": {
+            "shots": 981,
+            "goals": 81,
+            "sharePct": 34.6,
+            "conversionPct": 8.3
+          },
+          "22to30": {
+            "shots": 103,
+            "goals": 4,
+            "sharePct": 3.6,
+            "conversionPct": 3.9
+          },
+          "30plus": {
+            "shots": 4,
+            "goals": 2,
+            "sharePct": 0.1,
+            "conversionPct": 50
+          }
+        },
+        "strongVsWeak": {
+          "matches": 96,
+          "pointsPerMatch": 2.23,
+          "winRatePct": 67.7,
+          "goalsFor": 201,
+          "goalsAgainst": 101
+        }
+      }
+    },
+    "lifecycle": {
+      "baseline": {
+        "label": "baseline-lifecycle",
+        "matches": [
+          {
+            "seed": 372000,
+            "score": {
+              "home": 2,
+              "away": 2
+            },
+            "draws": 178397
+          },
+          {
+            "seed": 372001,
+            "score": {
+              "home": 1,
+              "away": 0
+            },
+            "draws": 178517
+          },
+          {
+            "seed": 372002,
+            "score": {
+              "home": 1,
+              "away": 3
+            },
+            "draws": 181898
+          },
+          {
+            "seed": 372003,
+            "score": {
+              "home": 0,
+              "away": 1
+            },
+            "draws": 180673
+          },
+          {
+            "seed": 372004,
+            "score": {
+              "home": 1,
+              "away": 0
+            },
+            "draws": 181768
+          },
+          {
+            "seed": 372005,
+            "score": {
+              "home": 1,
+              "away": 1
+            },
+            "draws": 180276
+          }
+        ],
+        "buckets": {
+          "25-38:DEF": {
+            "samples": 27806,
+            "ahead5Pct": 24.843558944112782,
+            "staticPct": 30.860245990074088,
+            "strandedPct": 0.4747176868301805,
+            "medianAhead": -36.006225909848396
+          },
+          "25-38:MID": {
+            "samples": 18414,
+            "ahead5Pct": 34.63125882480721,
+            "staticPct": 7.613772129901163,
+            "strandedPct": 1.4445530574562833,
+            "medianAhead": -9.16202333452037
+          },
+          "25-38:ATT": {
+            "samples": 18033,
+            "ahead5Pct": 79.34342594132978,
+            "staticPct": 13.508567626018966,
+            "strandedPct": 1.1257139688349138,
+            "medianAhead": 8.344644849465245
+          },
+          "16.5-25:DEF": {
+            "samples": 25188,
+            "ahead5Pct": 2.020803557249484,
+            "staticPct": 52.87041448308718,
+            "strandedPct": 0.2540892488486581,
+            "medianAhead": -48.23812488093076
+          },
+          "16.5-25:MID": {
+            "samples": 17474,
+            "ahead5Pct": 1.2704589676090192,
+            "staticPct": 19.995421769486093,
+            "strandedPct": 1.0987753233375301,
+            "medianAhead": -18.165667632324503
+          },
+          "16.5-25:ATT": {
+            "samples": 15730,
+            "ahead5Pct": 12.301335028607756,
+            "staticPct": 22.447552447552447,
+            "strandedPct": 2.1360457724094086,
+            "medianAhead": 1.5009719306832765
+          },
+          "10-16.5:DEF": {
+            "samples": 30491,
+            "ahead5Pct": 0.31484700403397725,
+            "staticPct": 65.24220261716572,
+            "strandedPct": 0.23285559673346234,
+            "medianAhead": -55.657461481306505
+          },
+          "10-16.5:MID": {
+            "samples": 22404,
+            "ahead5Pct": 0.49544724156400644,
+            "staticPct": 31.68184252811998,
+            "strandedPct": 1.205141938939475,
+            "medianAhead": -19.731029821422982
+          },
+          "10-16.5:ATT": {
+            "samples": 18730,
+            "ahead5Pct": 4.260544580886279,
+            "staticPct": 27.042178323545112,
+            "strandedPct": 3.000533902829685,
+            "medianAhead": -0.5540486236222713
+          },
+          "5-10:DEF": {
+            "samples": 30472,
+            "ahead5Pct": 0.006563402467839328,
+            "staticPct": 78.33420845366238,
+            "strandedPct": 0.25925439747965345,
+            "medianAhead": -61.65841899309505
+          },
+          "5-10:MID": {
+            "samples": 22853,
+            "ahead5Pct": 0.004375793112501641,
+            "staticPct": 43.02717367522864,
+            "strandedPct": 1.1420820023629283,
+            "medianAhead": -19.372676333643643
+          },
+          "5-10:ATT": {
+            "samples": 18745,
+            "ahead5Pct": 0.09069085089357162,
+            "staticPct": 41.22165910909576,
+            "strandedPct": 3.2381968524939984,
+            "medianAhead": -1.4232896176054006
+          },
+          "0-5:DEF": {
+            "samples": 23339,
+            "ahead5Pct": 0,
+            "staticPct": 81.57161832126484,
+            "strandedPct": 0.2913578131025323,
+            "medianAhead": -66.54518504623572
+          },
+          "0-5:MID": {
+            "samples": 17664,
+            "ahead5Pct": 0,
+            "staticPct": 51.89651268115942,
+            "strandedPct": 0.9963768115942028,
+            "medianAhead": -19.524907138608757
+          },
+          "0-5:ATT": {
+            "samples": 14664,
+            "ahead5Pct": 0,
+            "staticPct": 57.50818330605565,
+            "strandedPct": 4.507637752318604,
+            "medianAhead": -3.8241287449129073
+          }
+        },
+        "pipeline": {
+          "commits": 0,
+          "heldPct": 0,
+          "medianBeforeError": null,
+          "p90BeforeError": null,
+          "medianAfterError": null,
+          "p90AfterError": null
+        },
+        "runs": {
+          "count": 0,
+          "reason": {},
+          "medianDistance": null,
+          "medianDisplacement": null,
+          "medianFinalGap": null,
+          "medianSeconds": null,
+          "medianTargetError": null,
+          "p90TargetError": null,
+          "expiredMedianDisplacement": null,
+          "expiredMedianFinalGap": null,
+          "movingPct": 0,
+          "displaced3mPct": 0
+        }
+      },
+      "current": {
+        "label": "current-lifecycle",
+        "matches": [
+          {
+            "seed": 372000,
+            "score": {
+              "home": 0,
+              "away": 0
+            },
+            "draws": 180174
+          },
+          {
+            "seed": 372001,
+            "score": {
+              "home": 0,
+              "away": 2
+            },
+            "draws": 177272
+          },
+          {
+            "seed": 372002,
+            "score": {
+              "home": 2,
+              "away": 0
+            },
+            "draws": 170477
+          },
+          {
+            "seed": 372003,
+            "score": {
+              "home": 0,
+              "away": 2
+            },
+            "draws": 176747
+          },
+          {
+            "seed": 372004,
+            "score": {
+              "home": 1,
+              "away": 2
+            },
+            "draws": 183574
+          },
+          {
+            "seed": 372005,
+            "score": {
+              "home": 3,
+              "away": 0
+            },
+            "draws": 182791
+          }
+        ],
+        "buckets": {
+          "25-38:DEF": {
+            "samples": 26216,
+            "ahead5Pct": 25.518767165090022,
+            "staticPct": 32.236039060115964,
+            "strandedPct": 0.5988709185230393,
+            "medianAhead": -36.57165554372979
+          },
+          "25-38:MID": {
+            "samples": 17344,
+            "ahead5Pct": 32.48962177121771,
+            "staticPct": 8.665821033210332,
+            "strandedPct": 1.550968634686347,
+            "medianAhead": -6.471001539149883
+          },
+          "25-38:ATT": {
+            "samples": 18051,
+            "ahead5Pct": 79.28092626447288,
+            "staticPct": 13.70007201817074,
+            "strandedPct": 1.6120990526840617,
+            "medianAhead": 8.388095800449
+          },
+          "16.5-25:DEF": {
+            "samples": 19778,
+            "ahead5Pct": 2.108403276367681,
+            "staticPct": 56.13307715643644,
+            "strandedPct": 0.2174132874911518,
+            "medianAhead": -48.19229099174877
+          },
+          "16.5-25:MID": {
+            "samples": 13584,
+            "ahead5Pct": 1.5459363957597174,
+            "staticPct": 17.97703180212014,
+            "strandedPct": 1.2956419316843346,
+            "medianAhead": -10.799638874704014
+          },
+          "16.5-25:ATT": {
+            "samples": 13345,
+            "ahead5Pct": 13.892843761708503,
+            "staticPct": 22.85500187336081,
+            "strandedPct": 2.9823904083926567,
+            "medianAhead": 1.6273601730005844
+          },
+          "10-16.5:DEF": {
+            "samples": 35701,
+            "ahead5Pct": 0.7394750847315201,
+            "staticPct": 73.24164589227192,
+            "strandedPct": 0.9467521918153553,
+            "medianAhead": -55.97554836648988
+          },
+          "10-16.5:MID": {
+            "samples": 24632,
+            "ahead5Pct": 0.6130237089964274,
+            "staticPct": 53.487333549853844,
+            "strandedPct": 0.49935043845404353,
+            "medianAhead": -11.545809171159723
+          },
+          "10-16.5:ATT": {
+            "samples": 23133,
+            "ahead5Pct": 11.442527990316863,
+            "staticPct": 38.295940863701205,
+            "strandedPct": 3.181602040375221,
+            "medianAhead": 1.610235317280152
+          },
+          "5-10:DEF": {
+            "samples": 43329,
+            "ahead5Pct": 0.011539615500011539,
+            "staticPct": 81.78125504858178,
+            "strandedPct": 0.7131482379007131,
+            "medianAhead": -61.626469701006506
+          },
+          "5-10:MID": {
+            "samples": 30650,
+            "ahead5Pct": 0.009787928221859706,
+            "staticPct": 78.24796084828711,
+            "strandedPct": 0.33278955954323003,
+            "medianAhead": -15.131663752954688
+          },
+          "5-10:ATT": {
+            "samples": 27683,
+            "ahead5Pct": 0.028898602030126792,
+            "staticPct": 44.60860455875447,
+            "strandedPct": 2.9043095040277427,
+            "medianAhead": -1.2045899961652595
+          },
+          "0-5:DEF": {
+            "samples": 23171,
+            "ahead5Pct": 0,
+            "staticPct": 84.16123602779336,
+            "strandedPct": 0.2028397565922921,
+            "medianAhead": -66.52143110068704
+          },
+          "0-5:MID": {
+            "samples": 17026,
+            "ahead5Pct": 0,
+            "staticPct": 84.33572183719018,
+            "strandedPct": 0.422882650064607,
+            "medianAhead": -19.367115819376092
+          },
+          "0-5:ATT": {
+            "samples": 15286,
+            "ahead5Pct": 0,
+            "staticPct": 44.62907235378778,
+            "strandedPct": 3.140128221902394,
+            "medianAhead": -3.807591307048643
+          }
+        },
+        "pipeline": {
+          "commits": 6048,
+          "heldPct": 0,
+          "medianBeforeError": 0,
+          "p90BeforeError": 0,
+          "medianAfterError": 0,
+          "p90AfterError": 0
+        },
+        "runs": {
+          "count": 1866,
+          "reason": {
+            "expired": 1430,
+            "turnover": 324,
+            "assigned-reception": 26,
+            "restart": 38,
+            "replaced": 21,
+            "received": 26,
+            "new-possession": 1
+          },
+          "medianDistance": 8.039635688846102,
+          "medianDisplacement": 5.587336279133679,
+          "medianFinalGap": 0.7651087444972251,
+          "medianSeconds": 2.399999999997817,
+          "medianTargetError": 0,
+          "p90TargetError": 0.09801517953500109,
+          "expiredMedianDisplacement": 6.768418086051836,
+          "expiredMedianFinalGap": 0.6770603526886722,
+          "movingPct": 88.21284483698615,
+          "displaced3mPct": 75.56270096463022
+        }
+      }
+    },
+    "measurementCorrection": "The initial lifecycle observer continued until plan expiry even after loss of possession. The final observer ends on turnover, restart or a reception assignment; it excludes subsequent defending movement. The final counts supersede 1954 runs / 7.69m median / 91% over 3m.",
+    "visual": {
+      "file": ".tmp-continuity/visual-1788913344717/report.json",
+      "sha256": "bc80658e7753cdd51799bd7ce5f88d1b3b691b83e041e90d8927041c91539fbd",
+      "completed": true,
+      "halfTime": true,
+      "captures": [
+        {
+          "label": "desktop-0",
+          "width": 484,
+          "height": 760,
+          "colors": 348,
+          "hash": 68650659,
+          "overflow": 0
+        },
+        {
+          "label": "desktop-20",
+          "width": 484,
+          "height": 760,
+          "colors": 392,
+          "hash": -1574916781,
+          "overflow": 0
+        },
+        {
+          "label": "desktop-40",
+          "width": 484,
+          "height": 760,
+          "colors": 290,
+          "hash": 241829960,
+          "overflow": 0
+        },
+        {
+          "label": "desktop-60",
+          "width": 484,
+          "height": 760,
+          "colors": 309,
+          "hash": 1244507749,
+          "overflow": 0
+        },
+        {
+          "label": "desktop-81",
+          "width": 484,
+          "height": 760,
+          "colors": 517,
+          "hash": -154540473,
+          "overflow": 0
+        },
+        {
+          "label": "desktop-half-time",
+          "width": 484,
+          "height": 760,
+          "colors": 347,
+          "hash": 96089763,
+          "overflow": 0
+        },
+        {
+          "label": "mobile-101",
+          "width": 367,
+          "height": 551,
+          "colors": 225,
+          "hash": -1376773749,
+          "overflow": 0
+        },
+        {
+          "label": "mobile-121",
+          "width": 367,
+          "height": 551,
+          "colors": 348,
+          "hash": 1947015466,
+          "overflow": 0
+        },
+        {
+          "label": "mobile-141",
+          "width": 367,
+          "height": 551,
+          "colors": 349,
+          "hash": -519271918,
+          "overflow": 0
+        },
+        {
+          "label": "mobile-162",
+          "width": 367,
+          "height": 551,
+          "colors": 346,
+          "hash": -842412154,
+          "overflow": 0
+        },
+        {
+          "label": "final",
+          "width": 367,
+          "height": 210,
+          "colors": 268,
+          "hash": 1169492492,
+          "overflow": 0
+        }
+      ],
+      "errors": [],
+      "stats": {
+        "frames": 8995,
+        "movingFrames": 8864,
+        "cuts": 25,
+        "contacts": 25,
+        "maxRefSpeed": 3.800000000000294,
+        "violations": [],
+        "incidentFrameCount": 0,
+        "openingFrameCount": 140
+      },
+      "motion": {
+        "framesSampled": 160,
+        "totalIncidents": 0,
+        "severe": 0,
+        "warnings": 0,
+        "byType": {},
+        "incidents": []
+      }
+    },
+    "logs": [
+      {
+        "file": ".tmp-continuity/all-issues-verify-full.log",
+        "command": "node scripts/verify.mjs --full",
+        "exitCode": 0,
+        "sha256": "dd886d7ddc2f4a06d43f2bef9c182f5d92747990ac3e65188ada86adb5d4720e"
+      },
+      {
+        "file": ".tmp-continuity/all-issues-production-96-standard.log",
+        "command": "node scripts/match-realism-audit.mjs 96 standard",
+        "exitCode": 0,
+        "sha256": "51df811354a4c62abd866266ed367f6dfd633d81f2bd4500b47e469f53a37dcc"
+      },
+      {
+        "file": ".tmp-continuity/all-issues-production-96-background.log",
+        "command": "node scripts/match-realism-audit.mjs 96 background",
+        "exitCode": 0,
+        "sha256": "2a47f4a57628e1dca03ef282b5d6a517be4b897569b7969fba663f7e4a4f3e8e"
+      },
+      {
+        "file": ".tmp-continuity/all-issues-production-movement.log",
+        "command": "node scripts/_final-third-movement-calibration-probe.mjs 12 control",
+        "exitCode": 0,
+        "sha256": "3a7ceb9d21b0c95dd2fa43e86183a31a19d5dedaf3ee71be09dfd1b0c457ec99"
+      },
+      {
+        "file": ".tmp-continuity/all-issues-support-lifecycle-current.log",
+        "command": "node scripts/_pass-support-sample.mjs 6 current-lifecycle",
+        "exitCode": 0,
+        "sha256": "5d20d594581e4a4636e72ff5e3f61933239f5fd1faa63a511d88aceab825893f"
+      },
+      {
+        "file": ".tmp-continuity/all-issues-support-lifecycle-baseline.log",
+        "command": "node --import ./scripts/_v251-baseline.mjs scripts/_pass-support-sample.mjs 6 baseline-lifecycle",
+        "exitCode": 0,
+        "sha256": "e1ee07606adaadf02ba3682d07f0a8314393ee25c7c7a165a22148a34bf545ca"
+      },
+      {
+        "file": ".tmp-continuity/all-issues-browser.log",
+        "command": "node scripts/match-continuity-browser.mjs",
+        "exitCode": 0,
+        "sha256": "17a2d4fb745f856910a5d967084646e66c5f1881f9f6fca0c219fd928bafcd48"
+      },
+      {
+        "file": ".tmp-continuity/all-issues-playback-owner-fixed.log",
+        "command": "node scripts/_playback-motion-source-probe.mjs 100",
+        "exitCode": 0,
+        "sha256": "72991be1406e6e76cd73cf103cb4dc30064c95b52b97c6f20b32f45d81b41e78"
+      }
+    ]
+  }
+}

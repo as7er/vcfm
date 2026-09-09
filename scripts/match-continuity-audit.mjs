@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { MatchView } from "../js/matchview.js";
 import { interpolateSimBall } from "../js/match-presentation.js";
 import { SimEngine, ballDeflectionOf } from "../js/sim/engine.js";
@@ -181,6 +182,72 @@ for (const alpha of [0.4, 0.45, 0.48, 0.5, 0.9]) {
 }
 assert.equal(boundaryView.motionMonitor.auditSummary().byType["owner-ball-gap"] || 0, 0,
   "restart interpolation must not create a phantom remote owner");
+
+// A small restart placement used to slip under the 3-field-unit threshold.
+// Interpolating the early half of that pair happened before the new restart
+// flag, so both the picture and monitor saw a spurious open-play sprint.
+for (const axis of ["x", "y"]) {
+  for (const sign of [-1, 1]) {
+    const scale = axis === "x" ? 0.68 : 1.05;
+    const displacement = axis === "x" ? 1.8 : 2.5;
+    const first = at(7.4, { x: 50.5, y: 50.5, z: 0, state: "held", owner: base.players[1].id },
+      base.players.map((p) => ({ ...p, x: 50, y: 50 })));
+    const next = {
+      ...at(7.5, { ...first.ball, [axis]: first.ball[axis] + sign * displacement / scale,
+        restartType: "freekick" }, first.players.map((p) => ({ ...p,
+        [axis]: p[axis] + sign * displacement / scale,
+      }))),
+      motionContext: { discontinuity: true, reason: "dead-ball" },
+    };
+    const small = makeView(first);
+    small.applySimSnapshot(first);
+    for (const alpha of [0.12, 0.4, 0.48, 0.7, 0.99]) {
+      small.applySimSnapshotLerped(first, next, alpha);
+      assert.equal(small.players[1][axis], 50, "small restart placements must wait for the actual boundary");
+      assert.equal(small.ball[axis], first.ball[axis], "the ball must wait with its relocating owner");
+    }
+    small.applySimSnapshotLerped(first, next, 1);
+    assert.equal(small.players[1][axis], 50, "the first relocation frame must preserve the outgoing position");
+    small.applySimSnapshot({ ...next, t: 7.7 });
+    assert.ok(metres(first.players[1], small.players[1]) > 0);
+    assert.ok(metres(first.players[1], small.players[1]) < displacement);
+    assert.ok(Math.abs(metres(small.players[1], small.ball) - metres(first.players[1], first.ball)) < 1e-8,
+      "the recorded owner/ball offset must survive the shared restart transition");
+    small.applySimSnapshot({ ...next, t: 8.0 });
+    small.applySimSnapshot({ ...next, t: 8.21 });
+    assert.equal(small.players[1][axis], next.players[1][axis]);
+    assert.equal(small.motionMonitor.auditSummary().byType["player-teleport"] || 0, 0);
+  }
+}
+
+// Unmodified raw frames from the historical 07f1391 playback reproduction.
+// Keep these in the repository so this regression does not depend on local logs
+// or on a later engine continuing to generate the same match.
+const historicalRestart = JSON.parse(readFileSync(new URL("./fixtures/restart-placement-51117.json", import.meta.url)));
+const originalRecording = JSON.stringify(historicalRestart.frames);
+const historicalTo = historicalRestart.frames.find((frame) => frame.motionContext?.discontinuity);
+const historicalFrom = historicalRestart.frames[historicalRestart.frames.indexOf(historicalTo) - 1];
+assert.ok(historicalFrom && historicalTo);
+for (const incident of historicalRestart.incidents) {
+  const from = historicalFrom.players.find((p) => p.id === incident.entityId);
+  const to = historicalTo.players.find((p) => p.id === incident.entityId);
+  assert.ok(Math.hypot(to.x - from.x, to.y - from.y) < 3, "the historical placement must exercise the old blind spot");
+  assert.ok(metres(from, to) / (historicalTo.t - historicalFrom.t) > 10);
+  for (const fps of [30, 60, 120]) {
+    const historicalView = makeView(historicalFrom);
+    historicalView.applySimSnapshot(historicalFrom);
+    const steps = Math.round(fps * (historicalTo.t - historicalFrom.t));
+    for (let i = 1; i < steps; i++) {
+      historicalView.applySimSnapshotLerped(historicalFrom, historicalTo, i / steps);
+      const shown = historicalView.players.find((p) => p.id === incident.entityId);
+      assert.equal(shown.x, from.x, "a historical restart must not leak into the preceding live frame");
+      assert.equal(shown.y, from.y);
+    }
+    historicalView.applySimSnapshot(historicalTo);
+    assert.equal(historicalView.motionMonitor.auditSummary().byType["player-teleport"] || 0, 0);
+  }
+}
+assert.equal(JSON.stringify(historicalRestart.frames), originalRecording, "playback cannot mutate the preserved raw recording");
 
 view.applySimSnapshot({ ...nextHeld, t: 400 });
 const live = view.captureSceneSnapshot();

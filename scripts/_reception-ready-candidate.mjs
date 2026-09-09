@@ -9,6 +9,9 @@ const shotWindowOnly = process.argv.includes("--reception-shot-window");
 const counts = { anticipated: 0, ready: 0 };
 globalThis[symbol] = (SimEngine, SIM) => {
   function hasShotWindow(engine, a, heading) {
+    if (process.argv.includes("--contact-window") && engine._probeHasCloseShot) {
+      return engine._probeHasCloseShot(a, heading, true);
+    }
     const mx = SIM.PITCH_W_METRES / SIM.FIELD_W;
     const my = SIM.PITCH_H_METRES / SIM.FIELD_H;
     const b = engine.ball;
@@ -35,6 +38,7 @@ globalThis[symbol] = (SimEngine, SIM) => {
   const begin = SimEngine.prototype._beginBallControl;
   SimEngine.prototype._beginBallControl = function (a, options) {
     const b = this.ball;
+    const observedFlight = Math.max(0, this.t - (b.lastPassAt ?? this.t));
     const anticipated = a.role !== "GK" && b.state === "pass" &&
       b.receiverId === a.id && b.kickTeam === a.team &&
       !b.isCrossPass && (b.z || 0) <= 0.8;
@@ -43,8 +47,10 @@ globalThis[symbol] = (SimEngine, SIM) => {
       counts.anticipated++;
       if (!shotWindowOnly || hasShotWindow(this, a, result.desiredHeading)) {
         counts.ready++;
+        const plannedAt = process.argv.includes("--flight-anticipation")
+          ? a.decisionUntil - observedFlight : -Infinity;
         a.decisionUntil = Math.min(a.decisionUntil,
-          Math.max(a.controlUntil, this.ball.settleUntil || a.controlUntil));
+          Math.max(a.controlUntil, this.ball.settleUntil || a.controlUntil, plannedAt));
       }
     }
     return result;

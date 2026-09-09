@@ -335,7 +335,7 @@ assert.ok(
   `delivery target went unrecorded on ${n - report.deliveryLandingM.captured} of ${n} corners`
 );
 
-// —— 只告警：还没修的还原度缺口。成因未修，硬失败会挡住所有无关改动 ——
+// —— 还原度检查：v252 的同源摆位、准备信号与落点选择已覆盖这些缺口 ——
 // 真实参照见 AGENTS.md「🅰️ 角球真实参照值总表」第四节（争点全在 0~11m）。
 const warnings = [];
 const warn = (cond, msg) => {
@@ -406,6 +406,8 @@ if (warnings.length) {
 } else {
   console.log("\n✅ 角球还原度告警项全部清空");
 }
+
+assert.equal(warnings.length, 0, "corner staging, run timing and delivery zones must retain the repaired structure");
 
 console.log(
   `\nCorner structure audit passed: ${n} staged corners over ${seeds.length} matches ` +

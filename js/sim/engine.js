@@ -282,6 +282,40 @@ function loftForTargetHeight(distanceMetres, speedMps, targetHeight) {
   }
   return (low + high) / 2;
 }
+// 传球选择、出脚和到球预测共用速度与弧线；预测取同一误差分布的中点，
+// 不消费随机数。实际出脚仍只在需要的分支取一次弧线随机数。
+function passTechnique(agent, isCross = false) {
+  return isCross
+    ? clamp((agent.attr.crossing || agent.attr.passing || 0.55) * 0.68 +
+        (agent.attr.passing || 0.55) * 0.18 + (agent.attr.kicking || 0.55) * 0.14, 0.3, 0.95)
+    : agent.attr.passing || 0.55;
+}
+function passLaunchSpeedMps(distanceMetres, technique) {
+  return clamp(10.5 + distanceMetres * 0.38, 11.5, 27) * (0.94 + 0.06 * technique);
+}
+function passLaunchLoft(distanceMetres, speedMps, {
+  isCross = false, isThrough = false, fromCorner = false, roll = 0.5,
+} = {}) {
+  if (isCross) {
+    const targetZ = (fromCorner ? 1.65 : isThrough ? 1.15 : 1.4) + roll * 0.45;
+    return loftForTargetHeight(distanceMetres, speedMps, targetZ);
+  }
+  if (isThrough) return 6 + roll * 3;
+  if (distanceMetres >= 30 - 1e-6) return 9 + Math.max(0, distanceMetres - 30) * 0.1;
+  if (distanceMetres >= 20 - 1e-6) return 3.5 + roll * 2.5;
+  return 0;
+}
+function playerRunSpeed(agent) {
+  return SIM.MAX_PLAYER_SPEED * (0.55 + 0.45 * agent.attr.pace) *
+    (0.76 + clamp((agent.fitness ?? 100) / 100, 0.3, 1) * 0.24);
+}
+function playerAcceleration(agent, speed) {
+  return speed * (2.5 + 2.5 * agent.attr.accel) * (0.94 + (agent.attr.agility || 0.55) * 0.08);
+}
+function shotBlockReachMetres(speedMps) {
+  return 2.2 + Math.min(0.8, speedMps * 0.014);
+}
+
 /** 属性 1..20 → 0..1 归一 */
 function norm(v) {
   // 足球是强协作系统，属性差不能线性放大成“弱队完全无法触球”。
@@ -1061,6 +1095,10 @@ export class SimEngine {
     goalkeeperFeet = false,
   } = {}) {
     const b = this.ball;
+    const observedFlight = Math.max(0, this.t - (b.lastPassAt ?? this.t));
+    const anticipated = a.role !== "GK" && b.state === "pass" &&
+      b.receiverId === a.id && b.kickTeam === a.team &&
+      !b.isCrossPass && (b.z || 0) <= 0.8;
     const incomingVx = b.vx || 0;
     const incomingVy = b.vy || 0;
     b.backpassCandidate = false;
@@ -1146,6 +1184,13 @@ export class SimEngine {
         controlDuration: plan.duration,
         foot: plan.foot,
       });
+    }
+    // An intended low-pass receiver observes the flight before touching the
+    // ball. Count that time toward the next decision, without skipping control,
+    // settling or the subsequent body-turn preparation.
+    if (anticipated) {
+      a.decisionUntil = Math.min(a.decisionUntil,
+        Math.max(a.controlUntil, b.settleUntil || a.controlUntil, a.decisionUntil - observedFlight));
     }
     return plan;
   }
@@ -1467,8 +1512,10 @@ export class SimEngine {
     const dx = ex - sx;
     const dy = ey - sy;
     const lengthSquared = dx * dx + dy * dy || 1e-9;
+    const minimumHeight = Math.min(b.z || 0, (b.z || 0) + (b.vz || 0) * dt - 9 * dt * dt);
     for (const agent of this.agents) {
       if (agent.sentOff) continue;
+      if (minimumHeight > (agent.role === "GK" ? 3 : 2.2)) continue;
       const px = agent.x * xScale;
       const py = agent.y * yScale;
       const along = clamp(((px - sx) * dx + (py - sy) * dy) / lengthSquared, 0, 1);
@@ -2357,7 +2404,7 @@ export class SimEngine {
       const setPieceChance = this.t < (this._cornerAttackUntil[a.team] || 0);
       const canShoot =
         this.t >= (a.shotCdUntil || 0) &&
-        (opportunity.clearOpenGoal || !cdBlocked || dGoal < 9.5 || setPieceChance) &&
+        (opportunity.clearOpenGoal || !cdBlocked || dGoal < 9.5 || setPieceChance || this._hasCloseShotWindow(a)) &&
         (opportunity.clearOpenGoal || attackAge >= 3.5 || dGoal < 9.5);
       const distF = clamp(1 - dGoal / SHOOT_ZONE, 0, 1);
       const finBias = isMid && !isWing
@@ -2756,12 +2803,31 @@ export class SimEngine {
   /**
    * 边后卫传中：找进攻方向上靠门的队友（前锋优先），落点到禁区肋部/前点
    */
+  _crossTargetReachable(passer, receiver, tx, ty) {
+    const distance = pitchDistanceBetween(this.ball.x, this.ball.y, tx, ty);
+    const technique = passTechnique(passer, true);
+    const ballSpeed = passLaunchSpeedMps(distance, technique);
+    const loft = passLaunchLoft(distance, ballSpeed, { isCross: true, isThrough: true });
+    const time = clamp(estimateBallArrivalSeconds(distance, ballSpeed, 0.2, loft), 0.2, 3.4);
+    const dx = tx - receiver.x;
+    const dy = ty - receiver.y;
+    const gap = Math.hypot(dx, dy);
+    if (gap < 0.01) return true;
+    const speed = playerRunSpeed(receiver);
+    const accel = playerAcceleration(receiver, speed);
+    const along = Math.max(0, ((receiver.vx || 0) * dx + (receiver.vy || 0) * dy) / gap);
+    const accelerating = Math.min(time, Math.max(0, speed - along) / accel);
+    const travel = along * accelerating + 0.5 * accel * accelerating ** 2 + speed * (time - accelerating);
+    const metresPerUnit = pitchDistanceMetres(dx, dy) / gap;
+    return (gap - travel) * metresPerUnit <= SIM.CONTROL_RADIUS_METRES;
+  }
+
   _bestCross(a) {
     const dir = this.attackDir(a.team);
     const goalY = this.targetGoalY(a.team);
     let best = null;
     for (const m of this.agents) {
-      if (m === a || m.team !== a.team || m.role === "GK") continue;
+      if (m === a || m.team !== a.team || m.role === "GK" || m.sentOff || m.injuredOff) continue;
       // 必须比持球者更靠前，且靠近门前
       const ahead = (m.y - a.y) * dir;
       if (ahead < 4) continue;
@@ -2779,23 +2845,27 @@ export class SimEngine {
         0.82,
         1.2
       );
-      const value =
+      const tx = clamp(m.x * 0.55 + 50 * 0.45 + (this.random() - 0.5) * 6, 28, 72);
+      const ty = clamp(goalY - dir * (8 + this.random() * 6), 4, 96);
+      if (!this._crossTargetReachable(a, m, tx, ty)) continue;
+      let value =
         (0.4 + clamp(1 - dGoalM / 32, 0, 1)) *
-        this._laneSafety(a, m) *
+        this._laneSafety(a, m, tx, ty) *
         opposite *
         roleB *
         coreB *
         aerialB *
         deliveryB;
+      if (!this.ball.offsideExemptRestart && this._isOffsidePosition(a.team, m)) {
+        value *= 0.16 + (1 - a.attr.vision) * 0.34;
+      }
       // 落点：禁区内前点/中点，不是脚下
-      const tx = clamp(m.x * 0.55 + 50 * 0.45 + (this.random() - 0.5) * 6, 28, 72);
-      const ty = clamp(goalY - dir * (8 + this.random() * 6), 4, 96);
       if (!best || value > best.value) {
         best = { agent: m, value, through: true, tx, ty, cross: true };
       }
     }
     return this.ball.state === "corner" && this.ball.owner === a.id
-      ? cornerDelivery(this._cornerRoutine, this.agents, a) || best : best;
+      ? cornerDelivery(this._cornerRoutine, this.agents, a, this.random()) || best : best;
   }
 
   /** 底线附近的倒三角/回做，防止低角度持球者继续撞向边界。 */
@@ -2813,14 +2883,15 @@ export class SimEngine {
       if (d < 7 || d > 38) continue;
       const central = 1 - Math.min(1, Math.abs(m.x - 50) / 42);
       const roleB = m.role === "ATT" ? 1.2 : m.role === "MID" ? 1.1 : 0.72;
-      const safety = this._laneSafety(a, m);
+      const tx = clamp(m.x + (50 - m.x) * 0.18, 18, 82);
+      const ty = clamp(m.y - dir * 1.5, 6, 94);
+      if (!this._launchRouteClear(a, { tx, ty })) continue;
+      const safety = this._laneSafety(a, m, tx, ty);
       const value =
         (0.28 + central * 0.48 + clamp(1 - dGoalM / 34, 0, 1) * 0.22) *
         safety *
         roleB *
         (0.82 + (a.attr.decisions || 0.55) * 0.18);
-      const tx = clamp(m.x + (50 - m.x) * 0.18, 18, 82);
-      const ty = clamp(m.y - dir * 1.5, 6, 94);
       if (!best || value > best.value) {
         best = { agent: m, value, through: false, tx, ty, cutback: true };
       }
@@ -2885,7 +2956,7 @@ export class SimEngine {
    *   · through—— 是否"直塞"（穿透最后一道防线、送身后空当），价值高但难度大
    *   · tx/ty  —— 落点（直塞会打到接球人身前的空当，而非脚下）
    */
-  _passCandidates(a) {
+  _collectPassCandidates(a) {
     const dir = this.attackDir(a.team);
     const goalY = this.targetGoalY(a.team);
     const offY = this._offsideLineY(a.team);
@@ -2922,10 +2993,19 @@ export class SimEngine {
       }
       if (d < 6 || d > 45) continue; // 太近没必要，太远不可靠
       // 普通传球也瞄准预计接球点，而不是队友当前脚下。接球队员稍后会共享同一目标。
-      const nominalSpeed = clamp(18 + d * 0.7, 18, 42) * (0.85 + 0.15 * a.attr.passing);
-      const eta = clamp(d / Math.max(1, nominalSpeed), 0.2, 1.35);
-      let tx = clamp(m.x + (m.vx || 0) * eta, 3, 97);
-      let ty = clamp(m.y + (m.vy || 0) * eta, 3, 97);
+      let tx = m.x;
+      let ty = m.y;
+      let eta = 0;
+      for (let iteration = 0; iteration < 4; iteration++) {
+        const distanceM = pitchDistanceBetween(this.ball.x, this.ball.y, tx, ty);
+        const nominalSpeed = passLaunchSpeedMps(distanceM, passTechnique(a));
+        const loft = passLaunchLoft(distanceM, nominalSpeed);
+        const nextEta = clamp(estimateBallArrivalSeconds(distanceM, nominalSpeed, loft ? 0.2 : 0, loft), 0.2, 3.4);
+        tx = clamp(m.x + (m.vx || 0) * nextEta, 3, 97);
+        ty = clamp(m.y + (m.vy || 0) * nextEta, 3, 97);
+        if (Math.abs(nextEta - eta) < 0.005) break;
+        eta = nextEta;
+      }
       const myProg = Math.abs(a.y - goalY);
       const mProg = Math.abs(m.y - goalY);
       const advance = clamp((myProg - mProg) / 40, -0.5, 1);
@@ -3009,18 +3089,23 @@ export class SimEngine {
   /** 传球线安全度：线段附近对手越近越危险 → 0..1 */
   _laneSafety(a, m, tx = m.x, ty = m.y) {
     let minPerp = 99;
-    const dx = tx - a.x;
-    const dy = ty - a.y;
+    const originX = this.ball.owner === a.id ? this.ball.x : a.x;
+    const originY = this.ball.owner === a.id ? this.ball.y : a.y;
+    const mx = SIM.PITCH_W_METRES / SIM.FIELD_W;
+    const my = SIM.PITCH_H_METRES / SIM.FIELD_H;
+    const dx = (tx - originX) * mx;
+    const dy = (ty - originY) * my;
     const len = Math.hypot(dx, dy) || 1;
     const ux = dx / len;
     const uy = dy / len;
     for (const o of this.agents) {
-      if (o.team === a.team || o.role === "GK") continue;
+      if (o.team === a.team || o.role === "GK" || o.sentOff || o.injuredOff) continue;
       // 投影到传球线段
-      const t = clamp(((o.x - a.x) * ux + (o.y - a.y) * uy) / len, 0, 1);
-      const px = a.x + ux * len * t;
-      const py = a.y + uy * len * t;
-      const perp = dist(o.x, o.y, px, py);
+      const t = ((o.x - originX) * mx * ux + (o.y - originY) * my * uy) / len;
+      if (t < 0 || t > 1) continue;
+      const px = originX + ux * len * t / mx;
+      const py = originY + uy * len * t / my;
+      const perp = pitchDistanceBetween(o.x, o.y, px, py);
       if (perp < minPerp) minPerp = perp;
     }
     return clamp(minPerp / 8, 0.1, 1);
@@ -3028,6 +3113,15 @@ export class SimEngine {
 
   /** 执行传球：给球初速飞向接球点，清 owner（长传/传中/直塞带弧线高度） */
   _pass(a, passTo, prepared = false) {
+    // Recheck the actual launch line after turning/preparation: a defender may
+    // have entered it since this option was selected.
+    if (prepared && !this._launchRouteClear(a, passTo)) {
+      a.pendingBallAction = null;
+      a.intent = { type: "hold", tx: a.x, ty: a.y };
+      a.fsm = "carry";
+      a.decisionUntil = this.t + 0.2;
+      return;
+    }
     const b = this.ball;
     if (!prepared && this._queueBallAction(a, "pass", passTo.tx, passTo.ty, passTo)) return;
     const fromCorner = b.state === "corner" || b.restartType === "corner";
@@ -3054,12 +3148,10 @@ export class SimEngine {
     const distanceM = pitchDistanceMetres(dx, dy);
     const isCross = !!passTo.cross;
     const isThrough = !!passTo.through;
-    const technique = isCross
-      ? clamp((a.attr.crossing || a.attr.passing || 0.55) * 0.68 + (a.attr.passing || 0.55) * 0.18 + (a.attr.kicking || 0.55) * 0.14, 0.3, 0.95)
-      : a.attr.passing || 0.55;
+    const technique = passTechnique(a, isCross);
     // 传球速度统一使用米/秒：短传留给队友处理，中长传逐步加力。
     // passing 主要控制落点误差；同样距离不因方向或属性产生离谱的速度差。
-    const passSpeedMps = clamp(10.5 + distanceM * 0.38, 11.5, 27) * (0.94 + 0.06 * technique);
+    const passSpeedMps = passLaunchSpeedMps(distanceM, technique);
     const passVelocity = pitchVelocityForMps(dx, dy, passSpeedMps);
     // 精度噪声：passing 越低越偏
     // 普通职业球员的基础脚法不应让近中距离传球像随机解围；压力与线路风险
@@ -3074,16 +3166,11 @@ export class SimEngine {
     b.targetX = tx;
     b.targetY = ty;
     // 空中弧线（vz 对 g=18：peak≈vz²/36；传中按目标处可争顶高度反推，短传贴地）
-    let loft = 0;
-    if (isCross && fromCorner) {
-      // 角球到落点时应已降到可争顶高度；复用实际积分反推初速，避免表现、
-      // 接球跑位和球物理分别使用不同的飞行时间。
-      const targetZ = (fromCorner ? 1.65 : isThrough ? 1.15 : 1.4) + this.random() * 0.45;
-      loft = loftForTargetHeight(distanceM, pitchSpeedMps(b.vx, b.vy), targetZ);
-    } else if (isCross) loft = 14 + this.random() * 4;
-    else if (isThrough) loft = 6 + this.random() * 3;
-    else if (distanceM >= 30 - 1e-6) loft = 9 + Math.max(0, distanceM - 30) * 0.1;
-    else if (distanceM >= 20 - 1e-6) loft = 3.5 + this.random() * 2.5;
+    const needsLoftDraw = isCross || isThrough ||
+      (distanceM >= 20 - 1e-6 && distanceM < 30 - 1e-6);
+    const loft = passLaunchLoft(distanceM, pitchSpeedMps(b.vx, b.vy), {
+      isCross, isThrough, fromCorner, roll: needsLoftDraw ? this.random() : 0.5,
+    });
     b.z = loft > 0 ? 0.2 : 0;
     b.vz = loft;
     b.expectedAt = this.t + clamp(
@@ -3157,6 +3244,7 @@ export class SimEngine {
     if (fromCorner && this._cornerRoutine?.takerId === a.id) {
       this._cornerRoutine.releasedAt = b.lastPassAt;
     }
+    this._startPassSupport(a, passTo);
   }
 
   /** 执行射门：给球高速飞向球门，门将可扑（远射：更吃 shooting、误差更大） */
@@ -3164,7 +3252,7 @@ export class SimEngine {
     const b = this.ball;
     const opportunity = this._goalOpportunity(a);
     const goalY = this.targetGoalY(a.team);
-    if (!prepared && this._queueBallAction(a, "shot", 50, goalY, extraMeta)) return;
+    if (!prepared && this._queueBallAction(a, "shot", opportunity.targetX, goalY, extraMeta)) return;
     const dGoal = opportunity.dGoal;
     const long = dGoal > 22;
     const freekick = !!extraMeta?.freekick;
@@ -3211,7 +3299,7 @@ export class SimEngine {
     err *= freekick ? 1.08 : 1.22;
     const placesShot = this._hasHabit(a, "places_shots") && !freekick && !long;
     const placementSide = this.random() < 0.5 ? -1 : 1;
-    const aimCentre = placesShot ? 50 + placementSide * (2.8 + this.random()) : 50;
+    const aimCentre = placesShot ? 50 + placementSide * (2.8 + this.random()) : opportunity.targetX;
     const aimX = aimCentre + (this.random() - 0.5) * err;
     const dx = aimX - b.x;
     const dy = goalY - b.y;
@@ -3291,6 +3379,198 @@ export class SimEngine {
 
   /** 无球进攻：前锋回撤、中场前插、边后卫套边；核心自由靠球 */
   _thinkAttackOffBall(a, owner) {
+    // 原目标选择照常消费随机流，再应用传球信号；不会因早退改变后续判罚随机数。
+    this._chooseAttackOffBallTarget(a, owner);
+    this._applyPassSupport(a, owner);
+  }
+
+  /** 已面向可见球门、真实封堵线路畅通的近门机会，不被球队节奏窗口排除。 */
+  _hasCloseShotWindow(a, heading = a.heading, receiving = false) {
+    const mx = SIM.PITCH_W_METRES / SIM.FIELD_W;
+    const my = SIM.PITCH_H_METRES / SIM.FIELD_H;
+    const b = this.ball;
+    if (b.owner !== a.id || b.restartType || (b.state !== "held" && !(receiving && b.state === "control"))) return false;
+    const other = a.team === "home" ? "away" : "home";
+    if (!this._inOwnFoulBox(other, b.x, b.y)) return false;
+    const opportunity = this._goalOpportunity(a);
+    const dx = (opportunity.targetX - b.x) * mx;
+    const dy = (this.targetGoalY(a.team) - b.y) * my;
+    const length = Math.hypot(dx, dy);
+    const leftAngle = Math.atan2(dy, (SIM.GOAL_X0 - b.x) * mx);
+    const rightAngle = Math.atan2(dy, (SIM.GOAL_X1 - b.x) * mx);
+    const aperture = Math.abs(Math.atan2(Math.sin(leftAngle - rightAngle), Math.cos(leftAngle - rightAngle)));
+    const sufficientAngle = aperture >= 0.45;
+    if (length > 16.5 || !sufficientAngle || length < 0.1) return false;
+    const hx = Math.cos(heading || 0) * mx;
+    const hy = Math.sin(heading || 0) * my;
+    if ((hx * dx + hy * dy) / (Math.hypot(hx, hy) * length) < 0.5) return false;
+    // The existing block resolver uses a speed-dependent metric contact radius.
+    // A privileged close-shot window must clear that same region, not just feet.
+    const power = 38 + a.attr.shooting * 14;
+    const unitLength = Math.hypot(dx / mx, dy / my);
+    const speedMps = power * length / unitLength;
+    const blockReach = shotBlockReachMetres(speedMps);
+    for (const o of this.agents) {
+      if (o.team === a.team || o.role === "GK" || o.sentOff || o.injuredOff) continue;
+      const px = (o.x - b.x) * mx;
+      const py = (o.y - b.y) * my;
+      const along = (px * dx + py * dy) / length;
+      if (along <= 0 || along >= length) continue;
+      if (Math.abs(px * dy - py * dx) / length < blockReach) return false;
+    }
+    return true;
+  }
+
+  /** 从真实球位检查低球出脚段；守方已在触达范围内时不能依赖早段保护穿人。 */
+  _launchRouteClear(a, option) {
+    if (this.ball.owner !== a.id) return true;
+    const mx = SIM.PITCH_W_METRES / SIM.FIELD_W;
+    const my = SIM.PITCH_H_METRES / SIM.FIELD_H;
+    const b = this.ball;
+    const dx = (option.tx - b.x) * mx;
+    const dy = (option.ty - b.y) * my;
+    const distance = Math.hypot(dx, dy);
+    if (option.cross || option.through || distance < 0.1) return true;
+    const speed = passLaunchSpeedMps(distance, passTechnique(a));
+    const loft = passLaunchLoft(distance, speed);
+    for (const o of this.agents) {
+      if (o.team === a.team || o.sentOff || o.injuredOff || o.role === "GK") continue;
+      const px = (o.x - b.x) * mx;
+      const py = (o.y - b.y) * my;
+      const along = (px * dx + py * dy) / distance;
+      if (along < 0 || along > Math.min(8, distance)) continue;
+      // The launch interval is short enough to use observed defender velocity.
+      // Ground friction uses the same per-0.1-second attenuation as the engine.
+      const t = estimateBallArrivalSeconds(along, speed, loft ? 0.2 : 0, loft);
+      const ox = px + (o.vx || 0) * mx * t;
+      const oy = py + (o.vy || 0) * my * t;
+      const predictedAlong = (ox * dx + oy * dy) / distance;
+      if (predictedAlong < 0 || predictedAlong > Math.min(8, distance)) continue;
+      if (loft && estimateBallHeightAtDistance(predictedAlong, speed, 0.2, loft) > 1.1) continue;
+      const perpendicular = Math.abs(ox * dy - oy * dx) / distance;
+      if (perpendicular <= 1.1) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** 线路被挡时，只尝试接球人能按原速度赶到的横向空当。 */
+  _passCandidates(a) {
+    const mx = SIM.PITCH_W_METRES / SIM.FIELD_W;
+    const my = SIM.PITCH_H_METRES / SIM.FIELD_H;
+    return this._collectPassCandidates(a).flatMap((option) => {
+      if (this._launchRouteClear(a, option)) return [option];
+      if (!option.agent || option.backpass) return [];
+      const receiver = option.agent;
+      const dx = (option.tx - this.ball.x) * mx;
+      const dy = (option.ty - this.ball.y) * my;
+      const length = Math.hypot(dx, dy);
+      if (length < 0.1) return [];
+      const vx = -dy / length;
+      const vy = dx / length;
+      const options = [];
+      for (const side of [-1, 1]) {
+        for (const offset of [2, 4]) {
+          const tx = clamp(option.tx + vx * offset * side / mx, 3, 97);
+          const ty = clamp(option.ty + vy * offset * side / my, 3, 97);
+          const distance = Math.hypot((tx - this.ball.x) * mx, (ty - this.ball.y) * my);
+          const speed = passLaunchSpeedMps(distance, passTechnique(a));
+          const loft = passLaunchLoft(distance, speed);
+          const eta = estimateBallArrivalSeconds(distance, speed, loft ? 0.2 : 0, loft);
+          const rx = tx - receiver.x;
+          const ry = ty - receiver.y;
+          const runnerGap = Math.hypot(rx, ry);
+          const runnerSpeed = playerRunSpeed(receiver);
+          const accel = playerAcceleration(receiver, runnerSpeed);
+          const along = runnerGap ? Math.max(0, (receiver.vx * rx + receiver.vy * ry) / runnerGap) : 0;
+          const accelerateFor = Math.min(eta, Math.max(0, runnerSpeed - along) / accel);
+          const reachable = along * accelerateFor + 0.5 * accel * accelerateFor ** 2 +
+            runnerSpeed * (eta - accelerateFor);
+          if (runnerGap > reachable || !this._launchRouteClear(a, { ...option, tx, ty })) continue;
+          const originalSafety = this._laneSafety(a, receiver, option.tx, option.ty);
+          const safety = this._laneSafety(a, receiver, tx, ty);
+          options.push({ ...option, tx, ty, value: option.value * safety / Math.max(0.1, originalSafety),
+            detour: offset });
+        }
+      }
+      options.sort((left, right) => left.detour - right.detour || right.value - left.value);
+      return options.length ? [options[0]] : [];
+    }).sort((left, right) => right.value - left.value);
+  }
+
+  /** 一脚前场传球触发一名第三人跑动；近底线时提供禁区外回做点。 */
+  _startPassSupport(a, option) {
+    const my = SIM.PITCH_H_METRES / SIM.FIELD_H;
+    const metres = (a, b) => pitchDistanceBetween(a.x, a.y, b.x, b.y);
+    const b = this.ball;
+    if (b.state !== "pass" || b.lastKicker !== a.id || b.lastPassAt !== this.t ||
+        !option.agent || option.cross || option.agent.role === "GK") return;
+    const existing = this._passSupportRun;
+    const previousRunner = existing && this.agentById(existing.playerId);
+    if (existing?.team === a.team && this.t <= existing.until &&
+        existing.attackSince === this._teamAttackSince[a.team] &&
+        previousRunner && !previousRunner.sentOff && !previousRunner.injuredOff &&
+        previousRunner.id !== a.id && previousRunner.id !== option.agent.id &&
+        metres(previousRunner, existing) > 0.8) return;
+    const dir = this.attackDir(a.team);
+    const goalY = this.targetGoalY(a.team);
+    const depth = Math.abs(b.targetY - goalY) * my;
+    if (depth > 38 || (b.targetY - b.kickY) * dir < -4) return;
+    const line = this._offsideLineY(a.team);
+    if (!Number.isFinite(line)) return;
+    const legalY = dir < 0 ? Math.min(line, b.targetY) : Math.max(line, b.targetY);
+    const cutback = depth < 12;
+    const receiver = option.agent;
+    const candidates = this.agents.filter((m) => m.team === a.team && m.id !== a.id &&
+      m.id !== receiver.id && !m.sentOff && !m.injuredOff &&
+      (m.role === "ATT" || this._isPrimaryMidRunner(m)) &&
+      !this._isOffsidePosition(m.team, m, line, b.y)).map((runner) => {
+      const target = {
+        x: clamp(runner.baseX * 0.8 + receiver.x * 0.2, 12, 88),
+        y: cutback ? goalY - dir * 18 / my : legalY - dir * 1.8 / my,
+      };
+      const distance = metres(runner, target);
+      const side = (runner.baseX - 50) * (receiver.x - 50) < 0 ? 0 : 3;
+      return { runner, target, distance, rank: distance + side };
+    }).filter((candidate) => candidate.distance >= 3 && candidate.distance <= 25)
+      .sort((left, right) => left.rank - right.rank || String(left.runner.id).localeCompare(String(right.runner.id)));
+    if (!candidates.length) return;
+    const selected = candidates[0];
+    const runnerSpeed = playerRunSpeed(selected.runner);
+    const fieldDistance = Math.hypot(selected.target.x - selected.runner.x, selected.target.y - selected.runner.y);
+    const travelSeconds = fieldDistance / runnerSpeed + 0.3;
+    const plan = { team: a.team, playerId: selected.runner.id, receiverId: receiver.id,
+      attackSince: this._teamAttackSince[a.team],
+      until: this.t + Math.max(b.expectedAt - this.t, travelSeconds) + 0.7,
+      ...selected.target, cutback };
+    this._passSupportRun = plan;
+    selected.runner.attackThinkUntil = Math.min(selected.runner.attackThinkUntil || Infinity, this.t);
+  }
+
+  _applyPassSupport(a, owner) {
+    const plan = this._passSupportRun;
+    if (plan && plan.playerId === a.id && plan.team === a.team && this.t <= plan.until &&
+        plan.attackSince === this._teamAttackSince[a.team] &&
+        owner?.team === a.team && this.ball.owner !== a.id && !this.ball.restartType) {
+      a.tx = plan.x;
+      a.ty = plan.y;
+      a.fsm = "support";
+      a.offBallTargetKind = plan.cutback ? "cutback-outlet" : "third-man-run";
+    }
+    if (a.role === "MID" && !this._isPrimaryMidRunner(a) &&
+        Math.abs(this.ball.y - this.targetGoalY(a.team)) < 36) {
+      const mids = this.agents.filter((m) => m.team === a.team && m.role === "MID" && !m.sentOff &&
+        (!m.injuredOff && !this._isPrimaryMidRunner(m)))
+        .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+      const rank = Math.max(0, mids.indexOf(a));
+      const goalY = this.targetGoalY(a.team);
+      const depth = Math.max(17 + rank * 6, Math.abs(this.ball.y - goalY) + 6 + rank * 5);
+      a.ty = clamp(goalY - this.attackDir(a.team) * depth, 3, 97);
+    }
+  }
+
+  _chooseAttackOffBallTarget(a, owner) {
     a.offBallTargetKind = null;
     const dir = this.attackDir(a.team);
     const b = this.ball;
@@ -4702,10 +4982,12 @@ export class SimEngine {
 
   /** 惯性移动：arrive + 加速度上限（与 matchview 表演层同源，保证观感一致） */
   _integrate(a, dt) {
-    if (!Number.isFinite(a._cornerArrivalAt) || this.ball.owner || this.ball.state !== "pass") {
+    const arrivalAt = Number.isFinite(a._cornerArrivalAt) ? a._cornerArrivalAt :
+      this.ball.receiverId === a.id && this.ball.kickTeam === a.team ? this.ball.expectedAt : null;
+    if (!Number.isFinite(arrivalAt) || this.ball.owner || this.ball.state !== "pass") {
       return this._integrateMotion(a, dt);
     }
-    // 争顶按球到时间收敛，而非提前在普通 arrive 的 5 格减速圈内停住。
+    // 接球与角球争顶按同一到球时序收敛，不提前停在普通 arrive 的减速圈内。
     // 跑动仍由同一运动积分器限制速度、加速度、转向与体能。
     const tx = a.tx;
     const ty = a.ty;
@@ -4716,11 +4998,10 @@ export class SimEngine {
       const dy = ty - a.y;
       const gap = Math.hypot(dx, dy);
       if (gap > 0.05) {
-        const speed = SIM.MAX_PLAYER_SPEED * (0.55 + 0.45 * a.attr.pace) *
-          (0.76 + Math.max(0.3, (a.fitness ?? 100) / 100) * 0.24);
-        const accel = speed * (2.5 + 2.5 * a.attr.accel) * (0.94 + (a.attr.agility || 0.55) * 0.08);
+        const speed = playerRunSpeed(a);
+        const accel = playerAcceleration(a, speed);
         const along = Math.max(0, ((a.vx || 0) * dx + (a.vy || 0) * dy) / gap);
-        const time = Math.max(stepDt, a._cornerArrivalAt - this.t - step * stepDt -
+        const time = Math.max(stepDt, arrivalAt - this.t - step * stepDt -
           Math.max(0, speed - along) / (2 * accel));
         const lookAhead = Math.max(gap, Math.min(5, gap / time / speed * 5));
         a.tx = a.x + dx / gap * lookAhead;
@@ -4736,10 +5017,8 @@ export class SimEngine {
   }
 
   _integrateMotion(a, dt) {
-    let speed = SIM.MAX_PLAYER_SPEED * (0.55 + 0.45 * a.attr.pace);
+    let speed = playerRunSpeed(a);
     const pressing = this._stepPressing[a.team] || 3;
-    const fit = clamp((a.fitness ?? 100) / 100, 0.3, 1);
-    speed *= 0.76 + fit * 0.24;
     if (a.fsm === "press") speed *= 0.94 + pressing * 0.025;
     // 卡位减速（P2）：持球人被对手贴身时带球变慢，防守才真能"挡住"推进。
     // strength/dribbling 高者受影响小（护得住球）。
@@ -4770,7 +5049,7 @@ export class SimEngine {
       const desired = speed * Math.min(1, d / slowR) * clamp(turnCost, 0.82, 1);
       const dvx = (dx / d) * desired - a.vx;
       const dvy = (dy / d) * desired - a.vy;
-      const accel = speed * (2.5 + 2.5 * a.attr.accel) * (0.94 + (a.attr.agility || 0.55) * 0.08);
+      const accel = playerAcceleration(a, speed);
       const maxDv = accel * dt;
       const m = Math.hypot(dvx, dvy);
       if (m > maxDv) {
@@ -5257,7 +5536,7 @@ export class SimEngine {
       for (const o of this.agents) {
         if (o.team === b.kickTeam || o.role === "GK" || o.sentOff || o.injuredOff || checked.has(o.id)) continue;
         const d = pitchDistanceBetween(o.x, o.y, b.x, b.y);
-        if (d > 2.2 + Math.min(0.8, speedMps * 0.014)) continue;
+        if (d > shotBlockReachMetres(speedMps)) continue;
         if (this._tryHandball(o, { isShot: true })) return;
         checked.add(o.id);
         const blockSkill = 0.55 * o.attr.positioning + 0.45 * o.attr.tackling;
@@ -5307,7 +5586,7 @@ export class SimEngine {
       const interceptTeam = b.kickTeam === "home" ? "away" : "home";
       // 传中球飞在头顶以上（z>2.2 ≈ 起跳争顶极限）时物理上够不着——
       // 不加这条，吊过人墙/人堆头顶的球会被"原地吃掉"，传中永远到不了禁区。
-      const overhead = b.isCrossPass && b.z > 2.2;
+      const overhead = b.z > 2.2;
       if (
         flown >= 6 &&
         !overhead &&
@@ -5452,7 +5731,7 @@ export class SimEngine {
 
     // 传中飞越头顶（z>2.2）时外场球员够不着：让球飞到落点再争，
     // 否则高弧线会被路径上的人在 2D 距离内"凭空控下"。门将手臂长（3.0）可摘高球。
-    const overheadCross = b.state === "pass" && !!b.isCrossPass;
+    // 每一种自由球都遵守同一触达高度，不依赖“传中”标签。
 
     let best = null;
     let bestD = SIM.CONTROL_RADIUS_METRES + speedMps * 0.04;
@@ -5474,9 +5753,9 @@ export class SimEngine {
         continue;
       }
       if (a.id === b.lastKicker && this.t < (a.noReclaimUntil || 0)) continue;
-      if (oppBlocked && a.team !== b.kickTeam) continue;
+      if (oppBlocked && a.team !== b.kickTeam && ((b.z || 0) > 1.1 || pitchDistanceBetween(a.x, a.y, b.x, b.y) > 1.1)) continue;
       // 高弧线传中够不着就不能控（外场 2.2 / 门将 3.0）
-      if (overheadCross && b.z > (a.role === "GK" ? 3.0 : 2.2)) continue;
+      if (b.z > (a.role === "GK" ? 3.0 : 2.2)) continue;
       // 门将只能在本方禁区附近拿自由球（防中场门将"参与传球"）
       if (a.role === "GK") {
         const inBox =
@@ -5987,6 +6266,7 @@ export class SimEngine {
    * @param {"home"|"away"} team 主罚方
    */
   _penaltyKick(team) {
+    this._passSupportRun = null;
     this._restartStepEpoch = (this._restartStepEpoch || 0) + 1;
     const b = this.ball;
     const dir = this.attackDir(team); // 主罚方进攻方向
@@ -6480,6 +6760,7 @@ export class SimEngine {
    * @param {"corner"|"goalkick"|"throwin"|"offside"|"freekick"|"indirect"} type
    */
   _restart(type, restartTeam, x, y) {
+    this._passSupportRun = null;
     this._restartStepEpoch = (this._restartStepEpoch || 0) + 1;
     this._cornerRoutine = null;
     this.pendingPenalty = null;
@@ -7081,6 +7362,7 @@ export class SimEngine {
 
   /** 开球：双方留在己方半场，非开球队退出中圈 */
   _kickoff(team) {
+    this._passSupportRun = null;
     this._restartStepEpoch = (this._restartStepEpoch || 0) + 1;
     this.celebrateParticipants = null;
     this.cornerShapeUntil = 0;

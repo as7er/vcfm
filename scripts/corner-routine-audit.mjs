@@ -39,14 +39,36 @@ for (const team of ["home", "away"]) {
       }
       const [runnerId, arrival] = routine.runs.entries().next().value;
       const runner = agents.find((a) => a.id === runnerId);
-      const staged = cornerMovementTarget(routine, runner, ball, agents, 101);
+      const staged = cornerMovementTarget(routine, runner, ball, agents, 100.7);
       assert.ok(metres(staged, arrival) >= 3.5, "the runner must still have a run to make at release");
       assert.deepEqual({ x: staged.x, y: staged.y }, { x: runner.x, y: runner.y });
+      const approach = cornerMovementTarget(routine, runner, ball, agents, 101);
+      assert.ok(metres(approach, staged) > 1, "the shared pre-kick signal must start an approach run");
+      assert.ok(metres(approach, arrival) < metres(staged, arrival), "the approach must progress toward the arrival zone");
+      const markerId = [...routine.marks].find(([, id]) => id === runnerId)?.[0];
+      if (markerId) {
+        const marker = agents.find((a) => a.id === markerId);
+        Object.assign(runner, approach);
+        const following = cornerMovementTarget(routine, marker, ball, agents, 101.2);
+        assert.ok((following.y - runner.y) * attackDirection > 0,
+          "the marker reacts to the same approach signal from the goal side");
+        Object.assign(runner, { x: staged.x, y: staged.y });
+      }
       const taker = agents.find((a) => a.id === takerId);
       Object.assign(taker, { x: ball.x, y: ball.y });
       const delivery = cornerDelivery(routine, agents, taker);
       assert.ok([...routine.runs.values()].some((target) => target.x === delivery.tx && target.y === delivery.ty),
         "the delivery must target an assigned arrival zone");
+      const chosenZones = new Map();
+      for (let i = 0; i < 256; i++) {
+        const choice = cornerDelivery(routine, agents, taker, (i + 0.5) / 256);
+        const key = `${choice.tx},${choice.ty}`;
+        chosenZones.set(key, (chosenZones.get(key) || 0) + 1);
+        assert.ok([...routine.runs.values()].some((target) => target.x === choice.tx && target.y === choice.ty));
+      }
+      assert.equal(chosenZones.size, routine.runs.size, "delivery selection must use more than one goalmouth zone");
+      assert.equal(chosenZones.get(`${delivery.tx},${delivery.ty}`), Math.max(...chosenZones.values()),
+        "the best observed delivery keeps the greatest selection weight");
       const flight = { ...ball, state: "pass", owner: null, lastKicker: takerId, lastPassAt: 102, expectedAt: 104 };
       assert.equal(cornerMovementTarget(routine, runner, flight, agents, 102), null,
         "a routine requires its own actual release marker");

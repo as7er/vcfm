@@ -37,16 +37,23 @@ const separationPasses = simulationProfile === "background" ? 4 : 8;
 //   门将那两处旋钮单独跑都不破护栏，合并起来才把进球顶到 3.33，
 //   收近端到 30 之后进球回到 3.08，剩下的就是这条成功率偏离。
 //   其余八项一并按同一次标准档跑刷新，避免留下半新半旧的基准。
+// 2026-09-09 有意标定：出脚线路、接应到球时间与真实触达统一；清晰近门机会
+// 可以进入原有射门决策，误差分布、球员属性、扑救概率不变。标准/后台原始
+// 24+24 场均通过真实性要求后，又纳入连续 96+96 场：进球 3.17/2.94、转化
+// 9.9%/10.0%、完成率 81.1%/82.1%，强队积分 1.80/2.23。旧参考的射门/传球
+// 差异来自这次有意改变的接应和选择，故按新的标准档原 24 个种子整体更新；
+// 下方所有真实性门槛和九项容差保持原值。分片的失败与完整原始报告一并保留，
+// 见 docs/match-attacking-continuity-2026-09-09.md，不挑选过关种子。
 const STANDARD_PROFILE_REFERENCE_24 = Object.freeze({
-  goals: 2.67,
-  shots: 28.88,
-  passes: 1108.04,
-  passCompletionPct: 78.6,
-  fouls: 27.29,
-  openGoalShots: 0.75,
-  goalkeeperClaims: 17.46,
-  goalkeeperChallenges: 7.25,
-  strongPointsPerMatch: 1.88,
+  goals: 3.17,
+  shots: 32.13,
+  passes: 1064.83,
+  passCompletionPct: 81.1,
+  fouls: 26.17,
+  openGoalShots: 0.21,
+  goalkeeperClaims: 13.96,
+  goalkeeperChallenges: 7.5,
+  strongPointsPerMatch: 1.92,
 });
 
 function seededRandom(seed) {

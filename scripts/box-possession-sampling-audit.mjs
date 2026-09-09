@@ -391,22 +391,27 @@ assert.ok(sample.matches === seeds.length, "every seeded match must complete");
 assert.ok(sample.boxSpells > 0, "sampling found no box possession at all — the detector is broken");
 assert.ok(report.samples.keeper > 0, "no keeper samples captured during box possession");
 
-// —— 全部上界 = 本审计实测基线 + 约 10% 余量，作用是防止进一步恶化 ——
-// 真实足球球在禁区内约 60~90 秒/场，当前 1092 秒仍差一个量级；这里只钉「不许再涨」。
+// v252：线路触达、接应与近门机会一并修正后，标准/后台同六种子分别为
+// 727.82/784.90 秒、241.50/210.50 回合、25.33/29.83 次近门机会。
+// 收紧旧上界，固定这次改进；绝对秒数仍是模拟的统计尺度，不能说等同真实比赛。
 assert.ok(
-  report.boxSecondsPerMatch <= 1200,
-  `ball spent ${report.boxSecondsPerMatch}s in the box per match (ceiling 1200, baseline 1092, real football 60~90)`
+  report.boxSecondsPerMatch <= 850,
+  `ball spent ${report.boxSecondsPerMatch}s in the box per match (ceiling 850, former baseline 1092)`
 );
 assert.ok(
-  report.boxSpellsPerMatch <= 380,
-  `box possession spells rose to ${report.boxSpellsPerMatch} per match (ceiling 380, baseline 346)`
+  report.boxSpellsPerMatch <= 280,
+  `box possession spells rose to ${report.boxSpellsPerMatch} per match (ceiling 280, former baseline 346)`
+);
+assert.ok(
+  report.boxPassDestinationPct.recycledInBox <= 50,
+  `box passes are cycling inside the same penalty area (${report.boxPassDestinationPct.recycledInBox}%, ceiling 50)`
 );
 
 // 「无人盯防近距离」机会频率——画面上「空门却不射」的直接来源。合成场景审计
 // 测不到这一项，v239 的问题正是从这条缝里漏过去的。
 assert.ok(
-  report.unmarkedCloseChancesPerMatch <= 58,
-  `unmarked close-range chances rose to ${report.unmarkedCloseChancesPerMatch} per match (ceiling 58, baseline 51.83)`
+  report.unmarkedCloseChancesPerMatch <= 35,
+  `unmarked close-range chances rose to ${report.unmarkedCloseChancesPerMatch} per match (ceiling 35, former baseline 51.83)`
 );
 
 // press 追点：目标点要真的贴住持球人，上抢者也不能长期落后自己的目标点。

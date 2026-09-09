@@ -10,6 +10,7 @@ const variant = process.argv[2] || "route";
 const count = process.argv[3] || "6";
 const audit = process.argv[4] || "lanes";
 const profile = process.argv[5] || "standard";
+const sourceOutput = process.argv.find((arg) => arg.startsWith("--source-output="))?.slice("--source-output=".length);
 assert.ok(["control", "route", "contact", "flight", "flight_contact", "finish", "space", "space_timed", "cutback", "cutback_phase"].includes(variant));
 const space = variant.startsWith("space");
 const engineURL = new URL("../js/sim/engine.js", import.meta.url).href;
@@ -96,6 +97,18 @@ registerHooks({ load(url, context, nextLoad) {
     '      const t = ((o.x - originX) * ux + (o.y - originY) * uy) / len;\n' +
     '      if (t < 0 || t > 1) continue;\n' +
     '      const px = originX + ux * len * t;\n      const py = originY + uy * len * t;');
+  if (process.argv.includes("--metric-lanes")) {
+    replace('    const dx = tx - originX;\n    const dy = ty - originY;',
+      '    const mx = SIM.PITCH_W_METRES / SIM.FIELD_W;\n' +
+      '    const my = SIM.PITCH_H_METRES / SIM.FIELD_H;\n' +
+      '    const dx = (tx - originX) * mx;\n    const dy = (ty - originY) * my;');
+    replace('      const t = ((o.x - originX) * ux + (o.y - originY) * uy) / len;',
+      '      const t = ((o.x - originX) * mx * ux + (o.y - originY) * my * uy) / len;');
+    replace('      const px = originX + ux * len * t;\n      const py = originY + uy * len * t;',
+      '      const px = originX + ux * len * t / mx;\n      const py = originY + uy * len * t / my;');
+    replace('      const perp = dist(o.x, o.y, px, py);',
+      '      const perp = pitchDistanceBetween(o.x, o.y, px, py);');
+  }
   // Cutbacks use a shifted destination, not the receiver's current location.
   replace('      const safety = this._laneSafety(a, m);\n      const value =\n        (0.28 + central',
     '      const tx = clamp(m.x + (50 - m.x) * 0.18, 18, 82);\n' +
@@ -105,12 +118,20 @@ registerHooks({ load(url, context, nextLoad) {
   replace('      const tx = clamp(m.x + (50 - m.x) * 0.18, 18, 82);\n' +
     '      const ty = clamp(m.y - dir * 1.5, 6, 94);\n      if (!best || value > best.value)',
     '      if (!best || value > best.value)');
-  if (variant === "finish") {
+  if (variant === "finish" || (space && process.argv.includes("--finish-space"))) {
     replace('      const cdBlocked = this.t < (this._teamShotUntil[a.team] || 0);',
       '      const cdBlocked = this.t < (this._teamShotUntil[a.team] || 0) && !this._probeHasCloseShot(a);');
   }
+  if (space && process.argv.includes("--close-shot-eligibility")) {
+    // A real, unblocked close opportunity can be considered during the team
+    // pacing window. Keep cdBlocked and its existing decision probability;
+    // the previous finish-space experiment inadvertently tripled that weight.
+    replace('(opportunity.clearOpenGoal || !cdBlocked || dGoal < 9.5 || setPieceChance)',
+      '(opportunity.clearOpenGoal || !cdBlocked || dGoal < 9.5 || setPieceChance || this._probeHasCloseShot(a))');
+  }
   source += '\nexport { estimateBallArrivalSeconds as probeArrival, estimateBallHeightAtDistance as probeHeight };\n';
   evidence.loadedEngineSha256 = createHash("sha256").update(source).digest("hex");
+  if (sourceOutput) writeFileSync(resolve(sourceOutput), source);
   return { ...result, source };
 } });
 
@@ -121,26 +142,38 @@ const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
 const measures = { examined: 0, blocked: 0, preparedCancelled: 0 };
 const shots = { clearDecisions: 0, cooldownDecisions: 0, outcomes: {} };
 
-SimEngine.prototype._probeHasCloseShot = function (a) {
+SimEngine.prototype._probeHasCloseShot = function (a, heading = a.heading, receiving = false) {
   const b = this.ball;
-  if (b.owner !== a.id || b.restartType || b.state !== "held") return false;
+  if (b.owner !== a.id || b.restartType || (b.state !== "held" && !(receiving && b.state === "control"))) return false;
   const other = a.team === "home" ? "away" : "home";
   if (!this._inOwnFoulBox(other, b.x, b.y)) return false;
   const opportunity = this._goalOpportunity(a);
   const dx = (opportunity.targetX - b.x) * mx;
   const dy = (this.targetGoalY(a.team) - b.y) * my;
   const length = Math.hypot(dx, dy);
-  if (length > 16.5 || opportunity.angle < 0.45 || length < 0.1) return false;
-  const hx = Math.cos(a.heading || 0) * mx;
-  const hy = Math.sin(a.heading || 0) * my;
+  const leftAngle = Math.atan2(dy, (SIM.GOAL_X0 - b.x) * mx);
+  const rightAngle = Math.atan2(dy, (SIM.GOAL_X1 - b.x) * mx);
+  const aperture = Math.abs(Math.atan2(Math.sin(leftAngle - rightAngle), Math.cos(leftAngle - rightAngle)));
+  const sufficientAngle = process.argv.includes("--angular-window")
+    ? aperture >= 0.45 : opportunity.angle >= 0.45;
+  if (length > 16.5 || !sufficientAngle || length < 0.1) return false;
+  const hx = Math.cos(heading || 0) * mx;
+  const hy = Math.sin(heading || 0) * my;
   if ((hx * dx + hy * dy) / (Math.hypot(hx, hy) * length) < 0.5) return false;
+  // The existing block resolver uses a speed-dependent metric contact radius.
+  // A privileged close-shot window must clear that same region, not just feet.
+  const power = 38 + a.attr.shooting * 14;
+  const unitLength = Math.hypot(dx / mx, dy / my);
+  const speedMps = power * length / unitLength;
+  const blockReach = process.argv.includes("--contact-window")
+    ? 2.2 + Math.min(0.8, speedMps * 0.014) : 1.1;
   for (const o of this.agents) {
     if (o.team === a.team || o.role === "GK" || o.sentOff || o.injuredOff) continue;
     const px = (o.x - b.x) * mx;
     const py = (o.y - b.y) * my;
     const along = (px * dx + py * dy) / length;
     if (along <= 0 || along >= length) continue;
-    if (Math.abs(px * dy - py * dx) / length < 1.1) return false;
+    if (Math.abs(px * dy - py * dx) / length < blockReach) return false;
   }
   return true;
 };
@@ -263,7 +296,7 @@ if (variant !== "control" && !variant.startsWith("cutback")) {
   };
 }
 
-if (variant === "space_timed") {
+if (variant === "space_timed" && !globalThis[Symbol.for("vcfm.receiver-arrival-candidate")]) {
   const integrate = SimEngine.prototype._integrate;
   SimEngine.prototype._integrate = function (a, dt) {
     const flight = this._probeSpaceFlight;
@@ -301,13 +334,16 @@ if (variant === "space_timed") {
 
 console.log(`Pass-route candidate: ${variant}`);
 process.argv[2] = count;
-process.argv[3] = profile;
+process.argv[3] = audit === "movement" ? "control" : profile;
 if (process.argv.includes("equal-only")) process.argv[4] = "equal-only";
 const audits = { lanes: "./_pass-lane-contact-probe.mjs", box: "./box-possession-sampling-audit.mjs",
   shots: "./_shot-chain-sample.mjs",
   realism: "./match-realism-audit.mjs", contact: "./_short-pass-contact-probe.mjs",
   fixture: "./_pass-route-fixture.mjs", cutback: "./_cutback-target-fixture.mjs",
   phase: "./_set-piece-phase-fixture.mjs" };
+audits.movement = "./_final-third-movement-calibration-probe.mjs";
+audits.opportunity = "./_attacking-opportunity-fixture.mjs";
+audits.trace = "./_corner-integration-sample.mjs";
 assert.ok(audits[audit], `unknown audit: ${audit}`);
 process.on("exit", () => console.log(JSON.stringify({ launchRoutes: measures, closeShotDecisions: shots }, null, 2)));
 process.on("exit", (exitCode) => {

@@ -22,6 +22,12 @@ const checks = [
   "scripts/off-ball-movement-audit.mjs",
   "scripts/match-broadcast-audit.mjs",
   "scripts/pass-speed-audit.mjs",
+  "scripts/pass-routing-audit.mjs",
+  "scripts/pass-support-audit.mjs",
+  "scripts/pass-destination-audit.mjs",
+  "scripts/cross-arrival-audit.mjs",
+  "scripts/ball-reach-audit.mjs",
+  "scripts/attacking-opportunity-audit.mjs",
   "scripts/shot-flight-audit.mjs",
   "scripts/ball-drag-audit.mjs",
   "scripts/substep-contact-audit.mjs",
@@ -95,7 +101,7 @@ const checks = [
   // 8 场只是让判罚率告警的分母更可信。
   "scripts/offside-event-integrity-audit.mjs",
   // 默认 6 场（约 50s，与 box-possession-sampling-audit 同量级）：6 场约 34 次角球，
-  // 硬断言（间距/主罚位置/Law 17/落点记录）不会因零样本空转；还原度缺口只告警。
+  // 间距、主罚位置、Law 17、落点记录与已修复的还原度结构均为硬约束。
   "scripts/corner-structure-audit.mjs",
 ];
 const fullChecks = [

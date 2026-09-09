@@ -1,5 +1,5 @@
-// Known-defect fixture: the production engine currently fails the first case.
-// Run through the contact calibration wrapper to exercise the proposed fix.
+// Physical close contact must override the old eight-metre pass protection.
+// Retained as a fixture for production verification and historical comparisons.
 import assert from "node:assert/strict";
 import { SimEngine } from "../js/sim/engine.js";
 
