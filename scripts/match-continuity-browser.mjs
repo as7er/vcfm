@@ -9,6 +9,7 @@ const port = 8891;
 const baseUrl = `http://127.0.0.1:${port}/`;
 const out = new URL(`../.tmp-continuity/visual-${Date.now()}/`, import.meta.url);
 mkdirSync(out, { recursive: true });
+console.log(JSON.stringify({ out: fileURLToPath(out) }));
 const server = spawn("python", ["-m", "http.server", String(port), "--bind", "127.0.0.1"], {
   cwd: root, stdio: "ignore", windowsHide: true,
 });
@@ -23,7 +24,11 @@ try {
   browser = await chromium.launch({ channel: "msedge", headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
   const errors = [];
+  const consoleErrors = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
   page.on("dialog", async (dialog) => {
     await dialog[/urgent inbox|\u7d27\u6025\u4fe1\u7bb1/i.test(dialog.message()) ? "dismiss" : "accept"]();
   });
@@ -48,10 +53,27 @@ try {
   let matchReady = false;
   for (let day = 0; day < 25 && !matchReady; day++) {
     const before = await page.locator("#date-label").innerText();
+    console.log(JSON.stringify({ advancingFrom: before }));
     await page.click("#btn-advance");
-    await page.waitForFunction((date) => document.querySelector("#date-label")?.textContent !== date,
-      before, { timeout: 150000 });
+    try {
+      await page.waitForFunction((date) => document.querySelector("#date-label")?.textContent !== date,
+        before, { timeout: 150000 });
+    } catch (error) {
+      const state = await page.evaluate(() => ({
+        date: document.querySelector("#date-label")?.textContent,
+        progress: document.querySelector("#calendar-advance-status")?.textContent,
+        advanceDisabled: document.querySelector("#btn-advance")?.disabled,
+        playMatchDisabled: document.querySelector("#btn-play-match")?.disabled,
+        mainInert: document.querySelector("#screen-main")?.inert,
+      }));
+      await page.screenshot({ path: fileURLToPath(new URL("calendar-failure.png", out)) });
+      writeFileSync(new URL("calendar-failure.json", out), JSON.stringify({
+        before, state, errors, consoleErrors, error: error.message,
+      }, null, 2));
+      throw error;
+    }
     matchReady = await page.locator("#btn-play-match").isEnabled();
+    console.log(JSON.stringify({ advancedTo: await page.locator("#date-label").innerText(), matchReady }));
   }
   assert.ok(matchReady, "a playable fixture must appear");
   await page.click("#btn-play-match");

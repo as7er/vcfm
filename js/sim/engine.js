@@ -469,8 +469,8 @@ export class SimEngine {
     // 会让上抢者/补位者来回交换，视觉上表现为集体抽搐。
     this._phaseTeam = null;
     this._defPlans = {
-      home: { until: 0, phase: null, ownerId: null, ballSide: 0, trigger: null, jobs: new Map() },
-      away: { until: 0, phase: null, ownerId: null, ballSide: 0, trigger: null, jobs: new Map() },
+      home: { until: 0, phase: null, ownerId: null, ballSide: 0, ballState: null, trigger: null, jobs: new Map() },
+      away: { until: 0, phase: null, ownerId: null, ballSide: 0, ballState: null, trigger: null, jobs: new Map() },
     };
     this._teamGainAt = { home: 0, away: 0 };
     this._teamLoseAt = { home: 0, away: 0 };
@@ -1390,6 +1390,9 @@ export class SimEngine {
   }
 
   _commitOffBallTarget(a, phaseActor) {
+    const previousTarget = a.offBallTarget;
+    const previousOffer = previousTarget?.offer
+      ? { ...previousTarget.offer, x: previousTarget.x, y: previousTarget.y } : null;
     const phase = this._teamShapePhase(a.team);
     const ownerId = this.ball.owner || this.ball.receiverId || phaseActor?.id || null;
     const reservations = [];
@@ -1402,7 +1405,9 @@ export class SimEngine {
         reservations.push(teammate.offBallTarget);
       }
     }
-    const urgent = a.offBallTargetKind === "one-two" && a.offBallTarget?.kind !== "one-two";
+    // 接应有自己的线路续接规则；通用防折返租约不能先保留已经失效的旧点。
+    const urgent = (a.offBallTargetKind === "one-two" && a.offBallTarget?.kind !== "one-two") ||
+      !!previousOffer;
     let target = resolveOffBallTarget({
       now: this.t,
       player: a,
@@ -1427,6 +1432,7 @@ export class SimEngine {
       playerId: a.id,
       team: a.team,
     };
+    this._applySupportOffer(a, phaseActor, previousOffer);
   }
 
   // ——————————————————————————————————————————————
@@ -3570,6 +3576,161 @@ export class SimEngine {
     }
   }
 
+  /** 跑向空当的路径也须可通行，使用现有身体分离约束，允许向外脱离已有接触。 */
+  _supportRunClear(a, target) {
+    const dx = target.x - a.x;
+    const dy = target.y - a.y;
+    const squared = dx * dx + dy * dy;
+    if (squared < 1e-8) return true;
+    return !this.agents.some((other) => {
+      if (other.id === a.id || other.sentOff || other.injuredOff) return false;
+      const along = ((other.x - a.x) * dx + (other.y - a.y) * dy) / squared;
+      if (along <= 0) return false;
+      const progress = Math.min(1, along);
+      return Math.hypot(other.x - a.x - dx * progress, other.y - a.y - dy * progress) <
+        this.separationMinDistanceUnits - 1e-6;
+    });
+  }
+
+  /** 用实际遮挡边界补充横向搜索点，避免漏掉两个粗采样点之间的窄空当。 */
+  _supportOfferSearchXs(a, anchor) {
+    const mx = SIM.PITCH_W_METRES / SIM.FIELD_W;
+    const my = SIM.PITCH_H_METRES / SIM.FIELD_H;
+    const xs = [3, 97];
+    const add = (x) => {
+      if (Number.isFinite(x) && Math.abs(x - anchor.x) * mx < 6) xs.push(x);
+    };
+    const roots = (aa, bb, cc, fromX, scaleX) => {
+      if (Math.abs(aa) < 1e-12) {
+        if (Math.abs(bb) > 1e-12) add(fromX - cc / bb / scaleX);
+        return;
+      }
+      const discriminant = bb * bb - 4 * aa * cc;
+      if (discriminant < 0) return;
+      const span = Math.sqrt(discriminant);
+      add(fromX + (-bb - span) / (2 * aa) / scaleX);
+      add(fromX + (-bb + span) / (2 * aa) / scaleX);
+    };
+    const circle = (point, radius, scaleX = mx, scaleY = my) => {
+      const dy = (anchor.y - point.y) * scaleY;
+      const squared = radius * radius - dy * dy;
+      if (squared < 0) return;
+      const dx = Math.sqrt(squared) / scaleX;
+      add(point.x - dx);
+      add(point.x + dx);
+    };
+    const segment = (from, obstacle, radius, scaleX, scaleY) => {
+      const y = (anchor.y - from.y) * scaleY;
+      const ox = (obstacle.x - from.x) * scaleX;
+      const oy = (obstacle.y - from.y) * scaleY;
+      // 遮挡圆的切线，以及投影进入/离开有限线段的边界，均反解为本纵深的目标 x。
+      roots(oy * oy - radius * radius, -2 * ox * oy * y,
+        (ox * ox - radius * radius) * y * y, from.x, scaleX);
+      roots(0, ox, oy * y, from.x, scaleX);
+      roots(1, -ox, y * y - oy * y, from.x, scaleX);
+      circle(obstacle, radius, scaleX, scaleY);
+    };
+    circle(this.ball, 20);
+    for (const other of this.agents) {
+      if (other.id === a.id || other.sentOff || other.injuredOff) continue;
+      // 跑动仍使用现有运动求解器的身体包络；传球与预留空间使用米制。
+      segment(a, other, this.separationMinDistanceUnits - 1e-6, 1, 1);
+      if (other.team === a.team) {
+        circle({ x: other.tx, y: other.ty }, OFF_BALL_TARGET_DEFAULTS.supportSpacingMetres);
+      } else if (other.role !== "GK") {
+        segment(this.ball, other, 1.8, mx, my);
+        circle(other, 2);
+      }
+    }
+    return xs;
+  }
+
+  /** 已到位的接应者沿战术纵深横移找线路；旧空当被封住时结束本次接应。 */
+  _applySupportOffer(a, owner, previous) {
+    const b = this.ball;
+    if (!owner || owner.team !== a.team || a.id === b.owner || a.sentOff || a.injuredOff ||
+        (a.role !== "ATT" && a.role !== "MID") || b.restartType || this.t < (this.deadBallUntil || 0) ||
+        !["held", "control", "pass"].includes(b.state) ||
+        ["third-man-run", "cutback-outlet", "one-two"].includes(a.offBallTarget?.kind)) return;
+    const mx = SIM.PITCH_W_METRES / SIM.FIELD_W;
+    const my = SIM.PITCH_H_METRES / SIM.FIELD_H;
+    const gap = (p, q) => pitchDistanceBetween(p.x, p.y, q.x, q.y);
+    const anchor = { x: a.tx, y: a.ty };
+    if (Math.abs(b.y - this.targetGoalY(a.team)) * my >= 38) return;
+    let offer = previous?.attackSince === this._teamAttackSince[a.team] &&
+      gap(previous, anchor) <= 6 && gap(b, previous.origin) <= 6 &&
+      !this._isOffsidePosition(a.team, { x: previous.x, y: anchor.y })
+        ? { ...previous, y: anchor.y } : null;
+    if (offer && b.owner) {
+      // 换人持球需重新看见足够的线路；同一持球人的小幅变化保留滞回，避免反复折返。
+      const minimumLane = b.owner === offer.ownerId ? 1.1 : 1.8;
+      const receivingSpace = !this.agents.some((o) => o.team !== a.team && o.role !== "GK" &&
+        !o.sentOff && !o.injuredOff && gap(o, offer) < 2);
+      if (!receivingSpace || !this._supportRunClear(a, offer) ||
+          this._laneSafety(owner, a, offer.x, offer.y) < minimumLane / 8 ||
+          !this._launchRouteClear(owner, { agent: a, tx: offer.x, ty: offer.y })) {
+        offer = null;
+      } else {
+        offer = { ...offer, ownerId: b.owner };
+      }
+    }
+    const target = offer || anchor;
+    const settled = Math.hypot(a.vx * mx, a.vy * my) < 1 && gap(a, target) <= 1.5;
+    if (b.owner === owner.id && b.state === "held" && settled && gap(b, target) >= 6 && gap(b, target) < 20 &&
+        this._laneSafety(owner, a, target.x, target.y) <= 1.1 / 8) {
+      let choice = null;
+      const preferredSide = a.baseX < 49 ? -1 : a.baseX > 51 ? 1 : (a.num || 0) % 2 ? -1 : 1;
+      const available = (x) => {
+        const y = anchor.y;
+        const spot = { x, y };
+        if (x < 3 || x > 97 || y < 3 || y > 97 || gap(spot, anchor) > 6 + 1e-7 ||
+            gap(b, spot) >= 20 || this._isOffsidePosition(a.team, spot)) return false;
+        const other = a.team === "home" ? "away" : "home";
+        if (a.role === "MID" && !this._isPrimaryMidRunner(a) && this._inOwnFoulBox(other, x, y)) return false;
+        if (!this._supportRunClear(a, spot) || this._laneSafety(owner, a, x, y) < 1.8 / 8 ||
+            !this._launchRouteClear(owner, { agent: a, tx: x, ty: y })) return false;
+        return !this.agents.some((m) => m.id !== a.id && !m.sentOff && !m.injuredOff &&
+          (m.team === a.team ? gap(spot, { x: m.tx, y: m.ty }) < OFF_BALL_TARGET_DEFAULTS.supportSpacingMetres
+            : m.role !== "GK" && gap(spot, m) < 2));
+      };
+      // 先保留原精度内的有效点；补查窄间隙时从球员当前位置比较真实位移。
+      // 球员可能已经站在开放线路上，不能因战术锚点仍被挡而强迫他挪动。
+      for (const refine of [false, true]) {
+        const originX = refine ? a.x : target.x;
+        if (refine && available(originX)) choice = { x: originX, y: anchor.y };
+        const searchXs = refine ? [...this._supportOfferSearchXs(a, anchor),
+          ...[-6, -4, -2, 0, 2, 4, 6].map((offset) => anchor.x + offset / mx)] : [];
+        for (const side of [preferredSide, -preferredSide]) {
+          const edges = [...new Set([0, ...searchXs
+            .filter((x) => Math.abs(x - anchor.x) * mx <= 6 + 1e-7)
+            .map((x) => (x - originX) * mx * side).filter((offset) => offset > 0)])].sort((x, y) => x - y);
+          const probes = refine ? edges.flatMap((edge, i) => i ? [(edges[i - 1] + edge) / 2, edge] : []) : [2, 4, 6];
+          let lower = 0;
+          for (const offset of probes) {
+            if (!available(originX + offset * side / mx)) { lower = offset; continue; }
+            let upper = offset;
+            for (let step = 0; step < 10; step++) {
+              const middle = (lower + upper) / 2;
+              if (available(originX + middle * side / mx)) upper = middle;
+              else lower = middle;
+            }
+            const spot = { x: originX + upper * side / mx, y: anchor.y };
+            if (!choice || gap(a, spot) < gap(a, choice) - (refine ? 2 / 2 ** 10 : 1e-7)) choice = spot;
+            break;
+          }
+        }
+      }
+      if (choice) offer = { ...choice, at: this.t, ownerId: b.owner, attackSince: this._teamAttackSince[a.team],
+        origin: { x: b.x, y: b.y } };
+    }
+    if (!offer) return;
+    a.tx = offer.x;
+    a.ty = offer.y;
+    a.fsm = "support";
+    a.offBallTargetKind = "support-offer";
+    a.offBallTarget = { ...a.offBallTarget, x: a.tx, y: a.ty, fsm: a.fsm, kind: "support-offer", offer };
+  }
+
   _chooseAttackOffBallTarget(a, owner) {
     a.offBallTargetKind = null;
     const dir = this.attackDir(a.team);
@@ -4071,11 +4232,13 @@ export class SimEngine {
     const ballSide = this.ball.x < 34 ? -1 : this.ball.x > 66 ? 1 : 0;
     const flankSide = this.ball.x < 22 ? -1 : this.ball.x > 78 ? 1 : 0;
     const ownerId = owner?.id || this.ball.receiverId || null;
+    // 飞行时 phaseActor 已是接球人；接球和停稳会改变分工，不能仅凭同一 ID 复用计划。
     if (
       plan &&
       plan.phase === planPhase &&
       plan.ownerId === ownerId &&
       plan.ballSide === ballSide &&
+      plan.ballState === this.ball.state &&
       this.t < plan.until &&
       plan.jobs.size
     ) {
@@ -4265,6 +4428,7 @@ export class SimEngine {
     plan.phase = planPhase;
     plan.ownerId = ownerId;
     plan.ballSide = ballSide;
+    plan.ballState = this.ball.state;
     plan.trigger = trigger;
     plan.coordination = profile;
     plan.handoffs = handoffs;
@@ -4354,9 +4518,13 @@ export class SimEngine {
       if (shadow && shadow.team !== a.team) {
         const sx = shadow.x - bx;
         const sy = shadow.y - by;
-        const goalLength = Math.hypot(vx, vy) || 1;
-        const shadowLength = Math.hypot(sx, sy) || 1;
-        const alignment = (vx * sx + vy * sy) / (goalLength * shadowLength);
+        // 夹角和下面的站位偏移使用同一米制几何，不能把 68×105 米球场当成正方形。
+        const goalVector = pitchVectorMetres(vx, vy);
+        const shadowVector = pitchVectorMetres(sx, sy);
+        const goalLength = Math.hypot(goalVector.x, goalVector.y) || 1;
+        const shadowLength = Math.hypot(shadowVector.x, shadowVector.y) || 1;
+        const alignment = (goalVector.x * shadowVector.x + goalVector.y * shadowVector.y) /
+          (goalLength * shadowLength);
         if (alignment > 0.08) {
           const shadowOffset = pitchOffsetToward(sx, sy, standoff);
           const shadowWeight = job.trigger === PRESS_TRIGGER_KINDS.TOUCHLINE ? 0.34 : 0.24;
@@ -4410,10 +4578,10 @@ export class SimEngine {
           supportDistance,
           mark.x <= b.x ? -1 : 1
         );
+        const supportVector = pitchVectorMetres(support.x - b.x, support.y - b.y);
+        const playerVector = pitchVectorMetres(a.x - b.x, a.y - b.y);
         const crossesPressureCircle =
-          (support.x - b.x) * (a.x - b.x) +
-            (support.y - b.y) * (a.y - b.y) <
-          0;
+          supportVector.x * playerVector.x + supportVector.y * playerVector.y < 0;
         if (crossesPressureCircle) {
           const sameSide = pitchOffsetToward(a.x - b.x, a.y - b.y, supportDistance);
           support = {
