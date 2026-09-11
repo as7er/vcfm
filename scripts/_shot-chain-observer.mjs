@@ -154,7 +154,7 @@ registerHooks({ load(url, context, nextLoad) {
   replace("      if (takeShot) {", `${observe}(this, "decision", { a, dGoal, pressure, canShoot, cdBlocked, setPieceChance, opportunity, takeShot, clearCloseChance, shootQuality, shootThresh, passQuality, core, isWing });\n      if (takeShot) {`);
   replace("    const aimX = aimCentre + (this.random() - 0.5) * err;", `    const aimX = aimCentre + (this.random() - 0.5) * err;\n    ${observe}(this, "aim", { err, skill, aimCentre });`);
   replace("  _emit(type, a, extra = {}) {", `  _emit(type, a, extra = {}) {\n    ${observe}(this, "event", { type, a, extra });`);
-  replace("        pSave = clamp(pSave, 0.04, 0.93);", `        pSave = clamp(pSave, 0.04, 0.93);\n        ${observe}(this, "save", { dt, pSave, dPath, reach, lateral, reactionTime, shotDistance, z: b.z });`);
+  replace("        pSave = clamp(pSave, 0.04, 0.93);", `        pSave = clamp(pSave, 0.04, 0.93);\n        ${observe}(this, "save", { dt, pSave, dPath, reach, lateral, reactionTime, shotDistance, z: b.z, shotAt: b.shotAt, contactAt: this.t + (Number.isFinite(b._stepDt) ? b._stepDt : dt) * tt });`);
   replace("        if (this.random() >= pBlock) continue;", `        ${observe}(this, "block", { defenderId: o.id, dt, pBlock, distance: d, z: b.z });\n        if (this.random() >= pBlock) continue;`);
   replace("    const underBar = crossZ < 2.44;", `    if (crossedGoalLine != null) ${observe}(this, "bounds", { crossX, crossZ });\n    const underBar = crossZ < 2.44;`);
   replace("  _restart(type, restartTeam, x, y) {", `  _restart(type, restartTeam, x, y) {\n    ${observe}(this, "restart", { type });`);
