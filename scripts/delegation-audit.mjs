@@ -37,7 +37,7 @@ function player(id, pos, ovr, options = {}) {
 }
 
 function squad() {
-  const players = [player("gk", "GK", 14)];
+  const players = [player("gk", "GK", 14), player("gk2", "GK", 13)];
   for (let i = 0; i < 7; i++) players.push(player(`d${i}`, "DEF", 16 - i * 0.3));
   for (let i = 0; i < 8; i++) players.push(player(`m${i}`, "MID", 16 - i * 0.25));
   for (let i = 0; i < 6; i++) players.push(player(`a${i}`, "ATT", 16 - i * 0.4));
@@ -77,12 +77,70 @@ function assertNoSubstituteReentry(events, clubId) {
   const state = createMatchSession(world, fixture());
   state.eligiblePlayerIds.home = new Set(club.players.map((player) => player.id));
   const original = club.tactics.lineup[1];
-  const firstBench = club.players.find((candidate) => !club.tactics.lineup.includes(candidate.id));
+  const originalPlayer = club.players.find((player) => player.id === original);
+  const firstBench = club.players.find(
+    (candidate) => !club.tactics.lineup.includes(candidate.id) && candidate.pos === originalPlayer.pos
+  );
+  assert.ok(originalPlayer && firstBench, "same-position outfield substitution fixture must exist");
   assert.equal(applySubstitution(state, club, original, firstBench.id, 60).ok, true);
-  const secondBench = club.players.find((candidate) => !club.tactics.lineup.includes(candidate.id) && candidate.id !== original);
+  const secondBench = club.players.find(
+    (candidate) =>
+      !club.tactics.lineup.includes(candidate.id) &&
+      candidate.id !== original &&
+      candidate.pos === firstBench.pos
+  );
+  assert.ok(secondBench, "second same-position substitute fixture must exist");
   assert.equal(applySubstitution(state, club, firstBench.id, secondBench.id, 70).ok, true);
   assert.equal(applySubstitution(state, club, secondBench.id, firstBench.id, 80).ok, false,
     "a substituted player must never re-enter, regardless of the random match path");
+}
+
+{
+  const { world, club } = testWorld();
+  autoLineup(club);
+  const cupFixture = { ...fixture(), competitionType: "domestic-cup" };
+  const state = createMatchSession(world, cupFixture);
+  state.eligiblePlayerIds.home = new Set(club.players.map((player) => player.id));
+  const outfield = club.players.find(
+    (player) => club.tactics.lineup.includes(player.id) && player.pos !== "GK"
+  );
+  const goalkeeper = club.players.find(
+    (player) => !club.tactics.lineup.includes(player.id) && player.pos === "GK"
+  );
+  assert.ok(outfield && goalkeeper, "goalkeeper substitution guard fixture must exist");
+  const before = [...club.tactics.lineup];
+  const result = applySubstitution(state, club, outfield.id, goalkeeper.id, 60);
+  assert.equal(result.ok, false, "an outfield slot must reject a substitute goalkeeper");
+  assert.deepEqual(club.tactics.lineup, before, "a rejected substitution must not mutate the lineup");
+}
+
+{
+  const { world, club } = testWorld();
+  autoLineup(club);
+  const cupFixture = { ...fixture(), competitionType: "domestic-cup" };
+  const state = createMatchSession(world, cupFixture);
+  state.eligiblePlayerIds.home = new Set(club.players.map((player) => player.id));
+  const goalkeeper = club.players.find(
+    (player) => club.tactics.lineup.includes(player.id) && player.pos === "GK"
+  );
+  const outfield = club.players.find(
+    (player) => !club.tactics.lineup.includes(player.id) && player.pos !== "GK"
+  );
+  const backup = club.players.find(
+    (player) => !club.tactics.lineup.includes(player.id) && player.pos === "GK"
+  );
+  assert.ok(goalkeeper && outfield && backup, "goalkeeper replacement fixture must exist");
+  assert.equal(
+    applySubstitution(state, club, goalkeeper.id, outfield.id, 60).ok,
+    false,
+    "a goalkeeper slot must reject an outfield substitute"
+  );
+  assert.equal(applySubstitution(state, club, goalkeeper.id, backup.id, 60).ok, true);
+  assert.equal(
+    club.tactics.lineup.filter((id) => club.players.find((player) => player.id === id)?.pos === "GK").length,
+    1,
+    "a valid goalkeeper replacement must leave exactly one goalkeeper on the pitch"
+  );
 }
 
 {
@@ -222,6 +280,63 @@ function assertNoSubstituteReentry(events, clubId) {
   assert.ok(scheduledSubs.some((event) => event.teamId === opponent.id), "away AI must review substitutions");
   assertNoSubstituteReentry(state.events, club.id);
   assertNoSubstituteReentry(state.events, opponent.id);
+}
+
+for (const engineMode of ["probability", "spatial"]) {
+  const { world, club, opponent } = testWorld();
+  for (const team of [club, opponent]) {
+    for (const player of team.players) player.id = `${team.id}-${player.id}`;
+  }
+  const state = createMatchSession(
+    world,
+    { ...fixture(), competitionType: "domestic-cup", matchSeed: 911253 },
+    { engineMode }
+  );
+  const starters = new Set(opponent.tactics.lineup);
+  const backup = opponent.players.find((player) => !starters.has(player.id) && player.pos === "GK");
+  assert.ok(backup, "AI substitution fixture must have a reserve keeper");
+  for (const player of opponent.players) {
+    if (!starters.has(player.id)) player.ovr = player.pos === "GK" ? 20 : 8;
+  }
+
+  await playFirstHalf(state);
+  if (engineMode === "spatial") {
+    const engine = state.simEng;
+    const outgoing = engine.agents.find(
+      (agent) => agent.team === "away" && agent.role !== "GK" && !agent.sentOff
+    );
+    assert.ok(outgoing);
+    const pendingBefore = state._simPendingSubs.length;
+    const incoming = engine.onInjurySub(outgoing);
+    assert.ok(incoming, "injury replacement must use an available outfield player");
+    assert.notEqual(incoming.pos, "GK", "injury callback must not select the highest-rated reserve keeper");
+    state._simPendingSubs.length = pendingBefore;
+
+    const eligible = state.eligiblePlayerIds.away;
+    state.eligiblePlayerIds.away = new Set([...opponent.tactics.lineup, backup.id]);
+    assert.equal(engine.onInjurySub(outgoing), null, "a keeper-only bench cannot replace an injured outfielder");
+    assert.equal(state._simPendingSubs.length, pendingBefore, "no candidate must not reserve a substitution");
+    state.eligiblePlayerIds.away = eligible;
+  }
+  await playSecondHalf(state);
+
+  const substitutions = state.events.filter((event) => event.type === "sub" && event.teamId === opponent.id);
+  assert.ok(substitutions.some((event) => event.minute === 60 || event.minute === 75),
+    `${engineMode}: AI must still make scheduled outfield substitutions`);
+  const lineup = new Set(starters);
+  for (const event of substitutions) {
+    const outgoing = opponent.players.find((player) => player.id === event.outId);
+    const incoming = opponent.players.find((player) => player.id === event.inId);
+    assert.ok(outgoing && incoming);
+    assert.equal(incoming.pos === "GK", outgoing.pos === "GK",
+      `${engineMode}: AI goalkeeper replacements must stay in the goalkeeper position`);
+    lineup.delete(event.outId);
+    lineup.add(event.inId);
+    assert.equal(opponent.players.filter((player) => lineup.has(player.id) && player.pos === "GK").length, 1,
+      `${engineMode}: every substitution must leave one goalkeeper in the lineup`);
+  }
+  assert.ok(!substitutions.some((event) => event.inId === backup.id),
+    `${engineMode}: reserve keeper must stay on the bench during ordinary outfield rotations`);
 }
 
 console.log("delegation audit passed");

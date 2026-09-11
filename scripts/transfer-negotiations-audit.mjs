@@ -11,6 +11,7 @@ import {
   resolveInboxAction,
   syncTransferNegotiationsToInbox,
 } from "../js/inbox.js";
+import { emptyMatchStats } from "../js/models.js";
 
 function player(id, pos = "MID", ovr = 14) {
   const attrs = {
@@ -171,6 +172,7 @@ function due(world, day) {
 // 卖方还价 -> 信箱接受 -> 球员自动接受 -> 成交与财政落账。
 {
   const { world, buyer, seller, target } = setup();
+  target.stats = { ...emptyMatchStats(), apps: 3, goals: 1, assists: 2, ratingSum: 21 };
   const submitted = submitTransferNegotiation(world, target.id, seller.id, {
     fee: 1_000_000,
     years: 3,
@@ -205,6 +207,22 @@ function due(world, day) {
   assert.equal(submitted.negotiation.status, "completed");
   assert.equal(seller.players.some((candidate) => candidate.id === target.id), false);
   assert.equal(buyer.players.some((candidate) => candidate.id === target.id), true);
+  assert.deepEqual(
+    target.history.find((entry) => entry.season === world.season && entry.clubId === seller.id),
+    {
+      season: world.season,
+      clubId: seller.id,
+      clubName: seller.name,
+      apps: 3,
+      goals: 1,
+      assists: 2,
+      cleanSheets: 0,
+      goalsConceded: 0,
+      avgRating: 7,
+    },
+    "a mid-season transfer must archive the seller segment under the seller club"
+  );
+  assert.equal(target.stats.apps, 0, "the new club must start a fresh current-season segment");
   assert.equal(buyer.money, buyerMoneyBefore - submitted.negotiation.fee - submitted.negotiation.signingBonus);
   assert.equal(seller.money, sellerMoneyBefore + submitted.negotiation.fee);
   assert.equal(buyer.finance.seasonTransferNet, -submitted.negotiation.fee - submitted.negotiation.signingBonus);

@@ -16,6 +16,7 @@ import {
   retireChance,
   resetSeasonStats,
   archiveAndResetSeasonStats,
+  archiveClubSeasonStats,
   ensurePlayerHistory,
   ensureLeagueStats,
   generateFixtures,
@@ -2059,6 +2060,7 @@ function transferBetween(world, buyer, seller, player) {
     sellOnPct: (player.age || 25) <= 23 ? 10 : 0,
     source: "ai-transfer-upfront",
   });
+  archiveClubSeasonStats(player, world.season, seller.id, seller.name);
   seller.players.splice(idx, 1);
   player.clubId = buyer.id;
   player.morale = Math.min(100, (player.morale || 70) + 5);

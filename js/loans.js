@@ -9,6 +9,7 @@ import {
   assignSquadNumbers,
   autoLineup,
   estimateValue,
+  archiveClubSeasonStats,
 } from "./models.js";
 import { assertTransferOpen, ensureTransferWindow, getTransferPhase } from "./transfers.js";
 import { ensureContract } from "./contracts.js";
@@ -127,6 +128,7 @@ function moveOnLoan(world, player, fromClub, toClub, { untilDay, wageShare, fee,
   if (idx < 0) return { ok: false, msg: "球员不在出让方" };
 
   const [p] = fromClub.players.splice(idx, 1);
+  archiveClubSeasonStats(p, world.season, fromClub.id, fromClub.name);
   stripFromLineup(fromClub, p.id);
 
   p.number = null;
@@ -385,6 +387,7 @@ export function returnLoan(world, playerId, { reason = "return" } = {}) {
   const idx = host.players.findIndex((p) => p.id === playerId);
   if (idx < 0) return { ok: false, msg: "租入方名单异常" };
   const [p] = host.players.splice(idx, 1);
+  archiveClubSeasonStats(p, world.season, host.id, host.name);
   stripFromLineup(host, playerId);
   p.loan = null;
   p.number = null;

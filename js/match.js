@@ -1912,6 +1912,8 @@ function tryInjury(state, minute) {
 function aiBenchCandidates(state, club, outP = null) {
   const sk = sideKey(state, club);
   const xiIds = new Set(club.tactics.lineup);
+  // Substitutes inherit the slot; keeper OVR must not qualify for an outfield job.
+  const replacingKeeper = outP?.pos === "GK";
   const subbedOutIds = new Set(
     state.events
       .filter((event) => event.type === "sub" && event.teamId === club.id && event.outId)
@@ -1926,7 +1928,8 @@ function aiBenchCandidates(state, club, outP = null) {
         (p.injured || 0) <= 0 &&
         (p.suspendedMatches || 0) <= 0 &&
         !state.sentOff[sk].has(p.id) &&
-        (p.fitness || 0) > 50
+        (p.fitness || 0) > 50 &&
+        (replacingKeeper ? p.pos === "GK" : p.pos !== "GK")
     )
     .sort((a, b) => {
       const aScore = (a.ovr || 0) + (outP && a.pos === outP.pos ? 5 : 0) + (a.fitness || 0) * 0.01;
@@ -2010,6 +2013,12 @@ export function applySubstitution(state, club, outId, inId, minute, silent = fal
   const inn = club.players.find((p) => p.id === inId);
   const outP = club.players.find((p) => p.id === outId);
   if (!inn || !outP) return { ok: false, msg: "球员无效" };
+  if (outP.pos === "GK" && inn.pos !== "GK") {
+    return { ok: false, msg: "门将只能由门将替换" };
+  }
+  if (outP.pos !== "GK" && inn.pos === "GK") {
+    return { ok: false, msg: "外场位置不能换入门将" };
+  }
   if (state.eligiblePlayerIds?.[sk] && !state.eligiblePlayerIds[sk].has(inId)) {
     return { ok: false, msg: "该球员未取得本赛事参赛资格" };
   }

@@ -860,6 +860,42 @@ export function ensureCompetitionStats(p, competitionId, clubId = null) {
   return p.competitionStats[key];
 }
 
+/** Archive the current club segment without advancing the season. */
+export function archiveClubSeasonStats(p, season, clubId, clubName) {
+  ensurePlayerHistory(p);
+  const s = p.stats || emptyMatchStats();
+  const hasData = s.apps > 0 || s.goals > 0 || s.assists > 0 || s.cleanSheets > 0 || s.goalsConceded > 0;
+  if (hasData) {
+    const duplicate = p.history.some(
+      (h) => h.season === season && h.clubId === clubId && h.apps === s.apps && h.goals === s.goals && h.assists === s.assists
+    );
+    if (!duplicate) {
+      const entry = {
+        season,
+        clubId: clubId || p.clubId || null,
+        clubName: clubName || "",
+        apps: s.apps || 0,
+        goals: s.goals || 0,
+        assists: s.assists || 0,
+        cleanSheets: s.cleanSheets || 0,
+        goalsConceded: s.goalsConceded || 0,
+        avgRating: s.apps > 0 && s.ratingSum > 0 ? Math.round((s.ratingSum / s.apps) * 10) / 10 : null,
+      };
+      p.history.push(entry);
+      for (const key of ["apps", "goals", "assists", "cleanSheets", "goalsConceded", "ratingSum"]) {
+        p.career[key] = (p.career[key] || 0) + (s[key] || 0);
+      }
+    }
+  }
+  const keepForm = Array.isArray(s.recentRatings) ? s.recentRatings.slice(-RECENT_FORM_LEN) : [];
+  p.stats = emptyMatchStats();
+  if (keepForm.length) p.stats.recentRatings = keepForm;
+  p.leagueStats = {};
+  p.leagueStatsVersion = 1;
+  p.competitionStats = {};
+  return p;
+}
+
 /**
  * 赛季结束归档：当前 stats 写入 history + 累加 career，再清零本赛季
  * @param season 刚结束的赛季年份

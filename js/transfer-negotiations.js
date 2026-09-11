@@ -11,6 +11,7 @@ import {
   estimateValue,
   estimateWage,
   formatMoney,
+  archiveClubSeasonStats,
 } from "./models.js";
 import { ensureContract } from "./contracts.js";
 import { mediaTransfer } from "./media.js";
@@ -699,6 +700,7 @@ function completeSaleNegotiation(world, negotiation) {
   });
   recordFinanceEntry(buyer, -bonus, { category: "transfer", source: "signing-bonus", season: world.season, day: world.day });
 
+  archiveClubSeasonStats(player, world.season, seller.id, seller.name);
   seller.players.splice(sellerIndex, 1);
   player.clubId = buyer.id;
   player.number = null;
@@ -840,6 +842,7 @@ function completeBuyNegotiation(world, negotiation) {
   });
   recordFinanceEntry(buyer, -bonus, { category: "transfer", source: "signing-bonus", season: world.season, day: world.day });
 
+  archiveClubSeasonStats(player, world.season, seller.id, seller.name);
   seller.players.splice(sellerIndex, 1);
   player.clubId = buyer.id;
   player.morale = Math.min(100, (Number(player.morale) || 70) + 8);
