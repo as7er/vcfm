@@ -6,6 +6,41 @@
 > 预览：`python -m http.server 8765 --bind 127.0.0.1`  
 > 缓存：**vcfm-v254**（门将换人位置约束；换人专项验证通过，未跑完整验收）
 
+## 当前状态（2026-09-13 晚，续接先读这一节）
+
+- **已把 `js/sim/engine.js` 回退到 `10378e3`**（工作区已改、未提交，精确抵消 `f649b3d`
+  的 +126/−5）。`f649b3d` 让**标准档与后台档双双**跌破发布门禁，逐项消融表明没有
+  可行的外科方案，故完整回退。回退后 `verify --full` **退出 0（208 项检查）**，
+  标准 2.83 球 / 10.1% 转化、后台 2.67 球 / 10.5% 转化。详见
+  [match-f649b3d-revert-2026-09-13.md](docs/match-f649b3d-revert-2026-09-13.md)。
+- 失败状态与第一轮消融（标准档）：`forward-burst` 是标准档失败的唯一原因，只关它即
+  2.58 球 / 9.7%、退出 0。但同一改动在后台档方向相反——删掉它进球从 3.04 掉到 2.13；
+  组合关掉 `deepRun` + 保护后进球回到 2.71 却把强队分离度压到 1.42（< 1.5）。
+  两档对这几处改动敏感方向不一致，只有 `10378e3` 两档都过。
+- `f649b3d` 相对 `10378e3` 的真实内容是 126 行：`offBallTargetUntil` 目标缓存、
+  `Math.max(attackThinkUntil, offBallTargetUntil)` 保护、两个新玩法
+  （`forward-burst`、`deepRun`）、5 处调试 `console.log`。
+  缓存与保护在两档里被证明中性/无害（后台档根本不触发），但仍随本次回退一并移除，
+  因为它们来自前提不成立的改动；若要保留须作为独立改动单独标定两档。
+- 5 处调试输出行为中性（`debug removed` 变体与 `HEAD` 十项指标逐位相同）。
+  其中 `_integrateMotion` 的守卫 `!this.ball.owner !== a.id` 恒为真，过滤条件失效。
+- 18:01 的 `10378e3`（射门频率标定 + 有意刷新 `STANDARD_PROFILE_REFERENCE_24`）本身没问题，
+  同机同 Node 复跑两档都退出 0。问题全部来自它之后的 `f649b3d`。
+- 交接文档 `docs/handoff-pass-support-fix-2026-09-13.md` **不可信**：虚构了
+  `js/ai/decisions.mjs`、`test/ai-decisions.test.mjs` 与 `'pass-support'` 字符串（引擎中
+  出现 0 次）；真实断言在 `scripts/pass-support-audit.mjs:77`（期望 `"third-man-run"`），
+  且该审计在修复前后**都通过**——那次"修复"在真实路径上是冗余的。核查全文：
+  [handoff-pass-support-fix-verification-2026-09-13.md](docs/handoff-pass-support-fix-verification-2026-09-13.md)。
+- 验证已完成：`verify --full` 退出 0（208 项）、浏览器连续性审计退出 0（6325 帧、errors 空、
+  证据 `.tmp-continuity/visual-1789316036616/`）、浏览器 E2E 退出 0。
+  剩余动作只有**提交**（`engine.js` 回退已暂存：5 insertions / 126 deletions）。
+  **绝对护栏不能靠刷新基准消除。**
+- 既存问题（与本次改动无关）：`scripts/mid-runner-eligibility-audit.mjs` 失败
+  （`home/habit: nomination must agree with the execution branch`），且未被任何入口引用。
+- `.tmp-continuity/global-movement/current-standard.json`（19:22）的 `engineSha256`
+  与任何已提交版本都不吻合，来源待查，不要当作基线。全局跑位任务本身仍未完成，
+  其交接仍在下一节之后。
+
 ## 门将换人修复（2026-09-11，本地未提交）
 
 - `aiBenchCandidates` 原先允许替补门将凭评分替换外场球员；普通换人与空间伤退回调
