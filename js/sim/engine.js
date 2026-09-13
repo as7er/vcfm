@@ -1915,7 +1915,9 @@ export class SimEngine {
 
     if (teamHasBall) {
       // 无球跑位目标保持 0.55~1.1s；随机数只在生成新意图时使用，不能每 tick 漂移。
-      if (this.t >= (a.attackThinkUntil || 0)) {
+      // 激进目标点（前插、套边等）有更长的保护时间，由 offBallTargetUntil 控制
+      const protectedUntil = Math.max(a.attackThinkUntil || 0, a.offBallTargetUntil || 0);
+      if (this.t >= protectedUntil) {
         const tempo = this._tacticLevel(a.team, "tempo");
         a.attackThinkUntil =
           this.t +
@@ -3556,16 +3558,24 @@ export class SimEngine {
 
   _applyPassSupport(a, owner) {
     const plan = this._passSupportRun;
+    const isPassSupportRun = a.offBallTargetKind === "third-man-run" || a.offBallTargetKind === "cutback-outlet";
     if (plan && plan.playerId === a.id && plan.team === a.team && this.t <= plan.until &&
         plan.attackSince === this._teamAttackSince[a.team] &&
         owner?.team === a.team && this.ball.owner !== a.id && !this.ball.restartType) {
       a.tx = plan.x;
       a.ty = plan.y;
       a.fsm = "support";
-      a.offBallTargetKind = plan.cutback ? "cutback-outlet" : "third-man-run";
+      const kind = plan.cutback ? "cutback-outlet" : "third-man-run";
+      a.offBallTargetKind = kind;
+      a.offBallTarget = { ...a.offBallTarget, x: a.tx, y: a.ty, fsm: a.fsm, kind };
+    } else if (isPassSupportRun) {
+      // 清除过期的传球支援跑位标记
+      a.offBallTargetKind = null;
+      a.offBallTarget = null;
     }
     if (a.role === "MID" && !this._isPrimaryMidRunner(a) &&
-        Math.abs(this.ball.y - this.targetGoalY(a.team)) < 36) {
+        Math.abs(this.ball.y - this.targetGoalY(a.team)) < 36 &&
+        a.offBallTargetKind !== "midfield-late-run") {
       const mids = this.agents.filter((m) => m.team === a.team && m.role === "MID" && !m.sentOff &&
         (!m.injuredOff && !this._isPrimaryMidRunner(m)))
         .sort((left, right) => String(left.id).localeCompare(String(right.id)));
@@ -3732,6 +3742,16 @@ export class SimEngine {
   }
 
   _chooseAttackOffBallTarget(a, owner) {
+    // 缓存机制：目标点未过期且未到达时，保持不变
+    const targetExpiry = a.offBallTargetUntil || 0;
+    const distToTarget = Math.hypot(a.x - a.tx, a.y - a.ty);
+    const hasReached = distToTarget < 3;  // 到达阈值：3米
+    const targetStillValid = this.t < targetExpiry && !hasReached;
+
+    if (targetStillValid) {
+      return;  // 保持当前目标点
+    }
+
     a.offBallTargetKind = null;
     const dir = this.attackDir(a.team);
     const b = this.ball;
@@ -3766,6 +3786,7 @@ export class SimEngine {
       a.ty = clamp(owner.y + dir * (5 + this.random() * 5), 5, 95);
       a.fsm = "support";
       a.offBallTargetKind = "one-two";
+      a.offBallTargetUntil = this.t + 1.5;  // one-two配合较短，保持1.5秒
       this._clampOffside(a);
       return;
     }
@@ -3780,6 +3801,7 @@ export class SimEngine {
       a.tx = clamp(a.baseX * 0.72 + b.x * 0.18 + 50 * 0.1, 12, 88);
       a.ty = clamp(b.y - dir * (15 + rank * 3.5), 12, 88);
       a.fsm = "support";
+      a.offBallTargetUntil = this.t + 2.0;  // 目标点保持2秒
       this._clampOffside(a);
       return;
     }
@@ -3789,6 +3811,7 @@ export class SimEngine {
       a.tx = clamp(a.baseX + (b.x - 50) * 0.08, 18, 82);
       a.ty = clamp(a.baseY + dir * 7, 18, 82);
       a.fsm = "home";
+      a.offBallTargetUntil = this.t + 2.0;  // 目标点保持2秒
       return;
     }
 
@@ -3806,6 +3829,7 @@ export class SimEngine {
           a.ty = clamp(owner.y + dir * (12 + this.random() * 8), 6, 94);
         }
         a.fsm = "support";
+        a.offBallTargetUntil = this.t + 1.8;  // 核心球员目标点保持1.8秒
         this._clampOffside(a);
         return;
       }
@@ -3845,6 +3869,7 @@ export class SimEngine {
         a.tx = clamp(softIn + (this.random() - 0.5) * 4, 10, 90);
         a.ty = clamp(b.y + dir * dropDepth, 8, 92);
         a.fsm = "support";
+        a.offBallTargetUntil = this.t + 2.0;  // 目标点保持2秒
         this._clampOffside(a);
         return;
       }
@@ -3858,6 +3883,7 @@ export class SimEngine {
         a.tx = clamp(cutX + (b.x - 50) * 0.08, 12, 88);
         a.ty = clamp(b.y + dir * (10 + this.random() * 10), 5, 95);
         a.fsm = "support";
+        a.offBallTargetUntil = this.t + 2.0;  // 目标点保持2秒
         this._clampOffside(a);
         return;
       }
@@ -3872,6 +3898,7 @@ export class SimEngine {
       a.tx = targetX;
       a.ty = targetY;
       a.fsm = "home";
+      a.offBallTargetUntil = this.t + 2.0;  // 目标点保持2秒
       this._clampOffside(a);
       return;
     }
@@ -3899,8 +3926,32 @@ export class SimEngine {
         a.tx = clamp(b.x + side * (6 + this.random() * 8), 8, 92);
         a.ty = clamp(b.y + dir * dropDepth, 8, 92);
         a.fsm = "support";
+        a.offBallTargetUntil = this.t + 2.0;  // 目标点保持2秒
         return;
       }
+
+      // 激进前插：进攻三区，已到达当前目标点的球员有概率冲向禁区深处
+      const goalY = this.targetGoalY(a.team);
+      const hasTarget = Number.isFinite(a.tx) && Number.isFinite(a.ty);
+      const arrivedAtTarget = hasTarget && Math.hypot(a.x - a.tx, a.y - a.ty) < 2;
+      const burstRun =
+        prog > 0.52 &&
+        !nearest &&
+        arrivedAtTarget &&
+        this.random() < 0.55 + (getsForward ? 0.25 : 0) + Math.max(0, roleDepth) * 0.18 + a.attr.pace * 0.12;
+
+      if (burstRun) {
+        const side = a.baseX < 48 ? -1 : a.baseX > 52 ? 1 : (a.num || 0) % 2 ? -1 : 1;
+        const sprintDepth = 24 + this.random() * 8 + (getsForward ? 4 : 0) + roleDepth * 6;
+        a.tx = clamp(a.baseX + side * (4 + this.random() * 6) + (b.x - 50) * 0.15, 6, 94);
+        a.ty = clamp(goalY - dir * sprintDepth, 3, 97);
+        a.fsm = "support";
+        a.offBallTargetKind = "forward-burst";
+        a.offBallTargetUntil = this.t + 2.2;  // 激进前插保持2.2秒
+        this._clampOffside(a);
+        return;
+      }
+
       // 前插纵深，避开拥挤区
       let fwdTargetX = clamp(a.baseX + (b.x - 50) * 0.12, 6, 94);
       const fwdTargetY = clamp(a.baseY + dir * ((getsForward ? 18 : core ? 12 : 16) + roleDepth * 5), 3, 97);
@@ -3909,9 +3960,27 @@ export class SimEngine {
         const fwdShiftX = fwdShiftMetres / (SIM.PITCH_W_METRES / SIM.FIELD_W);
         fwdTargetX = clamp(fwdTargetX + fwdShiftX, 6, 94);
       }
+
+      // 调试：追踪目标点更新（限制输出频率）
+      if (!this._targetUpdateCount) this._targetUpdateCount = 0;
+      if (this._targetUpdateCount < 50 && a.role === "ATT") {
+        const oldDist = Math.hypot(a.x - a.tx, a.y - a.ty);
+        const newDist = Math.hypot(a.x - fwdTargetX, a.y - fwdTargetY);
+        const targetShift = Math.hypot(fwdTargetX - a.tx, fwdTargetY - a.ty);
+        const currentSpeed = Math.hypot(a.vx || 0, a.vy || 0);
+        if (oldDist < 2) {  // 只记录"已到达"的情况
+          console.log(`[${this.t.toFixed(1)}s] #${a.num} 已到达旧目标(${oldDist.toFixed(1)}m), 新目标距离=${newDist.toFixed(1)}m, 目标位移=${targetShift.toFixed(1)}m, 速度=${currentSpeed.toFixed(2)}m/s`);
+          this._targetUpdateCount++;
+        } else if (targetShift > 3) {  // 记录"目标点大幅变化"的情况
+          console.log(`[${this.t.toFixed(1)}s] #${a.num} 目标点移动${targetShift.toFixed(1)}m (旧距${oldDist.toFixed(1)}m → 新距${newDist.toFixed(1)}m), 速度=${currentSpeed.toFixed(2)}m/s`);
+          this._targetUpdateCount++;
+        }
+      }
+
       a.tx = fwdTargetX;
       a.ty = fwdTargetY;
       a.fsm = "home";
+      a.offBallTargetUntil = this.t + 2.0;  // 前插纵深目标点保持2秒
       this._clampOffside(a);
       return;
     }
@@ -3935,8 +4004,30 @@ export class SimEngine {
               : (a.num || 0) % 2
                 ? -0.45
                 : 0.45;
-        const depth =
-          11 + burst * 10 + (advanced ? 4 : 0) + (core ? 3 : 0) + (getsForward ? 2 : 0) + roleDepth * 4;
+        // 深度前插：进攻三区且已到达当前目标点时，后排插上冲向弧顶/禁区边缘
+        const goalY = this.targetGoalY(a.team);
+        const hasTarget = Number.isFinite(a.tx) && Number.isFinite(a.ty);
+        const arrivedAtTarget = hasTarget && Math.hypot(a.x - a.tx, a.y - a.ty) < 2;
+        const currentGoalDist = Math.abs(a.y - goalY);
+        const deepRunProb = 0.58 + burst * 0.25 + (getsForward ? 0.18 : 0);
+        const deepRun = prog > 0.58 && currentGoalDist > 22 && arrivedAtTarget &&
+          this.random() < deepRunProb;
+
+        // 调试：统计后排插上的触发情况
+        if (prog > 0.58 && arrivedAtTarget && this.t % 30 < 0.1) {
+          if (!this._deepRunStats) this._deepRunStats = { checked: 0, distFail: 0, probFail: 0, success: 0 };
+          this._deepRunStats.checked++;
+          if (currentGoalDist <= 22) this._deepRunStats.distFail++;
+          else if (!deepRun) this._deepRunStats.probFail++;
+          else this._deepRunStats.success++;
+          if (this._deepRunStats.checked >= 100) {
+            console.log('后排插上统计:', this._deepRunStats);
+            this._deepRunStats = null;
+          }
+        }
+        const depth = deepRun
+          ? 16 + burst * 12 + (advanced ? 5 : 0) + (core ? 4 : 0) + (getsForward ? 3 : 0) + roleDepth * 6
+          : 11 + burst * 10 + (advanced ? 4 : 0) + (core ? 3 : 0) + (getsForward ? 2 : 0) + roleDepth * 4;
         a.tx = clamp(
           b.x + side * (12 + this.random() * 6) + (a.baseX - 50) * 0.12,
           8,
@@ -3944,6 +4035,8 @@ export class SimEngine {
         );
         a.ty = clamp(b.y + dir * depth, 6, 94);
         a.fsm = "support";
+        if (deepRun) a.offBallTargetKind = "midfield-late-run";
+        a.offBallTargetUntil = this.t + (deepRun ? 2.2 : 1.8);  // 深度前插保持更久
         this._clampOffside(a);
         return;
       }
@@ -3960,6 +4053,7 @@ export class SimEngine {
         a.tx = clamp(b.x + side * (11 + this.random() * 6), 5, 95);
         a.ty = clamp(b.y + dir * (7 + this.random() * 5), 3, 97);
         a.fsm = "support";
+        a.offBallTargetUntil = this.t + 1.6;  // 中场接应目标点保持1.6秒
       } else {
         let midTargetX = clamp(a.baseX + (b.x - 50) * 0.18, 5, 95);
         const midTargetY = clamp(a.baseY + dir * (10 + prog * 6), 3, 97);
@@ -3971,6 +4065,7 @@ export class SimEngine {
         a.tx = midTargetX;
         a.ty = midTargetY;
         a.fsm = "home";
+        a.offBallTargetUntil = this.t + 1.8;  // 中场站位目标点保持1.8秒
       }
       this._clampOffside(a);
       return;
@@ -3990,6 +4085,7 @@ export class SimEngine {
         a.tx = clamp(wide < 0 ? 8 + this.random() * 6 : 86 + this.random() * 6, 4, 96);
         a.ty = clamp(b.y + dir * (8 + this.random() * 12 + prog * 8), 8, 92);
         a.fsm = "support";
+        a.offBallTargetUntil = this.t + 2.0;  // 边后卫套边目标点保持2秒
         this._clampOffside(a);
         return;
       }
@@ -4004,6 +4100,7 @@ export class SimEngine {
       a.tx = fbTargetX;
       a.ty = fbTargetY;
       a.fsm = "home";
+      a.offBallTargetUntil = this.t + 1.8;  // 边后卫站位目标点保持1.8秒
       this._clampOffside(a);
       return;
     }
@@ -4014,6 +4111,7 @@ export class SimEngine {
       a.tx = clamp(b.x + side * (10 + this.random() * 4), 5, 95);
       a.ty = clamp(b.y + dir * 3, 3, 97);
       a.fsm = "support";
+      a.offBallTargetUntil = this.t + 1.5;  // 中卫接应目标点保持1.5秒
     } else {
       let cbTargetX = clamp(a.baseX + (b.x - 50) * 0.12, 5, 95);
       const cbTargetY = clamp(a.baseY + dir * 3, 3, 97);
@@ -4025,6 +4123,7 @@ export class SimEngine {
       a.tx = cbTargetX;
       a.ty = cbTargetY;
       a.fsm = "home";
+      a.offBallTargetUntil = this.t + 1.8;  // 中卫站位目标点保持1.8秒
     }
     this._clampOffside(a);
   }
@@ -5254,6 +5353,17 @@ export class SimEngine {
   }
 
   _integrateMotion(a, dt) {
+    // 调试：记录移动层看到的目标距离
+    if (!this._moveDebugCount) this._moveDebugCount = 0;
+    if (this._moveDebugCount < 30 && a.role === "ATT" && !this.ball.owner !== a.id) {
+      const d = Math.hypot(a.tx - a.x, a.ty - a.y);
+      const speed = Math.hypot(a.vx || 0, a.vy || 0);
+      if (d > 10 && speed < 2) {  // 远目标但慢速
+        console.log(`[${this.t.toFixed(1)}s] #${a.num} _integrateMotion: 目标距离=${d.toFixed(1)}m, 当前速度=${speed.toFixed(2)}m/s, fsm=${a.fsm}`);
+        this._moveDebugCount++;
+      }
+    }
+
     let speed = playerRunSpeed(a);
     const pressing = this._stepPressing[a.team] || 3;
     if (a.fsm === "press") speed *= 0.94 + pressing * 0.025;
@@ -5284,6 +5394,17 @@ export class SimEngine {
     } else {
       const slowR = 5;
       const desired = speed * Math.min(1, d / slowR) * clamp(turnCost, 0.82, 1);
+
+      // 调试：记录期望速度 vs 实际速度
+      if (!this._speedDebugCount) this._speedDebugCount = 0;
+      if (this._speedDebugCount < 30 && a.role === "ATT") {
+        const currentSpeed = Math.hypot(a.vx || 0, a.vy || 0);
+        if (d > 10 && desired > 4 && currentSpeed < 2) {
+          console.log(`[${this.t.toFixed(1)}s] #${a.num} 目标距离=${d.toFixed(1)}m, 期望速度=${desired.toFixed(2)}, 当前速度=${currentSpeed.toFixed(2)}, slowR因子=${(d/slowR).toFixed(2)}, turnCost=${turnCost.toFixed(2)}`);
+          this._speedDebugCount++;
+        }
+      }
+
       const dvx = (dx / d) * desired - a.vx;
       const dvy = (dy / d) * desired - a.vy;
       const accel = playerAcceleration(a, speed);
