@@ -119,6 +119,7 @@ function resize() {
 window.addEventListener("resize", resize);
 
 let eng, playing = true, speed = 2;
+window.eng = null; // 暴露给控制台调试
 let showHeading = true, showTarget = false;
 let simAccT = 0; // 累积时间，按 SIM.DT 步进
 let ownerSteps = { home: 0, away: 0 };
@@ -147,6 +148,7 @@ function grabPos() {
 
 function newMatch() {
   eng = new SimEngine(makeClub("HOME", 68), makeClub("AWAY", 62));
+  window.eng = eng; // 暴露给控制台调试
   ownerSteps = { home: 0, away: 0 };
   simAccT = 0;
   prevPos = curPos = grabPos();
