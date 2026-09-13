@@ -2419,7 +2419,7 @@ export class SimEngine {
           ? 0.4 * a.attr.finishing + 0.4 * a.attr.shooting + 0.15 * a.attr.dribbling
           : 0.55 * a.attr.finishing + 0.25 * a.attr.shooting;
       let shootQuality =
-        (0.5 * distF + 0.35 * angF) * (0.5 + finBias) * (1 - pressure * 0.25);
+        (0.45 * distF + 0.44 * angF) * (0.5 + finBias) * (1 - pressure * 0.34);
       if (core) shootQuality *= 1.35; // 核心：球权在自己脚下更敢射
       if (isWing) shootQuality *= 1.12 + cutInProgress * 0.2; // 内切后敢抽射
       const attackMod = this._teamModifier(a.team, "atk");
@@ -2437,19 +2437,19 @@ export class SimEngine {
         passQuality *= 1.15;
       }
 
-      const shootThresh = core ? 0.24 : isWing ? 0.26 : isMid && dGoal > 16 ? 0.28 : 0.32;
+      const shootThresh = core ? 0.26 : isWing ? 0.28 : isMid && dGoal > 16 ? 0.30 : 0.34;
       // 旧逻辑一旦质量过线便必射，导致每场数百脚。现在质量只决定“是否值得考虑”，
       // 最终仍需一次低频机会选择；越近、越强的终结者越敢起脚。
       // 约 10~22 距离的窗口反而略积极：避免强队总是一路带到六码区才射，
       // 既让画面更像正常攻门，也把机会质量拉回合理范围。
-      const rangeBonus = dGoal >= 9.5 && dGoal <= 22 ? 0.32 : dGoal < 9.5 ? 0.1 : 0;
+      const rangeBonus = dGoal >= 9.5 && dGoal <= 22 ? 0.18 : dGoal < 9.5 ? 0.08 : 0;
       // 穿透全队冷却的门前射门是"保活性"的例外通道，不是常规机会：
       // 概率重压（×0.3），大部分冷却期门前球走下方泄压阀（传中/回做）出球。
       const shootDecisionP =
         clamp(
-          0.07 + shootQuality * 0.18 + rangeBonus + roleShoot * 0.05 + (setPieceChance ? 0.12 : 0),
-          0.03,
-          setPieceChance ? 0.64 : 0.56
+          0.035 + shootQuality * 0.10 + rangeBonus + roleShoot * 0.03 + (setPieceChance ? 0.08 : 0),
+          0.022,
+          setPieceChance ? 0.42 : 0.38
         ) *
         (cdBlocked && !setPieceChance ? 0.3 : 1) * chanceMod;
       const clearCloseChance = dGoal < 13 && angF > 0.16 && pressure < 0.9;
