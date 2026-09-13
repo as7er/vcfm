@@ -44,16 +44,31 @@ const separationPasses = simulationProfile === "background" ? 4 : 8;
 // 差异来自这次有意改变的接应和选择，故按新的标准档原 24 个种子整体更新；
 // 下方所有真实性门槛和九项容差保持原值。分片的失败与完整原始报告一并保留，
 // 见 docs/match-attacking-continuity-2026-09-09.md，不挑选过关种子。
+// 2026-09-13 有意刷新：射门频率标定。刷新前标准档偏离这份旧快照 shots -5.88
+// （26.25 vs 32.13，容差 ±3），其余八项都在容差内（goals -0.46、passes -32.79、
+// passCompletionPct +0.3、fouls +0.25、openGoalShots +0.12、goalkeeperClaims +0.25、
+// goalkeeperChallenges +0.33、strongPointsPerMatch -0.17）。这一项是**有意压下来的**，
+// 不是为了让红的变绿：旧快照的 32.13 次/场（双方合计）高于真实约 26，且转化率 9.5%
+// 低于真实 ~11%，失真是「射得多、进得少」。
+//
+// 修法次序由护栏算术定死：转化率不变时把射门压到 26，进球会掉到 2.48，跌破护栏
+// 下沿 2.5。所以只能先提机会质量、让射门数跟着回落。本轮改的是 engine.js 里四处
+// ——shootQuality 的角度权重与压力系数、shootThresh、rangeBonus、shootDecisionP。
+//
+// 同轮否掉的两个方向（各跑 24 场实测，见 docs/match-shot-frequency-2026-09-13.md）：
+//   · 收缩 SHOOT_ZONE：禁区外占比压到 22.9%，跌破护栏下沿 25。
+//   · 缩短全队冷却到 180~270 秒：射门反而升到 34.13，转化率掉到 8.2%（破护栏）。
+// 两者都保持原值。刷新后标准档 24 场九项护栏全绿。
 const STANDARD_PROFILE_REFERENCE_24 = Object.freeze({
-  goals: 3.17,
-  shots: 32.13,
-  passes: 1064.83,
-  passCompletionPct: 81.1,
-  fouls: 26.17,
-  openGoalShots: 0.21,
-  goalkeeperClaims: 13.96,
-  goalkeeperChallenges: 7.5,
-  strongPointsPerMatch: 1.92,
+  goals: 2.71,
+  shots: 26.25,
+  passes: 1032.04,
+  passCompletionPct: 81.4,
+  fouls: 26.42,
+  openGoalShots: 0.33,
+  goalkeeperClaims: 14.21,
+  goalkeeperChallenges: 7.83,
+  strongPointsPerMatch: 1.75,
 });
 
 function seededRandom(seed) {

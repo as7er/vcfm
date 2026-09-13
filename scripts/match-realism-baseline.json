@@ -1,0 +1,117 @@
+{
+  "simulationProfile": "standard",
+  "timeStep": 0.1,
+  "separationPasses": 8,
+  "integration": {
+    "fineSharePct": 0,
+    "extraStepSharePct": 0,
+    "reasons": {}
+  },
+  "stallSeeds": [],
+  "longShots": [
+    {
+      "seed": 165010,
+      "team": "home",
+      "t": 3467.5999999979417,
+      "distance": 33.462909021096124,
+      "agentId": "home-165010-p8",
+      "openGoal": false,
+      "bin": "30plus"
+    }
+  ],
+  "equalMatches": 24,
+  "perMatch": {
+    "goals": 2.58,
+    "shots": 27.21,
+    "saves": 7.67,
+    "passes": 1059.5,
+    "completedPasses": 858.71,
+    "crosses": 55.92,
+    "throughPasses": 1.88,
+    "tackles": 45.46,
+    "interceptions": 44.38,
+    "fouls": 25.33,
+    "handballs": 0.25,
+    "varReviews": 2.71,
+    "varOverturns": 0,
+    "yellows": 3.92,
+    "reds": 0.13,
+    "penalties": 0.13,
+    "corners": 4.67,
+    "cornerShots": 1.29,
+    "cornerGoals": 0.13,
+    "injuries": 0.08,
+    "stalls": 0,
+    "openGoalShots": 0.5,
+    "goalkeeperClaims": 14.17,
+    "goalkeeperBlocks": 7.79,
+    "goalkeeperChallenges": 5.92,
+    "goalkeeperFouls": 0.13,
+    "unattributedGoals": 0,
+    "ownGoals": 0,
+    "penaltyGoals": 0.13
+  },
+  "shotConversionPct": 9.5,
+  "passCompletionPct": 81,
+  "crossSharePct": 5.3,
+  "throughPassSharePct": 0.2,
+  "openGoalReasons": {
+    "rounded_goalkeeper": 0.5
+  },
+  "outsideBoxSharePct": 32.5,
+  "distance": {
+    "under16": {
+      "shots": 441,
+      "goals": 40,
+      "sharePct": 67.5,
+      "conversionPct": 9.1
+    },
+    "16to22": {
+      "shots": 193,
+      "goals": 20,
+      "sharePct": 29.6,
+      "conversionPct": 10.4
+    },
+    "22to30": {
+      "shots": 18,
+      "goals": 2,
+      "sharePct": 2.8,
+      "conversionPct": 11.1
+    },
+    "30plus": {
+      "shots": 1,
+      "goals": 0,
+      "sharePct": 0.2,
+      "conversionPct": 0
+    }
+  },
+  "strongVsWeak": {
+    "matches": 24,
+    "pointsPerMatch": 1.71,
+    "winRatePct": 50,
+    "goalsFor": 32,
+    "goalsAgainst": 18
+  },
+  "standardProfileReference": {
+    "goals": 2.71,
+    "shots": 26.25,
+    "passes": 1032.04,
+    "passCompletionPct": 81.4,
+    "fouls": 26.42,
+    "openGoalShots": 0.33,
+    "goalkeeperClaims": 14.21,
+    "goalkeeperChallenges": 7.83,
+    "strongPointsPerMatch": 1.75
+  },
+  "referenceDelta": {
+    "goals": -0.13,
+    "shots": 0.96,
+    "passes": 27.46,
+    "passCompletionPct": -0.4,
+    "fouls": -1.09,
+    "openGoalShots": 0.17,
+    "goalkeeperClaims": -0.04,
+    "goalkeeperChallenges": -1.91,
+    "strongPointsPerMatch": -0.04
+  }
+}

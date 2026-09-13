@@ -3861,9 +3861,16 @@ export class SimEngine {
         this._clampOffside(a);
         return;
       }
-      // 默认：保持半宽，略前压
-      a.tx = clamp(a.baseX * 0.55 + 50 * 0.25 + (b.x - 50) * 0.12, 10, 90);
-      a.ty = clamp(a.baseY + dir * (8 + prog * 6), 5, 95);
+      // 默认：保持半宽，略前压，避开拥挤区
+      let targetX = clamp(a.baseX * 0.55 + 50 * 0.25 + (b.x - 50) * 0.12, 10, 90);
+      const targetY = clamp(a.baseY + dir * (8 + prog * 6), 5, 95);
+      const shiftMetres = this._checkCrowding(a, targetX, targetY);
+      if (shiftMetres !== 0) {
+        const shiftX = shiftMetres / (SIM.PITCH_W_METRES / SIM.FIELD_W);
+        targetX = clamp(targetX + shiftX, 10, 90);
+      }
+      a.tx = targetX;
+      a.ty = targetY;
       a.fsm = "home";
       this._clampOffside(a);
       return;
@@ -3894,9 +3901,16 @@ export class SimEngine {
         a.fsm = "support";
         return;
       }
-      // 前插纵深
-      a.tx = clamp(a.baseX + (b.x - 50) * 0.12, 6, 94);
-      a.ty = clamp(a.baseY + dir * ((getsForward ? 18 : core ? 12 : 16) + roleDepth * 5), 3, 97);
+      // 前插纵深，避开拥挤区
+      let fwdTargetX = clamp(a.baseX + (b.x - 50) * 0.12, 6, 94);
+      const fwdTargetY = clamp(a.baseY + dir * ((getsForward ? 18 : core ? 12 : 16) + roleDepth * 5), 3, 97);
+      const fwdShiftMetres = this._checkCrowding(a, fwdTargetX, fwdTargetY);
+      if (fwdShiftMetres !== 0) {
+        const fwdShiftX = fwdShiftMetres / (SIM.PITCH_W_METRES / SIM.FIELD_W);
+        fwdTargetX = clamp(fwdTargetX + fwdShiftX, 6, 94);
+      }
+      a.tx = fwdTargetX;
+      a.ty = fwdTargetY;
       a.fsm = "home";
       this._clampOffside(a);
       return;
@@ -3947,8 +3961,15 @@ export class SimEngine {
         a.ty = clamp(b.y + dir * (7 + this.random() * 5), 3, 97);
         a.fsm = "support";
       } else {
-        a.tx = clamp(a.baseX + (b.x - 50) * 0.18, 5, 95);
-        a.ty = clamp(a.baseY + dir * (10 + prog * 6), 3, 97);
+        let midTargetX = clamp(a.baseX + (b.x - 50) * 0.18, 5, 95);
+        const midTargetY = clamp(a.baseY + dir * (10 + prog * 6), 3, 97);
+        const midShiftMetres = this._checkCrowding(a, midTargetX, midTargetY);
+        if (midShiftMetres !== 0) {
+          const midShiftX = midShiftMetres / (SIM.PITCH_W_METRES / SIM.FIELD_W);
+          midTargetX = clamp(midTargetX + midShiftX, 5, 95);
+        }
+        a.tx = midTargetX;
+        a.ty = midTargetY;
         a.fsm = "home";
       }
       this._clampOffside(a);
@@ -3972,9 +3993,16 @@ export class SimEngine {
         this._clampOffside(a);
         return;
       }
-      // 未前插：保持宽度、略前压
-      a.tx = clamp(a.baseX + wide * 2 + (b.x - 50) * 0.08, 4, 96);
-      a.ty = clamp(a.baseY + dir * (4 + prog * 5), 6, 94);
+      // 未前插：保持宽度、略前压，避开拥挤区
+      let fbTargetX = clamp(a.baseX + wide * 2 + (b.x - 50) * 0.08, 4, 96);
+      const fbTargetY = clamp(a.baseY + dir * (4 + prog * 5), 6, 94);
+      const fbShiftMetres = this._checkCrowding(a, fbTargetX, fbTargetY);
+      if (fbShiftMetres !== 0) {
+        const fbShiftX = fbShiftMetres / (SIM.PITCH_W_METRES / SIM.FIELD_W);
+        fbTargetX = clamp(fbTargetX + fbShiftX, 4, 96);
+      }
+      a.tx = fbTargetX;
+      a.ty = fbTargetY;
       a.fsm = "home";
       this._clampOffside(a);
       return;
@@ -3987,8 +4015,15 @@ export class SimEngine {
       a.ty = clamp(b.y + dir * 3, 3, 97);
       a.fsm = "support";
     } else {
-      a.tx = clamp(a.baseX + (b.x - 50) * 0.12, 5, 95);
-      a.ty = clamp(a.baseY + dir * 3, 3, 97);
+      let cbTargetX = clamp(a.baseX + (b.x - 50) * 0.12, 5, 95);
+      const cbTargetY = clamp(a.baseY + dir * 3, 3, 97);
+      const cbShiftMetres = this._checkCrowding(a, cbTargetX, cbTargetY);
+      if (cbShiftMetres !== 0) {
+        const cbShiftX = cbShiftMetres / (SIM.PITCH_W_METRES / SIM.FIELD_W);
+        cbTargetX = clamp(cbTargetX + cbShiftX, 5, 95);
+      }
+      a.tx = cbTargetX;
+      a.ty = cbTargetY;
       a.fsm = "home";
     }
     this._clampOffside(a);
@@ -4021,6 +4056,43 @@ export class SimEngine {
     this._restart("offside", defTeam, clamp(player.x, 6, 94), clamp(player.y, 6, 94));
   }
 
+  /**
+   * 检测目标点周围是否拥挤（3米内有2+队友），用于 home 状态的空间感知。
+   * 返回建议的横向偏移量（米），0 表示不拥挤。
+   * 加入稳定窗口避免震荡：一旦偏移，1.5秒内保持该决策。
+   */
+  _checkCrowding(a, targetX, targetY) {
+    if (this.t < (a.crowdShiftUntil || 0)) {
+      return a.crowdShiftMetres || 0;
+    }
+
+    const crowdRadius = 3;
+    const radiusX = crowdRadius / (SIM.PITCH_W_METRES / SIM.FIELD_W);
+    const radiusY = crowdRadius / (SIM.PITCH_H_METRES / SIM.FIELD_H);
+
+    let nearbyCount = 0;
+    for (const m of this.agents) {
+      if (m.team !== a.team || m === a || m.role === "GK") continue;
+      const dx = Math.abs(m.x - targetX);
+      const dy = Math.abs(m.y - targetY);
+      if (dx < radiusX && dy < radiusY) {
+        nearbyCount++;
+        if (nearbyCount >= 2) break;
+      }
+    }
+
+    if (nearbyCount >= 2) {
+      const shiftMetres = 4 + this.random() * 2;
+      const direction = targetX < 50 ? -1 : 1;
+      a.crowdShiftMetres = direction * shiftMetres;
+      a.crowdShiftUntil = this.t + 1.5;
+      return a.crowdShiftMetres;
+    }
+    a.crowdShiftMetres = 0;
+    a.crowdShiftUntil = this.t + 1.5;
+    return 0;
+  }
+
   /** 越位自律：前锋与最后防线留出小缓冲，不再所有人自动贴死同一条线。 */
   _clampOffside(a) {
     const offY = this._offsideLineY(a.team);
@@ -4038,8 +4110,6 @@ export class SimEngine {
         : a.role === "MID"
           ? 0.012 + (1 - awareness) * 0.025
           : 0;
-    // 少量真实的启动失误：同一次跑位计算会调用两次 clamp，因此短暂缓存本次判断，
-    // 避免第二次调用把第一次的越线目标立刻纠正掉。
     let effectiveBuffer;
     if (this.t < (a.offsideBufferUntil || 0) && Number.isFinite(a.offsideRunBuffer)) {
       effectiveBuffer = a.offsideRunBuffer;
@@ -4049,7 +4119,6 @@ export class SimEngine {
       a.offsideRunBuffer = effectiveBuffer;
       a.offsideBufferUntil = this.t + 0.2;
     }
-    // 越位基准应取“球和倒数第二名防守者中更靠近球门者”。
     if (a.team === "home") {
       const legalY = Math.min(offY, this.ball.y);
       if (a.ty < legalY + effectiveBuffer) a.ty = legalY + effectiveBuffer;
@@ -4059,7 +4128,7 @@ export class SimEngine {
     }
   }
 
-  /** 本队离球最近的前锋？（用于指派“回撤支点”的那一个） */
+  /** 本队离球最近的前锋？（用于指派”回撤支点”的那一个） */
   _isNearestForwardToBall(a) {
     if (a.role !== "ATT") return false;
     const dMe = dist(a.x, a.y, this.ball.x, this.ball.y);
