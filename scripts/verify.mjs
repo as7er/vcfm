@@ -111,6 +111,11 @@ const checks = [
   // 默认 6 场（约 50s，与 box-possession-sampling-audit 同量级）：6 场约 34 次角球，
   // 间距、主罚位置、Law 17、落点记录与已修复的还原度结构均为硬约束。
   "scripts/corner-structure-audit.mjs",
+  // 默认 3 场（约 35s）：走**真实比赛会话**，让 `aiTuneTactics` 按实力差（power 78 vs 62，
+  // 跨过 ±12 门槛）设出防线 4 / 2，再断言进攻三区内强队中卫线确实站得比弱队高。
+  // 这是唯一覆盖「防线高度 → 中卫线前压」端到端链路的入口：两个 realism/shape 审计
+  // 都把防线写死成 3、对该因子不敏感，而本审计的断言只在两队防线不同时才可能失败。
+  "scripts/cb-line-height-e2e-audit.mjs",
 ];
 const fullChecks = [
   ["scripts/match-realism-audit.mjs", "24"],

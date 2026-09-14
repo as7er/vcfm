@@ -482,6 +482,69 @@ AGENTS.md 记载该候选在更宽的改动包里**两档失败**（2.21/2.75 �
 
 ---
 
+## 5e. 端到端验证：真实对局里这条链路真的通（2026-09-14 第三轮）
+
+### 5e.1 为什么还需要它
+
+`_cb-line-height-probe.mjs` 是**直接给引擎传战术**的合成测量。但真实对局里战术走的是：
+
+```
+aiTuneTactics（js/match.js:393）→ club.tactics.defensiveLine
+  → ensureSimEngine（js/sim/adapt.js:61）→ new SimEngine(state.home, state.away)
+  → _tacticLevel(a.team, "defensiveLine") → 前压乘数
+```
+
+这条链路此前**没有验证过**。而 §5d.3 已证明两个 realism/shape 审计对防线因子不敏感
+（它们把防线写死成 3），所以既有套件也覆盖不到它。
+
+真实链路里防线高度的来源（与 `delegation.js` 同机制、只是量纲不同）：
+
+```js
+// js/match.js:438-451
+} else if (diff <= -12 && adaptability >= 2) { t.defensiveLine = Math.min(..., 2); }
+} else if (diff >= 12  && adaptability >= 2) { t.defensiveLine = Math.max(..., 4); }
+```
+
+### 5e.2 结果（`scripts/cb-line-height-e2e-audit.mjs`，power 78 vs 62）
+
+| 检查 | 结果 |
+|---|---|
+| `aiTuneTactics` 设出的防线 | 强队 **4** / 弱队 **2**（全部种子一致） |
+| 引擎 `_tacticLevel` 读到的值 | 与俱乐部**完全一致**（断言） |
+| 进攻三区（推进 0.85–1.00）中卫线深度 | 强队 **60.0 m** / 弱队 **44.8 m** → 差 **15.2 m** |
+
+按球推进深度分层，差值随推进单调增大（与「前压量随 `prog` 线性」一致）：
+
+| 推进深度 | 强队深度 | 弱队深度 | 差值 |
+|---|---|---|---|
+| 0.64–0.75 | 52.2 m | 42.1 m | +10.1 m |
+| 0.75–0.85 | 56.0 m | 43.3 m | +12.7 m |
+| 0.85–1.00 | 60.2 m | 44.8 m | +15.3 m |
+
+（上表为加入固定教练前的首轮读数；固定教练后稳定为 60.0 / 44.8。）
+
+### 5e.3 顺带确认：原始问题对高防线球队已解决
+
+强队中卫线在进攻三区达 **60.0 m**，**已越过中线（52.5 m）**，
+且落在诊断 §4 设定的目标区间 **56–66 m** 内。
+§0 的原始结论「中卫线饱和在 33.6 m、始终不过中线」**对高防线球队不再成立**——
+这正是「按防线高度解耦」想要的效果：高防线球队真正压上，深防球队仍然回收。
+
+### 5e.4 已进 verify 默认套件
+
+该审计登记进 `scripts/verify.mjs` 默认套件（3 场约 35s）。
+**它与既有审计互补而非重复**：realism/shape 审计把防线写死成 3，
+其断言在该因子下永不变化；本审计的断言**只在两队防线不同时才可能失败**。
+
+**⚠ 踩过的坑（务必保留）**：最初未预置教练，`ensureStaff` 走
+`js/staff.js:108` 的 `${prefix}_${Date.now()...}_${Math.random()...}` 生成 ID，
+而教练身份（`ensureCoachIdentity`，`js/manager-ecosystem.js:134`）用 `coach.id` 做种子派生
+→ **每次运行身份不同 → 战术不同 → 审计不确定**（同种子两次 61.2 vs 60.4 m，
+且有一次直接把断言打失败）。预置固定 ID 的教练后完全确定。
+**任何走真实 `createMatchSession` 的审计都要注意这一点。**
+
+---
+
 ## 6. 复现
 
 ```bash
@@ -492,6 +555,9 @@ node scripts/_attack-block-shift-probe.mjs 4 background
 # 防线高度驱动的前压量：真实战术下的强弱分离（⚠ 至少 24 场，8 场结论会反转）
 node scripts/_cb-line-height-probe.mjs 24 standard
 node scripts/_cb-line-height-probe.mjs 24 background
+
+# 端到端（真实比赛会话 + aiTuneTactics；已进 verify 默认套件）
+node scripts/cb-line-height-e2e-audit.mjs 3
 
 # 回归网（已进 verify 默认套件）
 node scripts/attack-shape-compaction-audit.mjs
