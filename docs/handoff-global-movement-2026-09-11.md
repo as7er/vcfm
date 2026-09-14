@@ -30,6 +30,16 @@ node scripts/_handoff-global-movement.mjs restore
 - 正式代码仍为已验收 **vcfm-v253**。本轮没有改 `js/sim/engine.js`、`js/data.js`、
   `js/player-positions.js`、缓存、统计护栏或冻结参考。
 - 正式引擎 SHA-256：`7afe5e5fb42e5390e71f1f94bee4d176501c9a29d39b790b1dfbbbbf44661fb1`。
+
+> ⚠ **2026-09-14 更正（本条已过期，测新修复时务必先读）：** 交接之后引擎已继续前进，
+> **HEAD 的 `js/sim/engine.js` 不再是 v253**——与 `5f1d152` 相差 134 增 / 27 删，
+> 来自 `e6567a8`（中卫线随球前压）、`0692c6a`（按防线高度缩放）、`2bd9fa5`（远侧边卫）
+> 三笔队形改动。因此本文里的「正式引擎 SHA-256」与「正式代码仍为 vcfm-v253」只描述
+> **2026-09-11 当时的快照**。
+> **`scripts/_v253-baseline.mjs` 会把 `js/` 全部退回 `5f1d152`，它只适合复现
+> *全局跑位候选* 的固定基线；测一个针对当前引擎的新修复时不要带它**（带了就是在旧引擎上测）。
+> 另外该钩子返回的是 git blob（LF），而工作区 `engine.js` 是 CRLF，两者的
+> `loadedEngineSha256` 不会相同。
 - 最新完整候选：`scripts/_backline-support-release-candidate.mjs`。
 - 最新生效引擎 SHA-256：`b4fb0e92c7b25904ccc18ff039bc6e5c51540ded60c7337b8c7436a68e654b50`。
 - 候选依赖都在 scripts 中；`_v253-baseline.mjs` 可从提交 `5f1d152` 还原 JS 基线。
