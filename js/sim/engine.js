@@ -90,10 +90,16 @@ export const SIM = {
   // 球速必须先换算成米，否则同样距离的横向与纵向动作会得到不同结果。
   PITCH_W_METRES: 68,
   PITCH_H_METRES: 105,
-  // 进攻时中卫线随球整体前压的最大距离（米）。真实球队是一个整体平移的块：
-  // 球推进到进攻三区时后卫线会越过中线。此前中卫线的纵向目标是常量、完全不跟球，
-  // 导致队形冻结在静态模板长度上。详见 docs/attack-block-shift-diagnosis-2026-09-14.md。
+  // 进攻时中卫线随球整体前压的最大距离（米），以「标准防线」级 3 为基准。
+  // 真实球队是一个整体平移的块：球推进到进攻三区时后卫线会越过中线。此前中卫线的
+  // 纵向目标是常量、完全不跟球，导致队形冻结在静态模板长度上。
+  // 实际前压量再乘以防线高度因子（见 CB_BLOCK_SHIFT_LINE_GAIN）。
+  // 详见 docs/attack-block-shift-diagnosis-2026-09-14.md。
   CB_BLOCK_SHIFT_MAX_M: -19,
+  // 防线高度每偏离标准级 1 级，前压量的增减比例。0.35 → 防线 1 级乘数 0.30、
+  // 3 级 1.00、5 级 1.70。delegation.js 已按实力差给强队 ≥4、弱队 ≤2，
+  // 所以这个因子让强队压上、弱队回收，而不是两队共用一个常数。
+  CB_BLOCK_SHIFT_LINE_GAIN: 0.35,
   // 球门：主队球门在 y≈100 一侧，客队球门在 y≈0 一侧；门宽以 x 计
   GOAL_X0: 44,
   GOAL_X1: 56,
@@ -3744,9 +3750,18 @@ export class SimEngine {
     // 中卫线的整体前压量（y 格，朝进攻方向）。中卫线原本只站在与球位无关的常量上，
     // 导致进攻时后防线不跟球、队形被拉长成静态模板形状。真实球队是整体平移的块，
     // 所以按球的推进深度给出前压量：原常量锚点保留，另外叠一个随球前移的项。
+    //
+    // 前压幅度由该队的「防线高度」战术（defensiveLine，1–5）决定——这是现实中真正
+    // 决定后卫线站位的量：高位逼抢的队整条线压上去，摆深防的队不上压。以标准级 3
+    // 为基准，所以防线为 3 时乘数为 1、行为与未引入该因子时逐位相同。
+    // 注意 delegation.js 已按实力差设定防线高度（强队 ≥4、弱队 ≤2），
+    // 因此这个因子同时把「队形紧凑度」与「实力优势」解耦：强队压上、弱队回收。
+    const cbLineLevel = this._tacticLevel(a.team, "defensiveLine");
+    const cbShiftMax =
+      SIM.CB_BLOCK_SHIFT_MAX_M * (1 + (cbLineLevel - 3) * SIM.CB_BLOCK_SHIFT_LINE_GAIN);
     // 符号：-dir * shiftY，其中 shiftY 为负 → home(dir=-1) 时 ty 增大 = 向前压。
     // 用米制换算回 y 格，保证同一物理前压量在任何球场尺度下对应同一格数。
-    const blockShiftY = (prog * SIM.CB_BLOCK_SHIFT_MAX_M) / (SIM.PITCH_H_METRES / SIM.FIELD_H);
+    const blockShiftY = (prog * cbShiftMax) / (SIM.PITCH_H_METRES / SIM.FIELD_H);
     const blockForward = -dir * blockShiftY;
     const dBall = dist(a.x, a.y, b.x, b.y);
     const core = !!a.isCore;

@@ -307,7 +307,178 @@ VCFM verification passed
 | 跨样本 n=48 后台档 | ✅ 通过（2.08） |
 | 队形压缩回归审计 | ✅ 通过（七条断言） |
 | 浏览器连续性审计 | 见下 |
-| 提交 | 未提交（工作区：`js/sim/engine.js` + 本文件） |
+| 提交 | **已提交并推送** `e6567a8`（引擎+本文档）、`66557a9`（AGENTS.md 状态修正）、`30703cc`（环境说明） |
+
+---
+
+## 5d. 让前压量由「防线高度」驱动（2026-09-14 续做第二轮）
+
+### 5d.1 动机：常数前压存在真实 trade-off
+
+§5b.1 标定出的问题是：`CB_BLOCK_SHIFT_MAX_M` 对两队是**同一个常数**，中卫线前压
+**同时**提高双方的进攻效率，于是摊薄强队优势（−14 → 1.92、−19 → 1.67、−26 → 1.46）。
+单一旋钮下「通过护栏」与「达成队形目标」无法兼得。
+
+真实足球里这不是一个常数问题：**防线高度本来就是战术选择**，而且
+`js/delegation.js:231-241` **已经**按实力差设定它——
+
+```js
+if (difference <= -1.5 && adaptability >= 3) {          // 弱队
+  style = "counter"; pressing = Math.min(pressing, 2);
+  defensiveLine = Math.min(defensiveLine, 2);           // 低防线
+} else if (difference >= 1.5 && adaptability >= 3) {    // 强队
+  pressing = Math.max(pressing, 4);
+  defensiveLine = Math.max(defensiveLine, 4);           // 高防线
+}
+```
+
+所以把前压量改为按该队 `defensiveLine` 缩放，是**用现有数据驱动同一事实**
+（`collective-defense.js:34-48` 已用 `defensiveLine` 决定盯人距离），
+比「按强弱加权重」更符合项目的最高设计原则。
+
+### 5d.2 实现
+
+```js
+// SIM
+CB_BLOCK_SHIFT_MAX_M: -19,        // 标准防线（级 3）的前压基准
+CB_BLOCK_SHIFT_LINE_GAIN: 0.35,   // 防线每偏离 1 级，前压量的增减比例
+
+// _chooseAttackOffBallTarget
+const cbLineLevel = this._tacticLevel(a.team, "defensiveLine");
+const cbShiftMax =
+  SIM.CB_BLOCK_SHIFT_MAX_M * (1 + (cbLineLevel - 3) * SIM.CB_BLOCK_SHIFT_LINE_GAIN);
+```
+
+乘数表（以标准级 3 为基准，所以**级 3 时乘数恰为 1.0**）：
+
+| 防线级 | 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|
+| 乘数 | 0.300 | 0.650 | **1.000** | 1.350 | 1.700 |
+| 前压(m) | −5.70 | −12.35 | **−19.00** | −25.65 | −32.30 |
+
+### 5d.3 「审计不变」性质（已实证）
+
+`match-realism-audit.mjs` 把两队 `defensiveLine` **都写死成 3**（`:121-128`），
+所以乘数恰为 1.0 → 该改动对审计**应为空操作**。这既是回归保证，也意味着
+**审计回答不了本次改动的问题**，必须另写探针。实测确认：
+
+| 检查 | 改动前 | 改动后 | 结论 |
+|---|---|---|---|
+| realism 审计 24 场强队积分 | 1.67 | **1.67** | 逐位相同 |
+| realism 审计 24 场进球 | 2.63 | **2.63** | 逐位相同 |
+| realism 审计 `referenceDelta.goals` | −0.08 | **−0.08** | 逐位相同 |
+| 队形审计 background `span` | 55.423396023373854 | **55.423396023373854** | 逐位相同 |
+| 队形审计 background `backLine` | 38.34982748694814 | **38.34982748694814** | 逐位相同 |
+
+### 5d.4 ⚠ 样本量教训：8 场会给出**完全相反**的结论
+
+新探针 `scripts/_cb-line-height-probe.mjs` 让两队带上真实防线高度
+（强队 4 / 弱队 2），并做单一变量对比（只有 `CB_BLOCK_SHIFT_LINE_GAIN` 不同）：
+
+| 配置 | 8 场 | 24 场 | 48 场 |
+|---|---|---|---|
+| A 两队防线都 3（等价审计口径） | 2.13 | **1.67** | **1.81** |
+| B 真实防线 + 缩放**关闭** | 2.00 | 1.92 | 1.92 |
+| C 真实防线 + 缩放**开启** | **1.13** | **2.21** | **2.02** |
+
+**8 场说「缩放让强弱分离变差 −0.87 分、净胜球 +5 → −5」，24 场说「变好 +0.29 分、
+净胜 +11 → +17」——结论完全相反。** 这个指标在 8 场下噪声极大，
+**任何小于 24 场的强弱分离结论都不可采信**。
+
+48 场把效应量收敛到 **+0.10 分**（24 场 +0.29 → 48 场 +0.10），但**净胜球与胜率
+在两个大样本里方向一致**：
+
+| 样本 | 净胜球 B → C | 胜率 B → C |
+|---|---|---|
+| 24 场 | +11 → **+17**（+6） | 54.2% → **70.8%** |
+| 48 场 | +26 → **+34**（+8） | 54.2% → **64.6%** |
+
+旁证：配置 A 在 24 场下等于 **1.67**、48 场 1.81，与 `match-realism-audit.mjs`
+同场数的实测值**完全吻合**，说明探针口径与审计一致、测的是同一个东西。
+
+**⚠ 另一个踩过的坑（写探针时）**：`timeStep` / `separationPasses` 必须**按档位派生**
+（`match-realism-audit.mjs:9-10`：background → 0.3 / 4，standard → `SIM.DT` / 8）。
+最初写死成 `0.1 / 8`，结果 background 档实际跑的是标准档参数，
+**两档的每一个数字都完全相同**（A 1.81 / B 1.92 / C 2.02，进球 62/81/87），
+差点被当成「两档一致」的结论。**看到两档数字逐位相同，先怀疑参数没生效。**
+
+### 5d.5 真实性的独立理由（不依赖强弱指标）
+
+除了强弱分离，本改动还有一个**与指标无关**的正当理由：
+
+`defensiveLine`（界面标签「很深/偏深/标准/偏高/很高」，`js/main.js:2059` 可设置）
+**目前只影响防守盯人距离**（`collective-defense.js:48`）和 UI 里的体能估算
+（`main.js:6266`），**完全不影响后卫线本身的站位高度**。也就是说：
+**一个叫「防线高度」的战术，决定不了防线的高度。**
+
+本改动把同一条数据接到后卫线站位上，符合项目的「同一事实应由同一份数据驱动」。
+
+### 5d.6 前史（务必知道，避免重复劳动）
+
+`scripts/_backline-support-candidate.mjs:24` 与 `_connected-team-candidate.mjs:24`
+**已经用过 `defensiveLine`** 计算后卫线深度：
+
+```js
+const lineDepth = SIM.PITCH_H_METRES / 2 - (this._tacticLevel(a.team, "defensiveLine") - 3) * 3.8 * my;
+const depth = Math.max(lineDepth, ballDepth + 28);
+```
+
+差别：那个候选把 `defensiveLine` 当作**以中线为基准的偏移**（±3.8 m/级），再被
+「球后 28 m」的项接管；本改动是把它当作**随球推进量的乘数**。
+AGENTS.md 记载该候选在更宽的改动包里**两档失败**（2.21/2.75 球），
+但那个包同时含 outlet 深度与 overlap 改动，**不能据此断定 `defensiveLine` 因子本身有害**。
+
+### 5d.7 状态
+
+| 项目 | 结果 |
+|---|---|
+| realism 审计（审计口径）| ✅ 逐位不变（1.67 / 2.63 / −0.08） |
+| 队形审计 | ✅ 逐位不变（background span `55.423396023373854`） |
+| 探针 48 场 standard | ✅ B→C 积分 +0.10、净胜 +26→**+34**、胜率 54.2%→**64.6%** |
+| 探针 48 场 background | ✅ B→C 积分 **+0.54**、净胜 +27→**+56**、胜率 52.1%→**66.7%** |
+| `verify --full` | ✅ 退出 0（54m51s，**0 断言错误**） |
+| 跨样本 n=48 standard | ✅ 退出 0，强队 **1.81** |
+| 跨样本 n=48 background | ✅ 退出 0，强队 **2.08** |
+| 提交 | 见下 |
+
+跨样本两档的数值与**加入防线因子之前完全一致**（1.81 / 2.08），
+再次印证 §5d.3 的「审计口径下是空操作」。
+
+`verify --full` 的关键读数：标准档强队 **1.67**（与改动前一致）；三个使用非 3 防线的
+审计（`team-shapes-audit`、`collective-defense-audit`、`match-analysis-audit`）**全部通过**。
+
+后台档的验证旁证更强：配置 A = **2.08**，与 `match-realism-audit.mjs 48 background`
+的实测值**完全吻合**（标准档同样是 A = 1.81 对 1.81）。
+
+### 5d.8 回归覆盖：并非「审计完全看不到」
+
+`match-realism-audit.mjs` 与 `attack-shape-compaction-audit.mjs` 把防线写死成 3，
+对本次改动不敏感；但**默认套件里有三个审计确实用了非 3 的防线值**，
+所以改动**会被回归网实际执行**：
+
+| 审计 | 防线取值 | 是否在 `verify` 默认套件 |
+|---|---|---|
+| `collective-defense-audit.mjs:130,159` | 4 与 1 | ✅ |
+| `match-analysis-audit.mjs:63-64` | 4 与 2 | ✅ |
+| `team-shapes-audit.mjs:50,64` | 4 与 1 | ✅ |
+| `attack-rest-shape-audit.mjs:11` | 变量 `line` | ❌ 不在 |
+
+这比 §5d.3 最初的判断要好：**改动不是无人监管的**。
+
+### 5d.9 结论与合入理由
+
+| 维度 | 证据 |
+|---|---|
+| 对既有审计 | **逐位不变**（两档都验证过；跨样本 n=48 也是 1.81 / 2.08，与加因子前一致） |
+| 对真实战术下的强弱分离 | 两档都改善（标准 +0.10、后台 +0.54；净胜球 +8 / +29；胜率均升） |
+| 真实性（独立于指标） | `defensiveLine` 此前**决定不了防线高度**，见 §5d.5 |
+| 回归覆盖 | 三个默认套件审计会实际执行到，见 §5d.8 |
+| 完整验收 | `verify --full` 退出 0；跨样本 n=48 两档退出 0 |
+
+**⚠ 仍须如实说明**：标准档的积分效应量偏小（+0.10），单看积分并不显著；
+支持合入的主要是**真实性理由**（§5d.5）与**后台档的强效应（+0.54）**。
+
+
 
 ---
 
@@ -318,11 +489,18 @@ VCFM verification passed
 node scripts/_attack-block-shift-probe.mjs 4 standard
 node scripts/_attack-block-shift-probe.mjs 4 background
 
+# 防线高度驱动的前压量：真实战术下的强弱分离（⚠ 至少 24 场，8 场结论会反转）
+node scripts/_cb-line-height-probe.mjs 24 standard
+node scripts/_cb-line-height-probe.mjs 24 background
+
 # 回归网（已进 verify 默认套件）
 node scripts/attack-shape-compaction-audit.mjs
 
 # 外部参照（引擎侧复现 FM26 队形指标）
 node scripts/_fm26-shape-gap-probe.mjs 6 standard
+
+# 标定时可单跑失败入口（约 8.5 分钟），不必跑整套 53 分钟
+node scripts/match-realism-audit.mjs 24
 ```
 
 ## 7. 参考
@@ -331,6 +509,9 @@ node scripts/_fm26-shape-gap-probe.mjs 6 standard
 - `js/sim/engine.js:3788-3793` — 中卫「防反保护」分支（`ty = baseY + dir*7`）
 - `js/sim/engine.js:4011-4028` — 中卫兜底分支（`ty = baseY + dir*3`）
 - `js/sim/engine.js:708` — `attackDir`；`js/data.js:777-778` — 4-3-3 中卫槽
+- `js/delegation.js:231-241` — 按实力差设定 `defensiveLine`（强队 ≥4、弱队 ≤2）
+- `js/collective-defense.js:34-48` — `defensiveLine` 决定盯人距离（同一数据的既有用法）
 - `scripts/attack-shape-compaction-audit.mjs` — 进攻三区纵向长度的回归断言
+- `scripts/_cb-line-height-probe.mjs` — 防线高度因子的真实战术测量
 - `docs/match-2d-view-fm26-gap-2026-09-13.md` — FM26 差距与口径伪影
 - `AGENTS.md:3145-3148` — v238 的原始诊断与其方法论警告
