@@ -188,8 +188,31 @@ d(t) = |B(t) − G(t)|,  t ∈ [0, dt]，B/G 各自按步内线性插值
   `loadedEngineSha256` 不会相同（候选自身又会把行尾规范成 LF）。
 - ⚠ **引用 24 场基线时必须注明是否带基线钩子。** 本轮 HEAD 标准档实测 **2.75**，
   而诊断文档 §5g 记录为 **2.88**；同一引擎同种子本应可复现，差额说明两次读数不是同一配置。
+- **`_v253-baseline.mjs` 现在已经和当前的 `match-realism-audit.mjs` 不兼容。**
+  实测「旧引擎 + 当前审计」标准档 24 场**退出 1**，失败断言是
+  `standard shots diverged from the fixed-seed standard profile — the frozen
+  STANDARD_PROFILE_REFERENCE_24 is stale`，**不是进球**。
+  原因是九项冻结参考已为新引擎刷新过，旧引擎的射门数落在容差外。
+  **所以交接文档里那条把 `_v253-baseline.mjs` 与 `match-realism-audit.mjs` 组合的命令
+  会以「冻结参考过期」为由失败，不是引擎问题。**
 
-### 7.5 仍未做
+### 7.5 顺带量到的：中卫线前压系列对射门供给的代价
+
+同种子、同审计（标准档 24 场）：
+
+| 引擎 | 进球 | **射门** | 传球 | 点球 | 角球 |
+|---|---:|---:|---:|---:|---:|
+| `5f1d152`（v253） | 2.92 | **30.63** | 1061.42 | 0.21 | 5.17 |
+| HEAD（v253 + 中卫线前压三笔） | 2.75 | **26.96** | 1056.92 | 0.17 | 4.58 |
+
+**射门 −3.67 脚/场（−12.0%）、进球 −0.17 球/场。** 也就是说已合入的
+`e6567a8`/`0692c6a`/`2bd9fa5` 本身就让标准档的射门供给下降了约 12%。
+
+把它与全局跑位候选（进球 2.21 / 2.16）放在一起看，趋势是一致的：
+**队形与跑位的每一轮改进都在吃掉射门供给。** 这进一步支持 §5g.5 的方向 2 ——
+**先把射门供给补回来，再谈队形**，否则后续每一轮都会撞在同一面墙上。
+
+### 7.6 仍未做
 
 - 两档逐帧等价、缓存联动、`verify` 注册、正式 `--full`、桌面/手机实机。
 - 30 米以上远射、禁区贴防、角球、越位等其它套件未在候选下复跑。
@@ -208,8 +231,20 @@ node scripts/_gk-contact-sweep-probe.mjs 0.1
 node scripts/_gk-contact-sweep-probe.mjs 0.3
 
 # 统计护栏（两档）
-node --import ./scripts/_v253-baseline.mjs --import ./scripts/_gk-same-instant-contact-candidate.mjs scripts/match-realism-audit.mjs 24
-node --import ./scripts/_v253-baseline.mjs --import ./scripts/_gk-same-instant-contact-candidate.mjs scripts/match-realism-audit.mjs 24 background
+node --import ./scripts/_gk-same-instant-contact-candidate.mjs scripts/match-realism-audit.mjs 24
+node --import ./scripts/_gk-same-instant-contact-candidate.mjs scripts/match-realism-audit.mjs 24 background
+
+# 对照：HEAD（不带任何钩子）
+node scripts/match-realism-audit.mjs 24
+node scripts/match-realism-audit.mjs 24 background
+```
+
+⚠ **不要**在测这个修复时带 `_v253-baseline.mjs`。带上它跑的是旧引擎，而且
+「旧引擎 + 当前审计」会以冻结参考过期（`standard shots diverged …`）为由失败：
+
+```text
+# 复现这个陷阱（预期退出 1，失败在 shots 而非 goals）
+node --import ./scripts/_v253-baseline.mjs scripts/match-realism-audit.mjs 24
 ```
 
 ## 9. 参考
