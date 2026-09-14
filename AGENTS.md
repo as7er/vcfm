@@ -2,9 +2,23 @@
 
 > **最高设计原则：游戏机制与数据表现应尽可能接近现实足球。** 球员、俱乐部、国家队、赛事、转会、财政和比赛模拟优先采用现实中可解释且彼此一致的规则；避免为了得到预设结果而添加只影响某个界面的隐藏能力或特殊加权。同一事实应由同一份数据驱动，必要的性能取舍也要保留真实因果关系。
 
-> 仓库：https://github.com/as7er/VCFM.git · `master`（2026-08-31 起 GitHub 已改为大写 `VCFM`，小写地址仍会重定向）  
+> 仓库：https://github.com/as7er/vcfm.git · `master`（**2026-09-14 起规范地址为小写 `vcfm`**；
+> 大写 `VCFM` 仍可用但会走重定向，`origin` 已更新为小写）  
 > 预览：`python -m http.server 8765 --bind 127.0.0.1`  
 > 缓存：**vcfm-v254**（门将换人位置约束；换人专项验证通过，未跑完整验收）
+
+> **⚠ 本机 Git 环境（2026-09-14 实测，会浪费排查时间）**：
+> 1. **推送必须用系统 Git**：`"C:\Program Files\Git\cmd\git.exe" push origin master`。
+>    WorkBuddy 自带的 PortableGit 把 `credential.helper` 设成 `helper-selector`，
+>    该助手在非交互环境下取不到凭据、**直接挂起**（表现为 `SIGTERM` 且无任何输出）。
+>    系统 Git 用的是 `credential.helper=manager`，可正常取到已存凭据。
+>    fetch 不受影响（GitHub 允许匿名读取），所以「fetch 能跑、push 卡死」是本机特征。
+> 2. **`.git/refs/remotes/` 的写入会被静默回滚**：`git update-ref` 返回 exit=0 但引用不落盘，
+>    且刚 `mkdir` 出来的 `origin` 目录随即消失；`git fetch` 每次都报 `[new branch]` 却始终
+>    没有 `origin/master`。**换系统 Git 也一样**，故与 Git 版本无关，疑似同步盘/杀软拦截。
+>    后果：`git status` 永远显示 `[gone]`，不能用 `origin/master` 这个名字。
+>    **替代做法**：用 `git ls-remote origin master` 查远程真实位置，
+>    或 `git fetch origin master && git merge --ff-only FETCH_HEAD`。
 
 ## 当前状态（2026-09-14 下午，续接先读这一节）
 
