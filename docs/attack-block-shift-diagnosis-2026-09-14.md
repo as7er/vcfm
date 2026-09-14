@@ -385,6 +385,12 @@ const cbShiftMax =
 净胜 +11 → +17」——结论完全相反。** 这个指标在 8 场下噪声极大，
 **任何小于 24 场的强弱分离结论都不可采信**。
 
+**⚠ 2026-09-14 追加（§5f.9）：这条教训还不够严——24 场本身也会给出方向相反的读数。**
+同一处改动，standard 档 24 场读到 **1.67 → 2.04（+0.37，看起来是明显改善）**，
+48 场读到 **1.81 → 1.79（−0.02，实质持平）**。
+所以**凡是拿强弱分离当合入理由，都必须用 48 场**；
+24 场只够用来判「有没有跌破 1.5 这条门槛」，不足以判「改善了还是变差了」。
+
 48 场把效应量收敛到 **+0.10 分**（24 场 +0.29 → 48 场 +0.10），但**净胜球与胜率
 在两个大样本里方向一致**：
 
@@ -545,12 +551,340 @@ aiTuneTactics（js/match.js:393）→ club.tactics.defensiveLine
 
 ---
 
+## 5f. 第四轮：远侧边卫（真正卡住队形长度的其实是它）
+
+### 5f.1 触发：两个探针的数字对不上 12 m
+
+§5c.2 说「CB 最深（球≥70 m）33.6 → **50.9 m**」，但
+`attack-shape-compaction-audit.mjs` 的 `attackBackLine` 只有 **38.4 m**。
+同一个量差 12 m，说明有一个探针在看错东西。为此新增
+`scripts/_attack-block-length-breakdown-probe.mjs`：**完全复刻审计的采样口径**
+（两队都算、不按控球过滤、用实际位置 `a.y`、`role !== "GK"`），
+但把后防线拆成中卫 / 边卫两段，并按控球状态与球深度分桶。
+
+### 5f.2 结论：`backLine` 38.4 m 不是中卫线，是**远侧边卫**
+
+改动前（`−19`，即中卫前压已落地、边卫未动），standard 档 4 场 32159 队帧：
+
+| 量 | 值 |
+|---|---|
+| 审计 `backLine`（`min` DEF，实际位） | **38.4 m** |
+| 其中中卫最深（`min` CB） | **49.8 m** ← 与 §5c.2 的 50.9 m 吻合 |
+| 其中边卫最深（`min` FB） | **38.4 m** ← **就是它** |
+| `forwardTop`（`max` ATT） | 94.0 m |
+| 队形跨度（outfield max−min，逐帧中位） | 59.0 m |
+| 「`backLine` 就是中卫」的队帧占比 | **27.9%** |
+
+只看**本方控球**帧（22557 队帧）更刺眼：
+
+| 量 | 值 |
+|---|---|
+| 球侧边卫中位 | **93.3 m**（正常前插） |
+| **远侧边卫中位** | **38.5 m**（钉在己方三区边缘） |
+| 两名边卫深度差 >20 m 的队帧占比 | **85.1%** |
+| 球侧边卫目标位 / 远侧边卫目标位 | 94.1 m / **38.4 m** |
+
+**即：球队在对方禁区前沿围攻时，一名边卫已经压到 93 m，另一名却仍站在距己方门线
+38 m 处——整条后防线被撕成两截。** 跨度 58.6 m 里有 20 m 全由这名边卫贡献。
+
+### 5f.3 病因：同一个「常量」病，`dBall < 55` 把它锁死
+
+`_chooseAttackOffBallTarget` 的边卫分支（`engine.js:4008-4038`）：
+
+```js
+const bombOn =
+  prog > 0.38 &&
+  (prog > 0.55 || this.random() < 0.32 + a.attr.pace * 0.25 + ...) &&
+  dBall < 55;                       // ← 远侧边卫永远过不了这一关
+if (bombOn) { /* 套边前插：a.ty = b.y + dir*(8 + rand*12 + prog*8) —— 跟球，正确 */ }
+// 未前插：保持宽度、略前压
+const fbTargetY = clamp(a.baseY + dir * (4 + prog * 5), 6, 94);   // ← 只跟 prog，不跟球
+```
+
+球在 85–105 m、远侧边卫在 38 m 时，它与球的直线距离约 58 m > 55，
+**`bombOn` 恒为 false**，于是它只能落到兜底分支。
+而兜底分支的纵向目标 `baseY + dir*(4 + prog*5)` 只把 `prog` 从 0 拉到 1，
+对应前移 **0 → 5 m**，**没有球的横向/纵向位置项**。
+
+数字对账（4-3-3 模板 `js/data.js:777-778`，边卫 `baseY = 72`、中卫 `baseY = 75`）：
+
+| | 公式 | 深度 | 实测 |
+|---|---|---|---|
+| 中卫（已修） | `75 − 7 + blockForward` | 50.7 m | 50.7 m |
+| 远侧边卫（未修） | `72 − (4 + 5×0.9)` | **38.3 m** | 38.4 m |
+
+**逐位吻合。** 这是与 §5b 中卫分支**完全同一类**的缺陷：
+纵向目标是「与球位无关（或只与 `prog` 弱相关）的常量」。
+
+### 5f.4 改动（最小、复用同一机制）
+
+边卫与中卫**同属一条后卫线**，所以用**同一个 `blockForward`**，队形才是一个整体：
+
+```js
+// js/sim/engine.js，边卫兜底分支
+const fbTargetY = clamp(a.baseY + dir * (4 + prog * 5) + blockForward, 6, 94);
+```
+
+之所以复用而不是新开一个旋钮：这是同一件物理事实（整块随球前移），
+按「同一事实由同一份数据驱动」的原则不应有第二份参数；
+而且它天然继承了 §5d 的防线高度缩放（防线 4 的强队乘数 1.35、防线 2 的弱队 0.65），
+所以强队远侧边卫压得更靠上、弱队更回收——**这正是现实中防线高度该有的效果**。
+
+`blockForward` 已在函数开头（`engine.js:3765`）算好，作用域无需改动。
+
+### 5f.5 效果（standard 档，4 场同种子）
+
+| 量 | 改动前 | 改动后 |
+|---|---|---|
+| 审计 `backLine` | 38.4 m | **49.4 m**（= 中卫线） |
+| 远侧边卫中位（控球） | 38.5 m | **56.0 m** |
+| 「`backLine` 就是中卫」占比（控球） | 18.0% | **98.8%** |
+| 队形跨度（控球） | 58.6 m | **46.7 m** |
+| 队形跨度（审计口径） | 59.0 m | **47.4 m** |
+| 球在 70–85 m 时的跨度 | 42.6 m | **36.9 m**（已进 30–40 目标区间） |
+| 球在 85–105 m 时的跨度 | 59.6 m | 47.3 m |
+
+`attack-shape-compaction-audit.mjs`（已进默认套件）退出 0：
+
+| 指标 | 改动前 | 改动后 |
+|---|---|---|
+| 进攻三区长度 `attack` | 59.0 / 58.8 | **47.4 / 47.6**（standard / background） |
+| `backLine` | 38.4 | **49.4** |
+| `span` | 55.7 / 55.4 | **44.0 / 44.9** |
+| `attackOverMiddle` | 1.58 | **1.29**（下限 1.15，余量变薄，见下） |
+
+### 5f.6 ⚠ 两处口径陷阱（都已写进脚本注释）
+
+1. **`_attack-block-shift-probe.mjs` 的「DEF→ATT 跨度」列其实不含边卫**。
+   它的实现是 `att − cb`（`scripts/_attack-block-shift-probe.mjs:236`），
+   只算中卫线到锋线。所以它**对远侧边卫这类缺陷完全失明**——
+   本轮改动前后它的跨度列都是 45.3 m，看不出任何变化。
+   **要量整条后防线必须用 `_attack-block-length-breakdown-probe.mjs`。**
+2. 同探针的 `median()` 对 2 个元素取 index 1 = **较大值**，
+   所以 FB 行显示的是「更靠前那名边卫」（≈93 m），不是两名边卫的中位。
+   两处都不是 bug（该探针只诊断中卫线），但**读数时别当成全队口径**。
+
+### 5f.7 仍未达成的部分（如实记录）
+
+- 目标区间 30–40 m，当前 **47.4 m**，仍高约 7 m。
+- 缺口集中在**球在 85–105 m** 这一档（47.3 m）。它的构成是
+  CB 50.9 m ↔ ATT 98.0 m，而 **ATT 的上界是 `_clampOffside`
+  按对手越位线钳出来的**——对手全线退守时，前锋就站在对方最后一名后卫的线上。
+  这是**真实约束**，不是常量缺陷。
+- 剩余的唯一杠杆是**再把中卫线推高**（§4 的目标 56–66 m，现 50.9 m），
+  即继续加大 `|CB_BLOCK_SHIFT_MAX_M|`。**本轮故意不动**：
+  ① 标定曲线（§5b.1）显示该旋钮与强队积分单调负相关，是一个已知 trade-off；
+  ② 项目有「避免一次改两处、无法归因」的明确先例（`AGENTS.md:3155` 一带）。
+  留作独立一轮，且必须带完整跨样本验收。
+- `attackOverMiddle` 由 1.58 降到 1.29（审计下限 1.15）。仍通过，但
+  **余量明显变薄**：如果后续再把三区长度压短，这条断言会先失败。
+  这是一个**有意留下的告警信号**，不是可以顺手放宽的阈值。
+
+### 5f.8 验证
+
+### 5f.9 跨样本复核（`AGENTS.md:3147` 硬要求）
+
+先跑 `match-realism-audit.mjs 24`（standard）：`strongVsWeak.pointsPerMatch` = **2.04**
+（改动前 1.67，门槛 ≥1.5），九项 `referenceDelta` 全在容差内。
+
+**⚠ 但这个 2.04 是噪声，48 场推翻了它**（正是 §5d.4 预警的情况）：
+
+| 档 | 改动前 n=48 | 改动后 n=48 | 变化 |
+|---|---|---|---|
+| standard | 1.81 | **1.79** | −0.02（实质持平） |
+| background | 2.08 | **1.94** | −0.14 |
+
+两档都远在门槛（≥1.5）之上，**改动对强弱分离基本中性**。
+24 场那个 +0.37 是样本波动——**再次验证「低于 24 场不可采信」这条教训还嫌宽松，
+24 场本身也可能给出方向相反的读数**。
+
+48 场的其它指标（standard / background）：
+
+| 指标 | standard | 容差 | background | 容差 |
+|---|---|---|---|---|
+| 进球/场 | 2.88 | 2.5–3.3 ✓ | 3.27 | 2.5–3.3 ✓（**余量仅 0.03**） |
+| 转化率 | 10.6% | 9–15% ✓ | 12.4% | 9–15% ✓ |
+| 传球成功率 | 81.4% | 72–88% ✓ | 82.5% | 72–88% ✓ |
+| 传中占比 | 5.3% | 3–14% ✓ | 5.5% | 3–14% ✓ |
+| 直塞/场 | 2.08 | ≥0.5 ✓ | 1.85 | ≥0.5 ✓ |
+| 角球/场 | 5.04 | 2.75–10 ✓ | 4.31 | 2.75–10 ✓ |
+
+两档各 48 场**均退出 0、0 断言错误**。日志
+`.tmp-continuity/fb-line-shift/cross48-standard.log`、`cross48-background.log`。
+
+⚠ **`background` 的进球/场 3.27 距上限 3.3 只剩 0.03**，这是一个需要盯着的余量：
+下一轮若再增加进攻供给，这条会先失败。
+
+### 5f.10 其它默认套件审计
+
+| 审计 | 防线取值 | 结果 |
+|---|---|---|
+| `attack-shape-compaction-audit.mjs` | 3 / 3 | ✅ 退出 0 |
+| `team-shapes-audit.mjs` | 4 / 1 | ✅ 退出 0 |
+| `collective-defense-audit.mjs` | 4 / 1 | ✅ 退出 0 |
+| `match-analysis-audit.mjs` | 4 / 2 | ✅ 退出 0 |
+
+### 5f.11 `verify --full`：第一次失败，但失败点是**既有的 flaky 审计**（顺带修掉）
+
+第一次 `verify --full`（`.tmp-continuity/fb-line-shift/verify-full.log`）**退出 1**，
+30 个入口通过后中断：
+
+```
+AssertionError [ERR_ASSERTION]: development should favour the player's role-defining
+strengths without excluding weaknesses
+    at file:///F:/VCFM/scripts/player-attributes-audit.mjs:140:8
+```
+
+**失败点在球员属性成长，与本轮改动无关**，证据三条：
+
+1. 该审计的依赖链（`js/models.js`、`js/player-attributes.js`、`js/player-habits.js`）
+   **零处**引用 `js/sim/engine.js`（`grep -c "sim/engine"` 三个文件都是 0）。
+2. 单独连跑 **20 次失败 1 次（5%）**——它本来就是随机的。
+3. 失败断言读的是 `sample.find(p => p.attributeArchetype === "playmaker")`，
+   而 `createPlayer` 走 `Math.random()`（`js/models.js:66,74,82`），
+   取到的是**随机样本里的第一个** playmaker。
+
+**根因**：若那名 playmaker 的 `passing` 恰好已到 20，
+`weightedDevelopmentAttributes` 的 `< 20` 候选过滤（`js/player-attributes.js:258`）
+会把它整个剔掉 → passing 计数 0 < tackling 计数 1 → 断言失败。
+playmaker 的权重本身是固定的（passing 2.5 → 5 份、tackling −1.1 → 1 份），
+所以**只要两者都没满 20，比较结果就是确定的**。
+
+**修法**（只改取样，不改断言语义）：
+
+```js
+const developmentFixture = sample.find(
+  (player) => player.attributeArchetype === "playmaker"
+    && player.attrs.passing < 20 && player.attrs.tackling < 20
+);
+assert.ok(developmentFixture, "sample must contain an uncapped playmaker to measure development weighting");
+const development = weightedDevelopmentAttributes(developmentFixture);
+```
+
+修复后连跑 **30 次失败 0 次**。
+
+⚠ **这类 flaky 的代价很大**：它让一次 53 分钟的完整验收作废，
+而且失败点（属性成长）与当轮改的东西（比赛引擎）毫无关系，**极易被误判成回归**。
+以后遇到 `verify --full` 在**与改动无关的模块**上失败，先怀疑 flaky、连跑几次，再去查回归。
+
+**顺手排查了套件里其它「未播种随机」的审计**（扫 `createPlayer(` / `createClub(` /
+`ensureStaff(` / `newGame(`），只有这四个用到；连跑结果：
+
+| 审计 | 未播种调用 | 连跑 | 失败 |
+|---|---|---|---|
+| `player-attributes-audit.mjs` | `createPlayer` ×3200 | 20 → 修复后 30 | 1 → **0** |
+| `player-names-audit.mjs` | `createClub` | 15 | 0 |
+| `player-habits-audit.mjs` | `ensureStaff` | 15 | 0 |
+| `scouting-knowledge-audit.mjs` | `ensureStaff` | 15 | 0 |
+
+**结论：这四个里只有 `player-attributes-audit` 真的 flaky**，其余三个稳定。
+（未做的是「把所有审计都跑 N 遍」这种全量排查，成本过高；这里只覆盖了
+用了未播种随机的入口——这是最可能出问题的一类。）
+
+### 5f.12 `verify --full`（重跑，修掉 flaky 之后）
+
+```
+开始: 20:52:05    结束: 21:49:49    （57 分 44 秒）
+exit=0
+VCFM verification passed
+```
+
+**81 个入口通过、断言错误 0 条**（第一次失败的那次是 30 个入口后中断）。
+日志 `.tmp-continuity/fb-line-shift/verify-full-2.log`。
+
+两个 `match-realism-audit` 入口（各 24 场）：
+
+| 档 | 强队积分/场 | 门槛 | 胜率 | 强队/弱队进球 |
+|---|---|---|---|---|
+| standard | **2.04** | ≥1.5 ✓ | 62.5% | 41 / 23 |
+| background | **1.83** | ≥1.5 ✓ | 54.2% | 38 / 23 |
+
+`referenceDelta` 九项**全部在容差内**（standard：goals 0.04、shots 0.71、
+passes 24.88、passCompletionPct 0.1、fouls −0.17、openGoalShots 0.13、
+goalkeeperClaims −0.79、goalkeeperChallenges −1.16、strongPointsPerMatch 0.29；
+background 同样全过）。
+
+⚠ 注意：这里的 **2.04 是 24 场读数**，与 §5f.9 的 48 场 **1.79** 并不矛盾——
+这正是本轮新增的那条教训（**24 场会给出方向相反的读数**）。
+门槛判定用 24 场足够，**效应量判定必须看 48 场**。
+
+### 5f.13 状态
+
+| 项目 | 结果 |
+|---|---|
+| `attack-shape-compaction-audit.mjs` | ✅ 退出 0（两档；**阈值已收紧**，见 §5f.14） |
+| `match-realism-audit.mjs 24`（standard） | ✅ 2.04，`referenceDelta` 九项全过 |
+| 跨样本 n=48 standard | ✅ 退出 0，1.79 |
+| 跨样本 n=48 background | ✅ 退出 0，1.94 |
+| 三个非 3 防线审计 | ✅ 全部退出 0 |
+| `player-attributes-audit.mjs` flaky | ✅ 已修（20 次 1 败 → 30 次 0 败） |
+| 其它三个未播种审计 | ✅ 各 15 次 0 败（不是 flaky） |
+| `verify --full` | ✅ 退出 0（57m44s、**81 个入口**、0 断言错误） |
+| 主客对称性 | ✅ CB 50.1 / 50.8 m、远侧边卫 56.0 / 55.9 m |
+| 实机浏览器连续性 | ✅ 退出 0，**10 类运动异常计数全为 0** |
+| 引擎 blob | `c033ca3cbcf926a1b564bccca158a08661cdb7a8`（`git hash-object js/sim/engine.js`） |
+| 引擎 SHA-256 | `1e68efe8233b77968909897291f241250b0bf2db593582ac574d79ca4704a108` |
+
+实机浏览器审计（`scripts/match-continuity-browser.mjs`，4m45s）：
+
+| 项 | 值 |
+|---|---|
+| 帧数 / 有运动的帧 | 7673 / 7550 |
+| 主裁峰值速度 | 3.8 m/s |
+| 变向 / 接触 | 21 / 31 |
+| 浏览器错误 | `[]` |
+| 10 类运动异常（invalid-coordinate、player-teleport、player-acceleration、player-oscillation、**player-target-churn**、player-overlap、support-target-crowding、owner-ball-gap、ball-teleport、display-divergence） | **全部 count 0、severe 0** |
+
+`player-target-churn` 与本轮改动最相关（改的就是目标点生成），为 0 说明
+「整体前压量」没有造成目标反复跳变。证据目录 `.tmp-continuity/visual-1789393826975/`，
+日志 `.tmp-continuity/fb-line-shift/browser.log`。
+
+### 5f.14 回归阈值收紧（**不是放宽**）——并做了反向验证
+
+修好之后出现一个新问题：`attack-shape-compaction-audit.mjs` 的
+`attackCeiling: 68` / `spanMax: 70` 是按**未修**基线（63.3 / 55.7）加余量设的，
+**修好之后反而挡不住「退回原状」**（63.3 < 68 照样通过）。所以收紧到：
+
+| 阈值 | 原值 | 新值 | 新基线 | 修前值会不会失败 |
+|---|---|---|---|---|
+| `attackCeiling` | 68 | **54** | 47.4 / 47.6 | **会**（59.0 > 54） |
+| `spanMax` | 70 | **52** | 44.0 / 44.9 | **会**（55.7 > 52） |
+
+下限（`thirdFloor` 20、`attackFloor` 25、`spanMin` 30）与比值下限
+（`attackOverMiddle` 1.15）**一律保持原值，未动**。
+
+**反向验证（在独立副本里做，不干扰正在运行的验收）**：
+把 `js/sim/engine.js` 换回 `HEAD`（= 未含本轮边卫改动），
+在 `attack-shape-compaction-audit.mjs` 用新阈值跑，**按预期失败**：
+
+```
+AssertionError [ERR_ASSERTION]: [standard] 进攻三区纵向长度超出上限：59.0 m > 54 m
+```
+
+副本位置 `/tmp/vcfm-reverse`（只拷 `js/` + 该审计，不改主工作区）。
+
+**合入理由**（与 §5d.9 同一结构）：
+① 这是**同一类常量缺陷**的第二处实例，且数字逐位对账（`72 − 8.5 = 63.5` → 38.3 m 实测 38.4 m）；
+② 复用**同一机制与同一旋钮**，没有新增参数，也没有新开一条只为某个界面服务的路径；
+③ 队形指标实质改善（跨度 59.0 → 47.4 m，球 70–85 m 档已进 30–40 目标区间）；
+④ 对既有护栏**基本中性**（两档 48 场 1.79 / 1.94，均远高于门槛）。
+
+**如实说明的代价**：`attackOverMiddle` 由 1.58 降到 1.29（下限 1.15），
+三区长度比值的余量明显变薄；`background` 进球/场 3.27 距上限仅 0.03。
+
+---
+
 ## 6. 复现
 
 ```bash
-# 诊断（本轮新增，只读）
+# 诊断（只读）
 node scripts/_attack-block-shift-probe.mjs 4 standard
 node scripts/_attack-block-shift-probe.mjs 4 background
+
+# ⚠ 队形长度拆解（含边卫、拆中卫/边卫）——要量整条后防线就用这个，
+#   _attack-block-shift-probe 的跨度列不含边卫，对远侧边卫失明（见 §5f.6）
+node scripts/_attack-block-length-breakdown-probe.mjs standard
+node scripts/_attack-block-length-breakdown-probe.mjs background
 
 # 防线高度驱动的前压量：真实战术下的强弱分离（⚠ 至少 24 场，8 场结论会反转）
 node scripts/_cb-line-height-probe.mjs 24 standard
@@ -572,8 +906,12 @@ node scripts/match-realism-audit.mjs 24
 ## 7. 参考
 
 - `js/sim/engine.js:3734` — `_chooseAttackOffBallTarget`（`_attackPlan` 的现名）
+- `js/sim/engine.js:3759-3765` — 整体前压量 `blockForward`（含防线高度缩放）
 - `js/sim/engine.js:3788-3793` — 中卫「防反保护」分支（`ty = baseY + dir*7`）
-- `js/sim/engine.js:4011-4028` — 中卫兜底分支（`ty = baseY + dir*3`）
+- `js/sim/engine.js:4008-4038` — 边卫分支：`bombOn` 的 `dBall < 55` 与兜底 `baseY + dir*(4 + prog*5)`
+- `js/sim/engine.js:4041-4058` — 中卫兜底分支（`ty = baseY + dir*3 + blockForward`）
+- `js/sim/engine.js:4132` — `_clampOffside`（前锋深度的真实上界来源）
+- `scripts/_attack-block-length-breakdown-probe.mjs` — 队形长度拆解（含边卫）
 - `js/sim/engine.js:708` — `attackDir`；`js/data.js:777-778` — 4-3-3 中卫槽
 - `js/delegation.js:231-241` — 按实力差设定 `defensiveLine`（强队 ≥4、弱队 ≤2）
 - `js/collective-defense.js:34-48` — `defensiveLine` 决定盯人距离（同一数据的既有用法）

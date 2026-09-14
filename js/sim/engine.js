@@ -4022,9 +4022,15 @@ export class SimEngine {
         this._clampOffside(a);
         return;
       }
-      // 未前插：保持宽度、略前压，避开拥挤区
+      // 未前插：保持宽度、略前压，避开拥挤区。**同样叠加整体前压量**。
+      // 远侧边卫通常离球 >55 m，永远进不了上面的套边分支（门槛 `dBall < 55`），
+      // 于是只能落到这里；如果这里只留一个与球位几乎无关的 `4 + prog*5`（0→5 m），
+      // 它就会钉在距己方门线约 38 m —— 球队在对方禁区前沿围攻时，一名边卫却仍站在
+      // 己方三区边缘，整条后防线被撕成两截（实测控球时 85.1% 的队帧两名边卫相差 >20 m，
+      // 跨度 58.6 m 里有 20 m 全由这名边卫贡献）。
+      // 边卫与中卫同属一条后卫线，所以用同一个 `blockForward`，队形才是一个整体。
       let fbTargetX = clamp(a.baseX + wide * 2 + (b.x - 50) * 0.08, 4, 96);
-      const fbTargetY = clamp(a.baseY + dir * (4 + prog * 5), 6, 94);
+      const fbTargetY = clamp(a.baseY + dir * (4 + prog * 5) + blockForward, 6, 94);
       const fbShiftMetres = this._checkCrowding(a, fbTargetX, fbTargetY);
       if (fbShiftMetres !== 0) {
         const fbShiftX = fbShiftMetres / (SIM.PITCH_W_METRES / SIM.FIELD_W);

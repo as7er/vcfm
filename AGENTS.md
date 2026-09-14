@@ -19,8 +19,78 @@
 >    后果：`git status` 永远显示 `[gone]`，不能用 `origin/master` 这个名字。
 >    **替代做法**：用 `git ls-remote origin master` 查远程真实位置，
 >    或 `git fetch origin master && git merge --ff-only FETCH_HEAD`。
+> 3. **`~/.gitconfig` 里有一行 `credential.helper=`（空值）**，它会把继承来的 helper 列表
+>    **清空**，于是连系统 Git 也报
+>    `fatal: could not read Username for 'https://github.com': terminal prompts disabled`
+>    —— 看起来像「系统 Git 也坏了」，其实只是没有助手可用（第 1 条只解决了 PortableGit 的
+>    挂起，没解决这条）。**稳妥写法**（推送 `96d356e` 就是这样成功的）：
+>    ```bash
+>    GIT_TERMINAL_PROMPT=0 "/c/Program Files/Git/cmd/git.exe" \
+>      -c credential.helper=manager push origin master
+>    ```
+>    即在命令行上**显式补回** `credential.helper=manager`，不要去改用户的全局配置。
 
-## 当前状态（2026-09-14 夜，续接先读这一节）
+## 当前状态（2026-09-14 深夜，续接先读这一节）
+
+- **本轮修的是「远侧边卫」——真正卡住队形长度的其实是它**，不是中卫线。
+  完整诊断见 [docs/attack-block-shift-diagnosis-2026-09-14.md](docs/attack-block-shift-diagnosis-2026-09-14.md) §5f。
+  新增拆解探针后发现 `attack-shape-compaction-audit` 的 `attackBackLine` **38.4 m
+  不是中卫线，是远侧边卫**（中卫线实际 49.8 m，「`backLine` 就是中卫」的队帧只占 27.9%）。
+  控球时**球侧边卫 93.3 m、远侧边卫 38.5 m**，**85.1% 的队帧两名边卫相差 >20 m**。
+- **成因**：边卫分支的 `bombOn` 要求 `dBall < 55`（`engine.js:4016`）。球在 85–105 m、
+  远侧边卫在 38 m 时球距约 58 m > 55 → **永远进不了套边前插分支**，只能落到兜底
+  `baseY + dir*(4 + prog*5)`（只跟 `prog`、前移 0→5 m，**无球位项**）。
+  数字逐位对账：`72 − (4 + 5×0.9) = 63.5` → 深度 **38.3 m**，实测 38.4 m。
+  这与 §5b 的中卫分支是**同一类**缺陷。
+- **改动（最小）**：`fbTargetY = clamp(a.baseY + dir*(4 + prog*5) + blockForward, 6, 94)`
+  （`engine.js:4027`）。边卫与中卫同属一条后卫线 → **复用同一个 `blockForward`**、
+  不新开旋钮；并天然继承防线高度缩放（强队乘数 1.35 / 弱队 0.65）。
+- **效果**（standard 4 场同种子）：审计 `backLine` 38.4 → **49.4 m**；远侧边卫
+  38.5 → **56.0 m**；跨度 59.0 → **47.4 m**；球在 70–85 m 档跨度 42.6 →
+  **36.9 m（已进 30–40 目标区间）**。`attack-shape-compaction-audit` 的
+  `attack` 59.0/58.8 → **47.4/47.6**、`span` 55.7/55.4 → **44.0/44.9**。
+- **验收**：跨样本 n=48 两档退出 0，强队积分 standard **1.79**（前 1.81）、
+  background **1.94**（前 2.08），均远高于门槛 1.5；三个使用非 3 防线的默认套件审计
+  （`team-shapes-audit` / `collective-defense-audit` / `match-analysis-audit`）全部退出 0。
+- ⚠ **24 场会给出方向相反的读数（新增教训，已写入诊断 §5d.4）**：同一处改动，
+  standard 24 场读到 **1.67 → 2.04（+0.37，看起来明显改善）**，48 场读到
+  **1.81 → 1.79（实质持平）**。所以**拿强弱分离当合入理由必须用 48 场**；
+  24 场只够判「有没有跌破 1.5」，不足以判「改善还是变差」。
+- ⚠ **回归阈值已收紧（不是放宽）**：`attack-shape-compaction-audit.mjs` 的
+  `attackCeiling` 68 → **54**、`spanMax` 70 → **52**（下限与比值下限一律未动）。
+  旧上限是按未修基线（63.3/55.7）加余量设的，修好之后**反而挡不住「退回原状」**。
+  已在独立副本 `/tmp/vcfm-reverse` 用 HEAD 版引擎做**反向验证**：按预期失败
+  （`[standard] 进攻三区纵向长度超出上限：59.0 m > 54 m`）。
+- ⚠ **两处口径陷阱（已写进脚本注释）**：
+  1. `_attack-block-shift-probe.mjs` 的「DEF→ATT 跨度」列实现是 `att − cb`，
+     **不含边卫**，对远侧边卫**完全失明**（改动前后都是 45.3 m）。
+     要量整条后防线用新增的 `scripts/_attack-block-length-breakdown-probe.mjs`
+     （复刻审计口径、含边卫、拆中卫/边卫、按控球与球深度分桶）。
+  2. 同探针的 `median()` 对 2 个元素取 index 1 = **较大值**，所以 FB 行显示的是
+     「更靠前那名边卫」（≈93 m），不是两名边卫的中位。
+- ⚠ **顺带修掉一个既有 flaky 审计**：`scripts/player-attributes-audit.mjs:140` 的
+  成长权重断言读 `sample.find(p => p.attributeArchetype === "playmaker")`，
+  而 `createPlayer` 走 `Math.random()`；若那名 playmaker 的 `passing` 已满 20，
+  `weightedDevelopmentAttributes` 的 `< 20` 过滤会剔掉它 → 断言随机失败
+  （**实测 20 次 1 败**，第一次 `verify --full` 就是被它绊倒的）。
+  修法只改取样（要求 `passing < 20 && tackling < 20`），修后 **30 次 0 败**。
+  **教训：`verify --full` 若在与改动无关的模块上失败，先怀疑 flaky、连跑几次，再去查回归。**
+- **仍未达成（如实记录）**：目标 30–40 m，当前 **47.4 m**，仍高约 7 m；缺口集中在
+  球在 85–105 m 档（47.3 m），构成是 CB 50.9 ↔ ATT 98.0，而 **ATT 的上界由
+  `_clampOffside` 按对手越位线钳出**——对手退守时前锋就站在对方最后一名后卫线上，
+  这是**真实约束**而非常量缺陷。剩余唯一杠杆是继续推高中卫线（§4 目标 56–66 m，
+  现 50.9 m），**本轮故意不动**（该旋钮与强队积分单调负相关；且避免一次改两处无法归因）。
+- ⚠ **余量变薄的护栏**：`attackOverMiddle` 1.58 → **1.29**（下限 1.15）；
+  background 进球/场 **3.27**（上限 3.3）。下一轮若再加进攻供给，这两条会先失败。
+- **完整验收全绿**：`verify --full` 退出 0（**57m44s、81 个入口、0 断言错误**，
+  末行 `VCFM verification passed`），两个 realism 入口 standard **2.04** / background **1.83**
+  （门槛 1.5），`referenceDelta` 九项全在容差内。实机浏览器连续性审计退出 0，
+  **10 类运动异常计数全为 0**（含与本轮最相关的 `player-target-churn`）。
+  日志 `.tmp-continuity/fb-line-shift/`（`verify-full-2.log`、`cross48-*.log`、`browser.log`）。
+- ⚠ **`verify --full` 里那个 2.04 是 24 场读数**，与 48 场的 1.79 不矛盾：
+  **门槛判定用 24 场够，效应量判定必须看 48 场。**
+
+## 上一状态（2026-09-14 夜）
 
 - **新增端到端审计 `scripts/cb-line-height-e2e-audit.mjs`**，提交为 `408ee4a`，
   **已进 `verify` 默认套件**（套件现 93 个入口，3 场约 35s）。

@@ -136,7 +136,23 @@ const legacyPlaymaker = {
 assert.equal(inferAttributeArchetype(legacyPlaymaker), "playmaker",
   "legacy migration must preserve an existing creative player's identity instead of assigning a random profile");
 
-const development = weightedDevelopmentAttributes(sample.find((player) => player.attributeArchetype === "playmaker"));
+// ⚠ 必须挑一个「相关属性都没满 20」的 playmaker，不能直接用 `sample.find(...)`。
+// `createPlayer` 走 Math.random（`js/models.js:66,74,82`），`sample.find` 取的是随机样本里
+// 的**第一个** playmaker；若它的 `passing` 恰好已到 20，`weightedDevelopmentAttributes`
+// 的 `< 20` 候选过滤（`js/player-attributes.js:258`）会把它整个剔掉 →
+// passing 计数 0 < tackling 计数 1 → **断言随机失败**。
+// 2026-09-14 实测：连跑 20 次失败 1 次（5%），会让 `verify --full` 无故变红、
+// 且失败点在属性成长、与当轮改的比赛引擎毫无关系，极易误判成回归。
+// playmaker 的权重是固定的（passing 2.5 → 5 份、tackling −1.1 → 1 份），
+// 所以只要两者都没满 20，5 > 1 这个比较就是确定的。
+const developmentFixture = sample.find(
+  (player) =>
+    player.attributeArchetype === "playmaker" &&
+    player.attrs.passing < 20 &&
+    player.attrs.tackling < 20
+);
+assert.ok(developmentFixture, "sample must contain an uncapped playmaker to measure development weighting");
+const development = weightedDevelopmentAttributes(developmentFixture);
 assert.ok(development.filter((key) => key === "passing").length > development.filter((key) => key === "tackling").length,
   "development should favour the player's role-defining strengths without excluding weaknesses");
 
