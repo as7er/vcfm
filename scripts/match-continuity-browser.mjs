@@ -186,14 +186,20 @@ try {
   await capture("final");
   const report = await page.evaluate(() => ({
     stats: window.__continuityStats,
-    motion: window.__continuityView.motionMonitor.auditSummary(),
+    motion: window.__continuityView.motionMonitor.logMotionReport("match-continuity"),
     clock: document.querySelector("#match-minute")?.textContent,
   }));
   writeFileSync(new URL("report.json", out), JSON.stringify({ completed, halfTime, captures, errors, ...report }, null, 2));
+  writeFileSync(new URL("motion-report.json", out), JSON.stringify({
+    clock: report.clock,
+    framesDriven: report.stats.frames,
+    ...report.motion,
+  }, null, 2));
   console.log(JSON.stringify({ completed, halfTime, frames: report.stats.frames,
     movingFrames: report.stats.movingFrames, maxRefSpeed: report.stats.maxRefSpeed,
     cuts: report.stats.cuts, contacts: report.stats.contacts, motion: report.motion.byType,
-    out: fileURLToPath(out), errors }));
+    motionFramesTotal: report.motion.framesSampledTotal, out: fileURLToPath(out), errors }));
+  console.log(JSON.stringify({ motionRows: report.motion.rows }, null, 1));
   assert.ok(completed && halfTime, "the workflow must reach both halves and full time");
   assert.ok(report.stats.movingFrames > 100, "the browser must render moving play");
   assert.deepEqual(report.stats.violations, [], "officials exceeded physical speed in continuous play");

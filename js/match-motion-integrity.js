@@ -182,6 +182,8 @@ export class MotionIntegrityMonitor {
       ...DEFAULT_MOTION_THRESHOLDS,
       ...(options.thresholds || {}),
     };
+    // 逐条打印开关：默认关闭，保持既有运行行为不变。
+    this.autoLog = !!options.autoLog;
     this.reset(options.metadata || {});
   }
 
@@ -190,6 +192,14 @@ export class MotionIntegrityMonitor {
     this.frames = [];
     this.incidents = [];
     this.history = [];
+    // 本场累计量。`frames`/`incidents` 会被 `_trimFrames` 按时间窗裁掉，
+    // `history` 会被 `maxHistory` 截断，只有下面这几个计数器不受影响。
+    this.framesTotal = 0;
+    this.totalIncidents = 0;
+    this.totals = Object.create(null);
+    this.totalsSevere = Object.create(null);
+    this.firstAt = Object.create(null);
+    this.lastAt = Object.create(null);
     this._lastIncidentAt = new Map();
     this._overlapSince = new Map();
     this._overlapReportedAt = new Map();
@@ -256,6 +266,7 @@ export class MotionIntegrityMonitor {
       invalidCoordinate,
     };
     this.frames.push(record);
+    this.framesTotal += 1;
     this._trimFrames(engine.t);
     this._analyze(previous, record);
     return this.status();
@@ -284,6 +295,18 @@ export class MotionIntegrityMonitor {
     if (this.incidents.length > this.maxIncidents) this.incidents.shift();
     if (this.history.length > this.maxHistory) this.history.shift();
     this._lastIncidentAt.set(key, t);
+    // 累计计数不受 `history` 的 maxHistory 截断影响，导出统计以这里为准。
+    this.totalIncidents += 1;
+    this.totals[type] = (this.totals[type] || 0) + 1;
+    if (severity === "severe") {
+      this.totalsSevere[type] = (this.totalsSevere[type] || 0) + 1;
+    }
+    if (this.firstAt[type] === undefined) this.firstAt[type] = round(t, 3);
+    this.lastAt[type] = round(t, 3);
+    if (this.autoLog) {
+      const log = severity === "severe" ? console.warn : console.debug;
+      log?.call(console, `[vcfm-motion] ${type} t=${round(t, 2)}`, details);
+    }
     return incident;
   }
 
@@ -661,15 +684,53 @@ export class MotionIntegrityMonitor {
 
   auditSummary() {
     const byType = {};
-    for (const incident of this.history) byType[incident.type] = (byType[incident.type] || 0) + 1;
+    const severeByType = {};
+    let severe = 0;
+    let warnings = 0;
+    for (const type of Object.values(MOTION_INCIDENT_TYPES)) {
+      const count = this.totals[type] || 0;
+      if (count) byType[type] = count;
+      const severeCount = this.totalsSevere[type] || 0;
+      if (severeCount) severeByType[type] = severeCount;
+      severe += severeCount;
+      warnings += count - severeCount;
+    }
     return {
+      // `framesSampled` 是当前时间窗内的帧数（会被 _trimFrames 裁掉），
+      // `framesSampledTotal` 才是本场累计。看总量请用后者。
       framesSampled: this.frames.length,
-      totalIncidents: this.history.length,
-      severe: this.history.filter((incident) => incident.severity === "severe").length,
-      warnings: this.history.filter((incident) => incident.severity === "warning").length,
+      framesSampledTotal: this.framesTotal,
+      historyRetained: this.history.length,
+      totalIncidents: this.totalIncidents,
+      severe,
+      warnings,
       byType,
+      severeByType,
+      firstAt: { ...this.firstAt },
+      lastAt: { ...this.lastAt },
       incidents: this.history.map((incident) => ({ ...incident })),
     };
+  }
+
+  /**
+   * 人类可读的画面异常报告：返回结构化结果，并打印一张按类型分组的表。
+   * 只读取已有计数，不改动任何判定或阈值。
+   */
+  logMotionReport(label = "motion") {
+    const summary = this.auditSummary();
+    const rows = Object.values(MOTION_INCIDENT_TYPES).map((type) => ({
+      type,
+      count: summary.byType[type] || 0,
+      severe: summary.severeByType[type] || 0,
+      firstAt: summary.firstAt[type] ?? null,
+      lastAt: summary.lastAt[type] ?? null,
+    }));
+    console.group?.(
+      `[${label}] 2D 画面运动完整性 · 采样 ${summary.framesSampledTotal} 帧 · 异常 ${summary.totalIncidents} 次`
+    );
+    console.table?.(rows);
+    console.groupEnd?.();
+    return { ...summary, rows };
   }
 }
 

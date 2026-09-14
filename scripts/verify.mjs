@@ -19,6 +19,11 @@ const checks = [
   // DOM 那一半（R/A 字母、圆点尺寸）由 `npm run test:officials-browser` 覆盖。
   "scripts/officials-presentation-audit.mjs",
   "scripts/match-motion-integrity-audit.mjs",
+  // 默认 4+4 场（约 60s）：把 v238 诊断的「进攻时队形纵向被拉长」钉成回归断言。
+  // role-noGK 口径基线 = 己方 37.0 / 中场 37.8 / 进攻三区 63.3~63.8 m，
+  // 进攻三区内 DEF→ATT 跨度 60.0 m ≈ 4-3-3 静态模板 59.85 m（= 缺少 team block 平移+压缩）。
+  // 阈值按「现状 + 余量」设，所以改好会通过、改坏会失败；另有下限防「压成一团」。
+  "scripts/attack-shape-compaction-audit.mjs",
   "scripts/off-ball-movement-audit.mjs",
   "scripts/match-broadcast-audit.mjs",
   "scripts/pass-speed-audit.mjs",
