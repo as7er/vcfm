@@ -5,7 +5,9 @@
 > 仓库：https://github.com/as7er/vcfm.git · `master`（**2026-09-14 起规范地址为小写 `vcfm`**；
 > 大写 `VCFM` 仍可用但会走重定向，`origin` 已更新为小写）  
 > 预览：`python -m http.server 8765 --bind 127.0.0.1`  
-> 缓存：**vcfm-v254**（门将换人位置约束；换人专项验证通过，未跑完整验收）
+> 缓存：**vcfm-v255**（中卫线随球前压 + 按防线高度缩放 + 远侧边卫随球前压）
+> ⚠ **改预缓存资源（尤其 `js/sim/engine.js`）后必须升 `sw.js` 的 `CACHE` 版本号**，
+> 否则回访用户会一直用旧引擎。`e6567a8` / `0692c6a` 两轮漏升，已由 v255 一并覆盖。
 
 > **⚠ 本机 Git 环境（2026-09-14 实测，会浪费排查时间）**：
 > 1. **推送必须用系统 Git**：`"C:\Program Files\Git\cmd\git.exe" push origin master`。
