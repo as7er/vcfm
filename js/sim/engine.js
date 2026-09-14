@@ -90,6 +90,10 @@ export const SIM = {
   // 球速必须先换算成米，否则同样距离的横向与纵向动作会得到不同结果。
   PITCH_W_METRES: 68,
   PITCH_H_METRES: 105,
+  // 进攻时中卫线随球整体前压的最大距离（米）。真实球队是一个整体平移的块：
+  // 球推进到进攻三区时后卫线会越过中线。此前中卫线的纵向目标是常量、完全不跟球，
+  // 导致队形冻结在静态模板长度上。详见 docs/attack-block-shift-diagnosis-2026-09-14.md。
+  CB_BLOCK_SHIFT_MAX_M: -19,
   // 球门：主队球门在 y≈100 一侧，客队球门在 y≈0 一侧；门宽以 x 计
   GOAL_X0: 44,
   GOAL_X1: 56,
@@ -3737,6 +3741,13 @@ export class SimEngine {
     const b = this.ball;
     const ownGoalY = a.team === "home" ? SIM.HOME_GOAL_Y : SIM.AWAY_GOAL_Y;
     const prog = clamp(Math.abs(b.y - ownGoalY) / 100, 0, 1);
+    // 中卫线的整体前压量（y 格，朝进攻方向）。中卫线原本只站在与球位无关的常量上，
+    // 导致进攻时后防线不跟球、队形被拉长成静态模板形状。真实球队是整体平移的块，
+    // 所以按球的推进深度给出前压量：原常量锚点保留，另外叠一个随球前移的项。
+    // 符号：-dir * shiftY，其中 shiftY 为负 → home(dir=-1) 时 ty 增大 = 向前压。
+    // 用米制换算回 y 格，保证同一物理前压量在任何球场尺度下对应同一格数。
+    const blockShiftY = (prog * SIM.CB_BLOCK_SHIFT_MAX_M) / (SIM.PITCH_H_METRES / SIM.FIELD_H);
+    const blockForward = -dir * blockShiftY;
     const dBall = dist(a.x, a.y, b.x, b.y);
     const core = !!a.isCore;
     const finalThird = prog > 0.64;
@@ -3784,10 +3795,13 @@ export class SimEngine {
       return;
     }
 
-    // 中卫留作防反保护，不再因为离球较近跟进到禁区弧顶围球。
+    // 中卫不再因为离球较近跟进到禁区弧顶围球，但仍随球队整体前压：纵向目标 =
+    // 原防反保护锚点（baseY + dir*7）+ 随球推进的整体平移量。这样整条中卫线在进攻
+    // 三区会越过中线，队形长度回落到真实块长，而不再冻结在静态模板长度上；
+    // 球权丧失时 prog 回落，前压量同步收回，防反保护强度不变。
     if (finalThird && a.role === "DEF" && !this._isFullback(a)) {
       a.tx = clamp(a.baseX + (b.x - 50) * 0.08, 18, 82);
-      a.ty = clamp(a.baseY + dir * 7, 18, 82);
+      a.ty = clamp(a.baseY + dir * 7 + blockForward, 18, 82);
       a.fsm = "home";
       return;
     }
@@ -4008,7 +4022,7 @@ export class SimEngine {
       return;
     }
 
-    // —— 中卫：近球少接应，否则回位略前压 ——
+    // —— 中卫：近球少接应，否则回位并随球队整体前压 ——
     if (dBall < 22) {
       const side = a.x < b.x ? -1 : 1;
       a.tx = clamp(b.x + side * (10 + this.random() * 4), 5, 95);
@@ -4016,7 +4030,7 @@ export class SimEngine {
       a.fsm = "support";
     } else {
       let cbTargetX = clamp(a.baseX + (b.x - 50) * 0.12, 5, 95);
-      const cbTargetY = clamp(a.baseY + dir * 3, 3, 97);
+      const cbTargetY = clamp(a.baseY + dir * 3 + blockForward, 3, 97);
       const cbShiftMetres = this._checkCrowding(a, cbTargetX, cbTargetY);
       if (cbShiftMetres !== 0) {
         const cbShiftX = cbShiftMetres / (SIM.PITCH_W_METRES / SIM.FIELD_W);
