@@ -1,6 +1,7 @@
 # 移动端比赛画面布局审计与修正（2026-09-15）
 
-> 纯表现层改动：`css/style.css` 六处。**没有**碰引擎、数据、缓存、统计护栏或冻结参考。
+> 纯表现层改动：`css/style.css` 六处；同源缺陷的追加修正（§2.4）另动
+> `js/main.js` 与 `js/matchview.js` 各一处。**没有**碰引擎、数据、缓存、统计护栏或冻结参考。
 > 本文所有数字都是真实浏览器（headless Edge + Playwright）逐元素量出来的，不是估算。
 
 ## 1. 结论先说
@@ -86,6 +87,46 @@
 （8.8px）、`.mp-bench-side` 2 个，以及 `fm-sb-comp`/`fm-sb-live`/`mp-fmm-speed`/
 `fm-com-badge` 各 1 个——都是装饰性水印，不是必须读的信息。
 
+### 2.4 同源缺陷：复核弹窗小球场 + 传球网络圆点（本轮追加）
+
+`preserveAspectRatio="none"` 的破坏力不止主球场一处。凡是**把圆画进非等比盒子**的
+SVG 都会中招，而且同样不报错。本轮把剩下两处一并修掉：
+
+| 位置 | 坐标系 | 盒子宽高比 | 原来的错法 | 修法 |
+|---|---|---|---|---|
+| 复核弹窗小球场（`js/main.js` 的 `motionPitchSvg`） | `viewBox 0 0 100 100` | `68/105`（`.motion-review-pitch`） | 中圈 `<circle r=9.15>`、球员点、球、号码全被横向压到 **0.6476** 倍 | 整块改成主球场那套 `viewBox 0 0 100 150`（引擎 y × 1.5），圆一律写成椭圆 `ry = rx × 0.97143` |
+| 传球网络节点（`js/matchview.js` 的 `_redrawNetwork`） | `viewBox 0 0 100 100` | `68/105`（`.mp-network` = `.mp-camera`） | `.mp-net-node` 是 `<circle>`，渲染成横扁椭圆 | 改 `<ellipse rx=r ry=r × 68/105>` |
+
+复核弹窗实测（5 档视口，`scripts/_motion-review-geometry-probe.mjs`）：
+
+| 视口 | 盒子(px) | 盒子比 | 中圈 | 球员点 | 球 | 旧中圈 | 旧球员点 |
+|---|---|---|---|---|---|---|---|
+| 360×640 | 298×461 | 0.6464 | **0.9981** | **0.9976** | **0.9951** | 0.6461 | 0.6461 |
+| 390×844 | 298×461 | 0.6464 | **0.9981** | **0.9976** | **0.9951** | 0.6461 | 0.6461 |
+| 414×896 | 298×461 | 0.6464 | **0.9981** | **0.9976** | **0.9951** | 0.6461 | 0.6461 |
+| 768×1024 | 348×538 | 0.6468 | **0.9984** | **0.9980** | **0.9954** | 0.6463 | 0.6463 |
+| 1440×1000 | 348×538 | 0.6468 | **0.9984** | **0.9980** | **0.9954** | 0.6463 | 0.6463 |
+
+数字是 `getBoundingClientRect()` 的宽/高（1.0 = 屏幕上的正圆）。修复后不是精确 1.0000
+而是 0.995~0.998，因为 Chromium 把这个 bbox **算上了 stroke**（球员点 rx 2.45 + 描边 0.825）。
+旧值 0.6461 是同一把尺子量出来的，所以偏差方向可信：**旧实现偏 35%，新实现偏 0.2~0.5%**。
+
+**自校准**：探针每次都会把旧实现的 SVG 塞进同一个 `.motion-review-pitch` 里量一遍。
+如果哪天尺子失效（比如弹窗被某个 `display:none` 祖先挡住、量出来全是 0），
+「旧实现必须被量出 ≈0.65」这条会先失败，而不是让「新实现没问题」蒙混过关。
+
+为什么是**重画整块**而不是只把 `circle` 换成 `ellipse`：只换中圈会得到
+「中圈圆了、球员点还是扁的」，比原来更不一致。现在弹窗小球场与主球场
+（`js/matchview.js` 的 `.mp-lines`）**共用同一份标线坐标**——大禁区 x22-78 / y126-149.65、
+小禁区、点球弧、角球弧逐字相同，所以「这个球员到底在不在禁区里」在复核弹窗里看到的
+和场上看到的必然一致。两处以后必须同步改。
+
+传球网络节点没有独立断言可依赖（它只在开网时绘制），所以断言写在
+`scripts/browser-e2e.mjs` 里：开网 → 量第一个 `.mp-net-node` 的渲染宽高比，
+并要求它与**同一容器里球场自己的中圈**一致（差 <2%）。注意那个用例的容器是固定
+420×650 的合成盒子，球场盒被 `max-height:100%` 压成 418×560（相机 0.6643 而不是
+68/105），所以**不能**在那里断言绝对圆度——只能断言「叠层与球场一样圆」。
+
 ## 3. 看过但**没有**改的
 
 这些都是有意为之或需要独立决策，不是漏掉：
@@ -105,13 +146,16 @@
    父级 `.fm-pitch-col` 有 `max-height: min(70dvh, 100%)`，但球场盒高度由宽度推出、
    且 `.match-pitch-root` 是 `flex: 1 1 auto`（basis auto → 百分比高度不解析），
    所以这个上限实际不生效。因为没有任何一级裁剪，视觉上只是「多出来」，无害。
-5. **战术复核弹窗（`.motion-review-pitch`）同一类缺陷**：它 `viewBox="0 0 100 100"`
-   配 `aspect-ratio: 68/105`，中圈用 `<circle r="9.15">` 画——渲染出来是 0.6476 的
-   竖椭圆（偏 35%），球员点、球、文字同样被横向压扁。要修得把它按主球场那套
-   `0 0 100 150`（y×1.5）坐标系重画，不是改一个 `circle→ellipse` 就完事
-   （那样中圈圆了、球员还是扁的，反而不一致）。本轮未动。
+5. ~~战术复核弹窗（`.motion-review-pitch`）同一类缺陷~~ —— 已在 §2.4 修掉。
 6. **桌面「一键战报」模式**（`.match-report-only`）的球场比例未验证。该模式把
    `#match-pitch-root` 限到 `22dvh`，比例链与开赛档不同，需要单独跑。
+7. **`.mp-field` 被高度限制时 `aspect-ratio` 会静默失效**。`.mp-field` 是
+   `width:100% + aspect-ratio`，但 `.match-layout.fm-match.fmm-match .mp-field`
+   以更高特异性设了 `max-height:100%`；一旦可用高度小于 `宽 / 0.7276`，高度取胜、
+   比例被忽略，相机就退回到非 68/105。`scripts/browser-e2e.mjs` 自建的 420×650
+   合成容器正是这种情况（球场盒 418×560，相机 0.6643，偏 2.6%）。真实六档视口
+   实测都是 0.6474~0.6479，没有触发。未处理——它需要先定义「高度不够时该牺牲比例
+   还是牺牲宽度」，属于独立决策。
 
 ## 4. 复现
 
@@ -124,9 +168,13 @@ node scripts/_match-layout-lab.mjs .tmp-continuity/match-layout-lab --shots
 
 # 放大看某张截图的局部（排查像素级细节，无需开赛）
 node scripts/_image-zoom.mjs <源图> <输出图> x,y,w,h [倍率]
+
+# 复核弹窗小球场的几何：5 档视口量中圈/球员点/球，并输出「修复前 vs 修复后」并排截图。
+# 不需要开赛（showMotionDiagnostic 只要求 clip.frames.length），几秒跑完。
+node scripts/_motion-review-geometry-probe.mjs
 ```
 
-三者的坑（都踩过）：
+四者的坑（都踩过）：
 
 - **探针/实验台的 `outDir` 用 `node:path` 拼绝对路径，不要传 `URL` 对象**：
   沙箱的 fs broker 会抛 `ERR_INVALID_URL_SCHEME`，脚本在第一次 `mkdirSync` 就死，
@@ -139,12 +187,18 @@ node scripts/_image-zoom.mjs <源图> <输出图> x,y,w,h [倍率]
 - **`getBoundingClientRect()` 吃相机 transform**。相机固定 `scale(1.28)`，
   所以画布 rect 恒比布局盒大 28%（418 vs 327）。判断「有没有溢出容器」要用
   `clientWidth/clientHeight`，用 rect 会把正常的镜头缩放报成 15 项溢出。
+  （量圆度时反过来要用 rect——那正是渲染后的真实像素。）
+- **量复核弹窗之前必须先让 `#screen-match` 带上 `.active`**。弹窗挂在那个屏里，
+  祖先 `display:none` 时 `clientWidth` 全是 0，断言会以「0 不是 68/105」的形式报错，
+  看起来像比例又错了，其实是量到了空气。`scripts/browser-e2e.mjs` 里量完会还原
+  两个屏的 active 状态。
 
 ## 5. 参考
 
 - 基线证据：`.tmp-continuity/match-layout-baseline/`（6 档 JSON + 截图）
 - 修复后：`.tmp-continuity/match-layout-after/`
 - 候选实验：`.tmp-continuity/match-layout-lab/`（C0/C5/C6/C7/C8 逐档数字 + 截图）
+- 复核弹窗并排截图：`.tmp-continuity/motion-review-geometry-*/`（左修复后 / 右修复前）
 - 球场 SVG 与相机：`js/matchview.js`（`mp-wrap` 模板、`_resizeCanvas`、`_applyCamera`）
 - 相关既有说明：`css/style.css` 里 `.mp-field`、`.mp-camera`、`.mp-stands`、
   `@media (min-width:1060px)` 段的注释

@@ -36,6 +36,13 @@ import {
 // 代码全部保留，改回 true 即可找回。canvas 侧的字符串守卫见 _drawBall 附近注释。
 const SHOW_BALL_TRAIL = false;
 
+// .mp-press / .mp-network / .mp-trails 三个叠层用的是 viewBox="0 0 100 100"（x/y 都是
+// 0-100 的百分比，位置映射没问题），但它们的盒子是 .mp-camera，宽高比 68/105。
+// preserveAspectRatio="none" 会把 x 方向压到 68/105 = 0.6476 倍：直线和路径看不出问题，
+// 圆点却会变成横扁的椭圆。要让屏幕上正圆，ry = rx × 68/105。
+// （.mp-lines 用的是 viewBox="0 0 100 150"，比例不同，那里按椭圆中圈 13.46/13.07 处理。）
+const OVERLAY_CIRCLE_RY = 68 / 105;
+
 function clamp(n, a, b) {
   return Math.max(a, Math.min(b, n));
 }
@@ -5309,7 +5316,7 @@ export class MatchView {
       const touches = pl.passTouches || 1;
       const r = clamp(0.55 + Math.sqrt(touches) * 0.28, 0.55, 1.6);
       parts.push(
-        `<circle class="mp-net-node ${pl.team}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r.toFixed(2)}" />`
+        `<ellipse class="mp-net-node ${pl.team}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" rx="${r.toFixed(2)}" ry="${(r * OVERLAY_CIRCLE_RY).toFixed(2)}" />`
       );
     }
     this.networkSvg.innerHTML = parts.join("");

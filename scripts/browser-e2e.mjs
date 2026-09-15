@@ -339,7 +339,58 @@ async function assertStraightPassRendering(page) {
       scale: view.cam.tScale,
       classApplied: view.fieldEl.classList.contains("mp-camera-tactical"),
     };
+    // 几何断言：复核弹窗的小球场和传球网络节点都曾经用 viewBox="0 0 100 100" 配 68/105 的
+    // 盒子，preserveAspectRatio="none" 把圆横向压到 0.6476 倍，而元素计数断言完全看不出来。
+    // 现在按渲染后的实际像素量宽高比，圆必须接近 1.0（getBoundingClientRect 会带上祖先
+    // transform，这两处都没有 transform，所以量到的就是真实像素）。
+    const renderedAspect = (selector) => {
+      const el = document.querySelector(selector);
+      if (!el) return 0;
+      const box = el.getBoundingClientRect();
+      return box.height > 0 ? box.width / box.height : 0;
+    };
+    // 传球网络节点：开网后量第一个节点。passNetwork 为空时补一条合成边，保证真的画出了节点
+    // （否则这条断言会因为「没有节点」而静默变成 0 通过）。
+    view.networkEnabled = true;
+    view.networkSvg?.classList.remove("hidden");
+    if (!view.passNetwork.size && view.players?.length >= 2) {
+      view.passNetwork.set("e2e-geometry-probe", {
+        fromId: view.players[0].id,
+        toId: view.players[1].id,
+        team: view.players[0].team,
+        count: 3,
+        last: performance.now(),
+      });
+    }
+    view.networkDirty = true;
+    view._redrawNetwork(true);
+    const networkGeometry = {
+      nodes: document.querySelectorAll("#mp-network .mp-net-node").length,
+      nodeAspect: renderedAspect("#mp-network .mp-net-node"),
+      boxAspect: (() => {
+        const el = document.querySelector("#mp-network");
+        return el?.clientHeight ? el.clientWidth / el.clientHeight : 0;
+      })(),
+      // 同一容器里球场自己的中圈。本用例的容器是固定 420×650 的合成盒子，球场盒被
+      // max-height:100% 压成 418×560（相机 0.6643 而不是 68/105），所以这里不能断言
+      // 绝对圆度——改为要求「网络圆点与球场中圈一样圆」，这才是叠层与球场一致的意思。
+      liveCircleAspect: renderedAspect(".mp-lines > ellipse"),
+    };
+    view.networkEnabled = false;
+    view.networkSvg?.classList.add("hidden");
+    view._redrawNetwork(true);
+
+    // 复核弹窗挂在 #screen-match 里，本用例还没开赛（它自建的是一个独立的 420×650 根节点），
+    // 祖先 display:none 时量出来全是 0×0。临时切到比赛屏，量完还原，否则几何断言量的是空气。
+    const screenMain = document.querySelector("#screen-main");
+    const screenMatch = document.querySelector("#screen-match");
+    const screenMainWasActive = screenMain?.classList.contains("active") || false;
+    const screenMatchWasActive = screenMatch?.classList.contains("active") || false;
+    screenMain?.classList.remove("active");
+    screenMatch?.classList.add("active");
     const motionReviewOpened = window.vcfmMainApi?.showMotionDiagnostic(motionClip) || false;
+    const enginePitchBox = document.querySelector("#match-motion-engine-pitch");
+    const enginePitchSvg = enginePitchBox?.querySelector("svg");
     const motionReview = {
       visible: !document.querySelector("#match-motion-review")?.classList.contains("hidden"),
       enginePlayers: document.querySelectorAll("#match-motion-engine-pitch svg g:not(.motion-target)").length,
@@ -348,8 +399,21 @@ async function assertStraightPassRendering(page) {
       displayTargets: document.querySelectorAll("#match-motion-display-pitch .motion-target").length,
       incidentRows: document.querySelectorAll("#match-motion-review-incidents [data-motion-frame]").length,
       rangeMax: Number(document.querySelector("#match-motion-review-range")?.max || 0),
+      viewBox: enginePitchSvg?.getAttribute("viewBox") || "",
+      preserveAspectRatio: enginePitchSvg?.getAttribute("preserveAspectRatio") || "",
+      // 球场盒本身必须是 68/105（clientWidth 不吃 transform，比 rect 稳）
+      pitchAspect: enginePitchBox?.clientHeight ? enginePitchBox.clientWidth / enginePitchBox.clientHeight : 0,
+      // 中圈是 svg 的第一个直接子 ellipse；球是最后一个直接子 ellipse
+      engineCircleAspect: renderedAspect("#match-motion-engine-pitch svg > ellipse"),
+      engineBallAspect: renderedAspect("#match-motion-engine-pitch svg > ellipse:last-of-type"),
+      enginePlayerAspect: renderedAspect("#match-motion-engine-pitch svg g:not(.motion-target) ellipse"),
+      displayCircleAspect: renderedAspect("#match-motion-display-pitch svg > ellipse"),
+      displayPlayerAspect: renderedAspect("#match-motion-display-pitch svg g:not(.motion-target) ellipse"),
     };
     window.vcfmMainApi?.closeMotionDiagnostic();
+    if (screenMainWasActive) screenMain?.classList.add("active");
+    if (screenMatchWasActive) screenMatch?.classList.add("active");
+    else screenMatch?.classList.remove("active");
     view.destroy();
     root.remove();
     return {
@@ -389,6 +453,7 @@ async function assertStraightPassRendering(page) {
       motionStatusUpdates,
       motionReviewOpened,
       motionReview,
+      networkGeometry,
     };
   });
 
@@ -463,6 +528,42 @@ async function assertStraightPassRendering(page) {
   assert.ok(result.motionReview.displayTargets >= 1);
   assert.ok(result.motionReview.incidentRows >= 1);
   assert.equal(result.motionReview.rangeMax, result.motionClip.frames - 1);
+  // 传球网络节点：容器是 .mp-camera（viewBox 0 0 100 100），节点必须画成屏幕上的正圆，
+  // 而不是被 preserveAspectRatio="none" 横向压成 0.6476 倍的椭圆。
+  assert.ok(result.networkGeometry.nodes >= 1, "pass network drew no nodes to measure");
+  assert.ok(
+    result.networkGeometry.nodeAspect > 0.97 && result.networkGeometry.nodeAspect < 1.03,
+    `pass network node aspect ${result.networkGeometry.nodeAspect} should render round`
+  );
+  // 与同一容器里球场自己的中圈对齐：两者必须一样圆（差 >2% 说明叠层和球场用了两套几何）
+  assert.ok(
+    result.networkGeometry.liveCircleAspect > 0,
+    "live pitch center circle was not measurable"
+  );
+  assert.ok(
+    Math.abs(result.networkGeometry.nodeAspect - result.networkGeometry.liveCircleAspect) < 0.02,
+    `pass network node aspect ${result.networkGeometry.nodeAspect} disagrees with live pitch circle ${result.networkGeometry.liveCircleAspect}`
+  );
+  // 复核弹窗小球场的几何：坐标系与主球场一致，且画出来的圆真的是圆
+  assert.equal(result.motionReview.viewBox, "0 0 100 150");
+  assert.equal(result.motionReview.preserveAspectRatio, "none");
+  assert.ok(
+    Math.abs(result.motionReview.pitchAspect - 68 / 105) < 0.005,
+    `motion review pitch aspect ${result.motionReview.pitchAspect} should be 68/105`
+  );
+  for (const [key, limit] of [
+    ["engineCircleAspect", 0.02],
+    ["displayCircleAspect", 0.02],
+    ["enginePlayerAspect", 0.03],
+    ["displayPlayerAspect", 0.03],
+    ["engineBallAspect", 0.03],
+  ]) {
+    const value = result.motionReview[key];
+    assert.ok(
+      value > 1 - limit && value < 1 + limit,
+      `motion review ${key} ${value} should render round (${1 - limit}..${1 + limit})`
+    );
+  }
 }
 
 async function assertInboxEntityLinks(page) {
