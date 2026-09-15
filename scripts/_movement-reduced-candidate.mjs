@@ -73,6 +73,23 @@
 // either give the filter a fallback (prefer eligible mids, fall back to all mids),
 // or keep only _byline-recovery + _pass-support-release and isolate the
 // eligibility change.
+//
+// ROUTE 2 MEASURED, 2026-09-15: the isolation was built
+// (scripts/_movement-no-eligibility-candidate.mjs, which reads 0% no-primary in
+// every squad profile -- so it really does exclude the eligibility change) and it
+// does NOT rescue the line either. On the 6-match guardrail sample it looked
+// strong -- churn 7 -> 3 (-57%) -- but that shrank to 22 -> 15 (-32%, p = 0.3240)
+// over 24 background matches (seeds 22901-22924, a strict superset of the audit's
+// 6; scripts/_motion-incident-count.mjs), while oscillation rose 22 -> 32
+// (+45%, p = 0.2203) and warnings went 44 -> 47. Nothing is significant, and the
+// oscillation rise puts this configuration exactly on the guardrail ceiling
+// (32/24 = 1.33 per match, ceiling 8 per 6 matches).
+//
+// So: churn is decision-level "reversed before arriving", oscillation is
+// physical-level "sprinted back and forth"; trading the first for the second is
+// not an improvement. Resolving a change of this size would need roughly 142
+// matches per arm at 80% power, i.e. the 6-match guardrail cannot adjudicate
+// mechanism at all. The whole movement line is shelved.
 import "./_runner-only-candidate.mjs";
 import "./_byline-recovery-candidate.mjs";
 import "./_pass-support-release-candidate.mjs";
