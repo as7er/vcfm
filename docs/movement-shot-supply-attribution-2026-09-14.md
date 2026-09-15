@@ -1,5 +1,13 @@
 # 全局跑位候选为什么吃掉进球：射门供给归因（2026-09-14）
 
+> ⚠ **2026-09-14 更正（同日）：本文的标题与归因是错的。**
+> 拆开候选捆绑包的 29 个模块后，**跑位层本身不是损失来源**——它单独跑反而让射门
+> 变多（766 vs 735）且更靠近门前（16 米内 528 vs 492）。射门损失归**传球链**，
+> 转化率崩塌归**门将三项**。完整证据见
+> [subbundle-attribution-2026-09-14.md](subbundle-attribution-2026-09-14.md)。
+> 本文 §3、§4 的**测量**（损失集中在 16 米内、转化下降以命中率为主）仍然成立且被
+> 复核；**§5 的归因**已被替换。
+
 ## 1. 问题
 
 全局跑位候选（`scripts/_backline-support-release-candidate.mjs`）把六场的近静止率
@@ -57,14 +65,16 @@
    而 22–30 m **+62.5%**、禁区外占比 33.1% → **38.4%**。射门被从门前推到了外围。
 2. **两档损失叠加**：近距离射门少了 21.5%（数量），且近距离命中率从 10.2% 掉到 9.1%
    （质量）。两者相乘就是那 −15 个近距离进球。
-3. **候选是一个 ~17 个子候选的捆绑包**（加载时依次报告 `wingCenteringCandidate`、
-   `runnerOnlyCandidate`、`bylineRecoveryCandidate`、`passInterventionRiskCandidate`、
-   `backlineSupportCandidate`、`movingPressTargetCandidate`、`goalkeeperReleaseCandidate`、
-   `passSupportReleaseCandidate`、`fullbackSupportCandidate` …）。
+3. **候选是一个 29 个模块的捆绑包**（`_candidate-import-closure.mjs` 实测；加载时依次报告
+   `wingCenteringCandidate`、`runnerOnlyCandidate`、`bylineRecoveryCandidate`、
+   `passInterventionRiskCandidate`、`backlineSupportCandidate`、`movingPressTargetCandidate`、
+   `goalkeeperReleaseCandidate`、`passSupportReleaseCandidate`、`fullbackSupportCandidate` …）。
    因此「跑位改进吃掉进球」这个说法**不够精确**——必须拆到子候选才知道是哪一条。
    项目自己在射门频率标定那轮已经写下过这条方法（
    [match-shot-frequency-2026-09-13.md](match-shot-frequency-2026-09-13.md)：
    「这两处与另外四处合在一起时互相补偿，净效果是射门不降反升——各自单独度量才看得出归因」）。
+   → **已按此执行，见 [subbundle-attribution-2026-09-14.md](subbundle-attribution-2026-09-14.md)：
+   结论是本条的推测方向也错了，损失不在跑位层。**
 
 ## 6. ⚠ 更正：射门下降的归因
 
