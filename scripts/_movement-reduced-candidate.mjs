@@ -46,6 +46,33 @@
 // Two side effects are real and highly significant at 96 matches: passes +2.2%
 // and crosses -17.8% (cross share 5.3% -> 4.3%, still inside the 3-14% envelope
 // but with less margin than the baseline).
+//
+// VERDICT, 2026-09-15: NOT ADOPTED. The envelope readings above are a tie, and a
+// mechanism-level check found no benefit at all, plus one reachable failure mode.
+// See docs/movement-release-2026-09-15.md §6.
+//
+//   - match-motion-integrity-audit.mjs, independent seeds 22901-22906 (background)
+//     and 22911-22912 (standard): no improvement. target churn 7 -> 6,
+//     oscillation 5 -> 7, warnings 12 -> 13; two-sample exact p = 1.0000 / 0.7744
+//     / 1.0000. This is a guardrail, not a mechanism instrument, so it cannot
+//     prove the patches fix nothing -- but it gives them no support either.
+//   - scripts/_runner-pool-audit.mjs (added this round) asks the engine directly
+//     whether any mid holds the primary runner slot. `_isPrimaryMidRunner` is
+//     `mids[0]?.id === a.id`, so an empty eligible pool means NO mid holds it, and
+//     both js/sim/engine.js:3699 and :3801 gate on that slot. The rules read
+//     "exactly one midfielder may go forward" (see the :3799 comment) and silently
+//     degrade to "zero" when the pool empties. Measured on a plain 4-3-3 with
+//     passing/vision-leaning midfielders: 25% of team-ticks (2 of 4 matches);
+//     worst case, three mids all carrying comes_deep: 100%.
+//   - js/player-attributes.js makes that reachable rather than exotic:
+//     holding_midfielder (DM/CM) and playmaker (CM/AM) both list comes_deep and
+//     neither lists gets_forward, so two of the four midfield archetypes sit
+//     outside the filter by default.
+//
+// To land this line, change the semantics first and re-measure at 96 matches:
+// either give the filter a fallback (prefer eligible mids, fall back to all mids),
+// or keep only _byline-recovery + _pass-support-release and isolate the
+// eligibility change.
 import "./_runner-only-candidate.mjs";
 import "./_byline-recovery-candidate.mjs";
 import "./_pass-support-release-candidate.mjs";

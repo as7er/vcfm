@@ -199,10 +199,19 @@ function runFullMatch(seed, { monitorMotion = true, profile = "background" } = {
       monitor.record(snapshot, snapshot, { label: "full-match-audit" });
     }
   }
+  // `engine.stats` only ever accumulates `poss` (js/sim/engine.js:1698); its
+  // `shots` and `passes` fields are initialised to 0 and never written, and it has
+  // no `goals` field at all. Reading them here made three of the four read-only
+  // assertions below compare a constant to itself and pass unconditionally:
+  // `undefined` vs `undefined` for the score, `0` vs `0` for shots and passes.
+  // Goals live on `engine.score`; shots and passes are derived from the event log,
+  // which is the same source match-realism-audit.mjs counts from.
+  const countEvents = (team, type) =>
+    engine.events.filter((event) => event.team === team && event.type === type).length;
   return {
-    score: [engine.stats.home.goals, engine.stats.away.goals],
-    shots: [engine.stats.home.shots, engine.stats.away.shots],
-    passes: [engine.stats.home.passes, engine.stats.away.passes],
+    score: [engine.score.home, engine.score.away],
+    shots: [countEvents("home", "shot"), countEvents("away", "shot")],
+    passes: [countEvents("home", "pass"), countEvents("away", "pass")],
     events: engine.events.map((event) => [event.type, event.t, event.team]),
     integration: engine.integrationSummary(),
     motion: monitor?.auditSummary() || null,
@@ -255,6 +264,14 @@ function auditCompleteMatches() {
   assert.equal((standard.byType[MOTION_INCIDENT_TYPES.PLAYER_OSCILLATION] || 0), 0, `standard player oscillation remains: ${JSON.stringify(standard.warningExamples)}`);
   assert.ok([...backgroundSamples, ...standardSamples].every((sample) => sample.clip.frames.length >= 35 && sample.clip.frames.length <= 125));
   assert.ok([...backgroundSamples, ...standardSamples].every((sample) => sample.clip.range.durationSeconds <= 12.31));
+  // Keep the read-only assertions above honest. They only mean something if the
+  // counters they compare are actually populated; a dead field would make them
+  // compare a constant to itself and pass forever, which is exactly what happened
+  // before `score`/`shots`/`passes` were repointed at `engine.score` and the event log.
+  for (const sample of [...backgroundSamples, ...standardSamples]) {
+    assert.ok(sample.shots[0] + sample.shots[1] > 0, `motion audit sample recorded no shots: ${JSON.stringify(sample.shots)}`);
+    assert.ok(sample.passes[0] + sample.passes[1] > 0, `motion audit sample recorded no passes: ${JSON.stringify(sample.passes)}`);
+  }
   return { background, standard };
 }
 
