@@ -4178,8 +4178,15 @@ export class SimEngine {
   /** 本队唯一的中场前插名额：核心优先，否则按带球/速度/终结综合选择。 */
   _isPrimaryMidRunner(a) {
     if (a.role !== "MID") return false;
+    // 池子必须是「真的在场上」的中场。`_commitInjury` 把伤退也走 `sentOff`
+    // （注释原文「退出决策/跑位/发球候选，场上真实少一人」），而
+    // `_applyPassSupport` 里的兄弟规则同样过滤了这两个标志。此前漏了这一步：
+    // 一旦评分最高的中场被罚下，`mids[0]` 就是那名离场球员，于是**场上没有任何
+    // 中场拿到名额**，而最后三区规则「三名前锋 + 一名最适合前插的中场」与禁区
+    // 接应限制都写成「恰好一名」——规则会从「一名」静默退化成「零名」，
+    // 并在剩下整场里一直关着。
     const mids = this.agents
-      .filter((m) => m.team === a.team && m.role === "MID")
+      .filter((m) => m.team === a.team && m.role === "MID" && !m.sentOff && !m.injuredOff)
       .sort((m, n) => {
         const sm =
           (m.isCore ? 1.2 : 0) +
