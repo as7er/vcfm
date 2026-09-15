@@ -1537,9 +1537,12 @@ html[data-theme="light"] #screen-match {
     height: calc(100vh - 0.6rem);
     height: calc(100dvh - 0.6rem);
     display: grid;
-    /* 球场列宽 ≈ 可用行高 × 0.648（68/105），球场正好满列不变形 */
+    /* 球场列宽 ≈ 可用行高 × 0.728。这里也是「球场盒含看台」：列里放的是 .mp-field
+       （= 球场 + 两侧各 5.5% 看台），所以系数是 68/105 ÷ 0.89 = 0.7276 而不是
+       68/105=0.648。0.78 是留一点余量：球场实际按行高反推宽度（见下方
+       .live-kick/.ht-kick 的 .mp-field 规则），列只要不卡住它就行。 */
     grid-template-columns:
-      minmax(340px, calc((100vh - 250px) * 0.648))
+      minmax(260px, calc((100vh - 250px) * 0.78))
       minmax(300px, 1fr);
     grid-template-rows: auto auto minmax(0, 1fr) auto;
     column-gap: 0.55rem;
@@ -2478,7 +2481,16 @@ html[data-theme="light"] .mp-boards {
 .mp-field {
   position: relative;
   width: 100%;
-  aspect-ratio: 68 / 105;
+  /* 2026-09-15：球场盒 = 看台 + 球场，不是球场本身。
+     真正画球场的是 .mp-camera，它为了露出两侧看台而左右各内缩 5.5%，
+     所以「球场盒」必须比「球场」宽 1/(1-2×0.055)=1.1236 倍：
+         68/105 ÷ 0.89 = 0.6476 / 0.89 = 0.7276 = 68 / 93.45
+     这里原先写 68/105、`.fmm-match` 与赛前/开赛中又各写了一次 2/3，四处都把
+     球场盒当成球场来算，相机因此只拿到 0.89×的比例，中圈在屏幕上是竖椭圆
+     （实测渲染宽高比 0.9166，即纵向拉伸 8.3%；桌面 0.8755 / 12.4%）。
+     球场 SVG 用 preserveAspectRatio="none"，这种拉伸不会报任何错。
+     四处 aspect-ratio 必须同时改，只改一处会被更高特异性的规则盖掉。 */
+  aspect-ratio: 68 / 93.45;
   /* 2026-09-05（表现层 A1 收尾）：这条 max-height 在唯一比赛屏上从未生效——
      index.html 的 match-layout 恒带 fmm-match，而 `.fmm-match .mp-field`（下文）
      以更高特异性设 max-height:none。实测比赛屏球场高由 flex 给（1440×1000 下
@@ -3095,7 +3107,13 @@ html[data-theme="light"] .ht-tip em { color: #b45309; }
   top: 0;
   bottom: 0;
   width: 5.5%;
-  z-index: 0;
+  /* 2026-09-15：看台要盖在 .mp-camera（z-index:1）之上，当固定画框用。
+     原来 z-index:0 在相机之下：相机跟随球平移时，草坪会跟着挪，一侧看台被
+     完全盖住、另一侧露出一大条灰色条纹，左右不对称（实测手机档左 0 条、
+     右 ~13px），看着像渲染坏了。看台宽度正好等于相机的左右内缩量，所以
+     相机在 1.0 倍时不会压到球场，只有放大/平移超出时才被看台切掉——这正是
+     转播画框该有的行为。 */
+  z-index: 2;
   pointer-events: none;
   background:
     repeating-linear-gradient(
@@ -4576,7 +4594,8 @@ html[data-theme="light"] .mp-official {
 }
 .fmm-match .mp-field {
   max-height: none;
-  aspect-ratio: 2 / 3;
+  /* 68/93.45 的来历见 .mp-field 上方注释：球场盒要含两侧 5.5% 看台 */
+  aspect-ratio: 68 / 93.45;
   flex: 1 1 auto;
   min-height: 240px;
 }
@@ -4627,21 +4646,23 @@ html[data-theme="light"] .mp-official {
   .match-layout.fm-match.fmm-match { width: 100%; border-radius: 0; }
   .fmm-match .mp-field { min-height: 210px; }
   .fmm-match .mp-dot { width: 22px; height: 22px; }
-  .fmm-match .mp-num { font-size: 0.64rem; }
-  .fmm-match .mp-name { font-size: 0.46rem; max-width: 36px; }
+  .fmm-match .mp-num { font-size: 0.7rem; }
+  /* 号码/姓名是手机档唯一必须读的场上文字。原来 0.64rem=10.24px、
+     姓名 0.46rem=7.36px，在 360px 宽的手机上已经是「看得出有字、读不出字」。 */
+  .fmm-match .mp-name { font-size: 0.56rem; max-width: 44px; }
   .fmm-match .mp-ball { width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px; }
   .fmm-commentary { max-height: min(22vh, 150px); }
   .fmm-commentary.is-collapsed { max-height: 2.25rem; }
   .fm-sb-name { font-size: 0.78rem; }
   .fm-sb-score { font-size: 1.45rem; }
-  .fm-sb-comp { max-width: 6rem; font-size: 0.62rem; }
+  .fm-sb-comp { max-width: 6rem; font-size: 0.68rem; }
   .fmm-match-bar { gap: 0.35rem 0.4rem; }
   .fmm-match-bar .match-actions .btn {
     font-size: 0.7rem;
     padding: 0.38rem 0.4rem;
   }
   .fmm-match-bar .match-speed-bar .btn {
-    font-size: 0.68rem;
+    font-size: 0.72rem;
     padding: 0.24rem 0.26rem;
     min-width: 1.9rem;
   }
@@ -6819,14 +6840,14 @@ html[data-theme="light"] .badge-chip {
 }
 .match-layout.pre-kickoff .fmm-match-body .mp-field,
 .match-pre-brief:not(.hidden) ~ .fmm-match-body .mp-field {
-  /* 与计分板/评论同宽；高度由 2:3 推出（页面可滚，不再缩成中间窄条） */
+  /* 与计分板/评论同宽；高度由球场盒比例推出（页面可滚，不再缩成中间窄条） */
   width: 100%;
   max-width: 100%;
   height: auto;
   max-height: none;
   min-height: 0;
   flex: 0 0 auto;
-  aspect-ratio: 2 / 3;
+  aspect-ratio: 68 / 93.45;
   margin-inline: 0;
 }
 /* 赛前：只显示号码，姓名默认隐藏（点选再出），避免 22 人名字糊成一团 */
@@ -6868,14 +6889,15 @@ html[data-theme="light"] .badge-chip {
   height: auto;
   max-height: none;
   min-height: 240px;
-  aspect-ratio: 2 / 3;
+  aspect-ratio: 68 / 93.45;
   flex: 1 1 auto;
   margin-inline: 0;
 }
 
 /* Mobile live play must keep the pitch ratio. The desktop grid can give the
-   body a bounded height; on a narrow screen that would squeeze 2:3 into the
-   remaining strip between commentary and controls. Let the page scroll instead. */
+   body a bounded height; on a narrow screen that would squeeze the pitch into
+   the remaining strip between commentary and controls. Let the page scroll
+   instead. (The ratio itself is 68/93.45, not 2:3 — see .mp-field.) */
 @media (max-width: 1059px) {
   .match-layout.live-kick .fmm-match-body,
   .match-layout.ht-kick .fmm-match-body {
@@ -6892,6 +6914,21 @@ html[data-theme="light"] .badge-chip {
   .match-layout.ht-kick .fmm-match-body .mp-field {
     flex: 0 0 auto;
     height: auto;
+  }
+}
+/* 2026-09-15：宽屏开赛/中场反过来要「高度定宽」。宽屏行高是确定值，球场盒
+   由 aspect-ratio 反推宽度即可精确落在 68:105；只靠列宽公式的话，行高与公式
+   里的 250px 常数一旦对不上（换视口高度就对不上），比例就漂——实测未加这条时
+   桌面球场盒是 583×762=0.765，相机 0.681，中圈渲染成横椭圆 1.052。
+   手机档不适用：那里行高不确定，只能宽度定高、页面滚动。
+   必须放在上面 .live-kick 基础规则之后：同特异性下后写的才生效。 */
+@media (min-width: 1060px) {
+  .match-layout.live-kick .fmm-match-body .mp-field,
+  .match-layout.ht-kick .fmm-match-body .mp-field {
+    width: auto;
+    height: 100%;
+    max-width: 100%;
+    margin-inline: auto;
   }
 }
 .brief-head {

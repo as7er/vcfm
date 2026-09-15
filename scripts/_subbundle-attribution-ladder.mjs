@@ -49,11 +49,16 @@ const only = process.env.LADDER_ONLY
 //                      turned out to live: the pass-value / interception-risk /
 //                      defensive-pass chain, one module per rung so every patch
 //                      in that chain gets its own marginal.
+// LADDER_SET=portable   the HEAD-portable movement patches, each run alone on
+//                      HEAD, to find which one suppresses the cross share.
 //
 // Careful: `_pass-risk-value-candidate.mjs` does NOT import
 // `_coordinated-movement-candidate.mjs`, so a "passchain" rung is the pass
 // chain alone, on the bare v253 baseline — it is not nested under the movement
 // rung. Both ladders therefore start from their own baseline rung.
+//
+// LADDER_PIN=none skips the `_v253-baseline.mjs` hook so the ladder runs on the
+// working tree (HEAD) instead of the pinned revision.
 const LADDERS = {
   bundle: [
     ["P0-v253-baseline", null],
@@ -77,6 +82,15 @@ const LADDERS = {
     ["Q6-pass-interception-risk", "_pass-interception-risk-candidate.mjs"],
     ["Q7-pass-risk-value", "_pass-risk-value-candidate.mjs"],
   ],
+  portable: [
+    ["R0-head-baseline", null],
+    ["R1-wing-centering", "_wing-centering-candidate.mjs"],
+    ["R2-formation-midfield-only", "_formation-midfield-only-candidate.mjs"],
+    ["R3-runner-only", "_runner-only-candidate.mjs"],
+    ["R4-byline-recovery", "_byline-recovery-candidate.mjs"],
+    ["R5-pass-support-release", "_pass-support-release-candidate.mjs"],
+    ["R6-portable-all", "_movement-portable-candidate.mjs"],
+  ],
 };
 
 const ladderSet = process.env.LADDER_SET || "bundle";
@@ -90,7 +104,8 @@ fs.mkdirSync(outDir, { recursive: true });
 
 function runRung([name, module]) {
   return new Promise((resolve) => {
-    const args = ["--import", "./scripts/_v253-baseline.mjs"];
+    const args = [];
+    if (process.env.LADDER_PIN !== "none") args.push("--import", "./scripts/_v253-baseline.mjs");
     if (module) args.push("--import", `./scripts/${module}`);
     args.push("scripts/match-realism-audit.mjs", String(matches), profile);
     const started = Date.now();
