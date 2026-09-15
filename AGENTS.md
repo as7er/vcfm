@@ -160,8 +160,14 @@ AGENTS.md 里「标准档真实进球率贴着 2.5 下限（要判定需 ≥96 �
   `--import` 候选逐位相同**；真实性信封两档各 24 场（种子 `165000 + match`）**逐位相同的
   聚合统计**且均 exit 0（标准 2.75 球 / 10.2% 转化 / 5.0% 传中 / 0.17 点球 / 4.58 角球 /
   1056.92 传球；后台 2.88 / 11.0 / 5.5 / 0.25 / 4.21 / 1006.46），运动完整性两档 `severe = 0`。
+  `verify --full` **退出 0**（**95 个入口（93 默认 + 2 realism）、0 条断言错误**，末行
+  `VCFM verification passed`；标准 2.75 / 强队 2.13，后台 2.88 / 强队 1.83，`referenceDelta`
+  九项全在冻结容差内）。日志 `.tmp-continuity/primary-slot/verify-full.log`。
   **这正是想要的形状：修复在所有标准验收样本上是空操作，只在缺陷真正发生处生效**——
-  它因此不可能靠信封证明有效，证据是探针与实际后果测量。
+  它因此不可能靠信封证明有效，证据是探针与实际后果测量。提交 **`14753c8`**（已推送）。
+  实机 `scripts/browser-e2e.mjs` **退出 0**（含 desktop/mobile overflow、非空白比赛画布、
+  运动片段诊断、空间进球回放、直传渲染、相位形状证据等 15 项），日志
+  `.tmp-continuity/primary-slot/browser.log`。
 - ⚠ **顺带修掉 `868479d` 的缓存半改**（预先存在，非本轮引入）：`chore: bump the offline cache
   to v255` 只改了 `sw.js` 的 `CACHE` 与 `AGENTS.md`，**没同步 `index.html`/`js/main.js`**，
   而 `scripts/cache-audit.mjs:17` 断言两者必须相等 → **从该提交起 `verify` 的 cache-audit
