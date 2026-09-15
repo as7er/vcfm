@@ -23,10 +23,29 @@
 //              strong-team 1.79  -> exit 0, every envelope passes
 //   standard   640 shots / 63 goals (2.63), conversion 9.8%, cross 4.2%,
 //              strong-team 1.67  -> only `penalties 0.08` fails (envelope 0.1-0.5)
-// The standard-profile penalty reading is 2 spot kicks in 24 matches against 4
-// for the baseline. That has to be shown to be small-sample noise (or shown to
-// have no causal path from these patches) before this candidate can be adopted;
-// see docs/movement-release-2026-09-15.md §5.
+//
+// MEASURED, HEAD, 96 matches (equal-strength seeds 165000..165095, so the 24-match
+// sample above is the first quarter of it):
+//   standard   2600 shots / 241 goals (2.51), conversion 9.3%, cross 4.3%,
+//              penalties 0.17, strong-team 1.92 -> exit 0, every envelope passes
+//   the HEAD baseline on the same 96 seeds reads goals 2.49 -> exit 1, i.e. the
+//   baseline itself fails the goals floor at this sample size.
+//
+// The `penalties 0.08` reading is small-sample noise, not a defect: at 96 matches
+// this candidate reads 0.17, identical to the baseline's 4/24 = 0.167, and the
+// paired test is 22 : 16 (p = 0.42). The 24-match penalty gate fails 21.2% of the
+// time under an unchanged true rate, and across the eight ladder variants the
+// penalty counts (4, 6, 6, 3, 4, 5, 4, 2) are *less* dispersed than Poisson noise
+// (Cochran p = 86.8%). See docs/movement-release-2026-09-15.md §5.
+//
+// Note there IS a real code path from these patches to box fouls
+// (js/sim/engine.js:3699 and :3801 both gate MID positioning on
+// `_isPrimaryMidRunner`), so "no causal path" is not the answer here — the
+// settlement is empirical.
+//
+// Two side effects are real and highly significant at 96 matches: passes +2.2%
+// and crosses -17.8% (cross share 5.3% -> 4.3%, still inside the 3-14% envelope
+// but with less margin than the baseline).
 import "./_runner-only-candidate.mjs";
 import "./_byline-recovery-candidate.mjs";
 import "./_pass-support-release-candidate.mjs";
