@@ -1,22 +1,22 @@
 :root,
 html[data-theme="dark"] {
-  --bg: #0b1220;
-  --bg2: #121a2b;
-  --card: #172033;
-  --border: #2a3650;
-  --text: #e8eefc;
-  --muted: #8b9bb8;
-  --primary: #3d8bfd;
-  --primary-hover: #5a9dff;
-  --good: #3dd68c;
-  --bad: #f07178;
-  --warn: #e6b450;
-  --pitch: #1a5c3a;
+  --bg: var(--bg);
+  --bg2: var(--bg2);
+  --card: var(--card);
+  --border: var(--border);
+  --text: var(--text);
+  --muted: var(--muted);
+  --primary: var(--primary);
+  --primary-hover: var(--primary-hover);
+  --good: var(--good);
+  --bad: var(--bad);
+  --warn: var(--warn);
+  --pitch: var(--pitch);
   --pitch-line: rgba(255, 255, 255, 0.35);
   --radius: 12px;
   --shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
   --toast-bg: #1e293b;
-  --start-sky-top: #0a1020;
+  --start-sky-top: var(--start-sky-top);
   --start-card-a: rgba(28, 38, 58, 0.88);
   --start-card-b: rgba(18, 26, 43, 0.92);
   --surface-inset: #1e293b;
@@ -24,21 +24,21 @@ html[data-theme="dark"] {
   --row-me: rgba(61, 139, 253, 0.12);
   --tab-active-bg: rgba(61, 139, 253, 0.15);
   --tab-active-border: rgba(61, 139, 253, 0.4);
-  --event-red: #f87171;
-  --event-injury: #fb923c;
-  --event-pen: #fbbf24;
-  --event-save: #38bdf8;
-  --event-wood: #a78bfa;
+  --event-red: var(--event-red);
+  --event-injury: var(--event-injury);
+  --event-pen: var(--event-pen);
+  --event-save: var(--event-save);
+  --event-wood: var(--event-wood);
   --event-sub: #94a3b8;
-  --open-fg: #9aefc4;
-  --open-border: #3dd68c66;
+  --open-fg: var(--open-fg);
+  --open-border: var(--open-border);
   --open-bg: transparent;
-  --closed-fg: #f0a8ac;
-  --closed-border: #f0717866;
+  --closed-fg: var(--closed-fg);
+  --closed-border: var(--closed-border);
   --closed-bg: transparent;
   --bar-track: #1e293b;
   --board-bg: rgba(30, 41, 59, 0.85);
-  --board-border: #334155;
+  --board-border: var(--board-border);
   --board-meta: #94a3b8;
   --input-bg: var(--bg2);
   --input-border: var(--border);
@@ -71,46 +71,46 @@ html[data-theme="dark"] {
 
 /* 日间模式 */
 html[data-theme="light"] {
-  --bg: #e8eef8;
+  --bg: var(--bg);
   --bg2: #f0f4fb;
-  --card: #ffffff;
+  --card: #fff;
   --border: #c5d0e3;
-  --text: #1a2438;
+  --text: var(--text);
   --muted: #5a6b86;
-  --primary: #2563eb;
-  --primary-hover: #1d4ed8;
-  --good: #0f8a4f;
+  --primary: var(--primary);
+  --primary-hover: var(--primary-hover);
+  --good: var(--good);
   --bad: #c92a36;
-  --warn: #a16207;
-  --pitch: #2d8a52;
+  --warn: var(--warn);
+  --pitch: var(--pitch);
   --pitch-line: rgba(255, 255, 255, 0.55);
   --shadow: 0 8px 24px rgba(30, 50, 90, 0.1);
-  --toast-bg: #ffffff;
-  --start-sky-top: #9ec5ff;
+  --toast-bg: #fff;
+  --start-sky-top: var(--start-sky-top);
   --start-card-a: rgba(255, 255, 255, 0.94);
   --start-card-b: rgba(244, 247, 252, 0.96);
-  --surface-inset: #e2e8f4;
+  --surface-inset: var(--surface-inset);
   --row-hover: rgba(37, 99, 235, 0.06);
   --row-me: rgba(37, 99, 235, 0.1);
   --tab-active-bg: rgba(37, 99, 235, 0.12);
   --tab-active-border: rgba(37, 99, 235, 0.35);
   --event-red: #c92a36;
-  --event-injury: #c26a0a;
-  --event-pen: #b45309;
-  --event-save: #0369a1;
-  --event-wood: #6d28d9;
+  --event-injury: var(--event-injury);
+  --event-pen: var(--event-pen);
+  --event-save: var(--event-save);
+  --event-wood: var(--event-wood);
   --event-sub: #5a6b86;
-  --open-fg: #0f6b3e;
-  --open-border: #86efac;
-  --open-bg: #ecfdf5;
-  --closed-fg: #b91c1c;
-  --closed-border: #fca5a5;
-  --closed-bg: #fef2f2;
-  --bar-track: #d8e0ef;
+  --open-fg: var(--open-fg);
+  --open-border: var(--open-border);
+  --open-bg: var(--open-bg);
+  --closed-fg: var(--closed-fg);
+  --closed-border: var(--closed-border);
+  --closed-bg: var(--closed-bg);
+  --bar-track: var(--bar-track);
   --board-bg: #f0f4fb;
   --board-border: #c5d0e3;
   --board-meta: #5a6b86;
-  --input-bg: #ffffff;
+  --input-bg: #fff;
   --input-border: #c5d0e3;
   color-scheme: light;
 }
@@ -551,7 +551,7 @@ html[data-theme="light"] .start-card {
     0 0 0 1px rgba(255, 255, 255, 0.8) inset;
 }
 html[data-theme="light"] .start-card h1 {
-  background: linear-gradient(120deg, #1a2438 15%, #2563eb 55%, #15965a 100%);
+  background: linear-gradient(120deg, var(--text) 15%, var(--primary) 55%, #15965a 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -1072,7 +1072,7 @@ html[data-theme="light"] .player-dot .pitch-num {
 }
 html[data-theme="light"] .tac-role-sel {
   background: rgba(255, 255, 255, 0.95);
-  color: #1a2438;
+  color: var(--text);
   border-color: rgba(26, 36, 56, 0.2);
 }
 .tac-role-badge {
@@ -1103,7 +1103,7 @@ html[data-theme="light"] .tac-role-sel {
 }
 html[data-theme="light"] .tac-role-badge {
   background: rgba(255, 255, 255, 0.96);
-  color: #1a2438;
+  color: var(--text);
   border-color: rgba(26, 36, 56, 0.18);
 }
 .player-dot .name {
@@ -4203,7 +4203,7 @@ html[data-theme="dark"] .mp-fmm-dock {
 }
 html[data-theme="light"] .mp-card {
   background: rgba(255, 255, 255, 0.95);
-  color: #1a2438;
+  color: var(--text);
   border-color: rgba(37, 99, 235, 0.3);
 }
 .mp-card.hidden { display: none; }
@@ -4430,7 +4430,7 @@ html[data-theme="light"] .mp-official {
   margin: -6.5px 0 0 -6.5px;
   border-radius: 50%;
   background:
-    radial-gradient(circle at 30% 28%, #ffffff 0 22%, #f8fafc 24% 48%, #e2e8f0 50% 100%);
+    radial-gradient(circle at 30% 28%, #fff 0 22%, #f8fafc 24% 48%, #e2e8f0 50% 100%);
   border: 1.5px solid rgba(15, 23, 42, 0.65);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.35),
@@ -5570,8 +5570,8 @@ html[data-theme="light"] .staff-diff-tag {
   color: #475569;
 }
 html[data-theme="light"] .staff-diff-tag.short {
-  background: #ecfdf5;
-  border-color: #86efac;
+  background: var(--open-bg);
+  border-color: var(--open-border);
   color: #166534;
 }
 html[data-theme="light"] .staff-diff-tag.elite {
@@ -5581,7 +5581,7 @@ html[data-theme="light"] .staff-diff-tag.elite {
 }
 html[data-theme="light"] .staff-diff-tag.star {
   background: #f0fdf4;
-  border-color: #86efac;
+  border-color: var(--open-border);
   color: #166534;
 }
 html[data-theme="light"] .staff-diff-tag.weaker {
@@ -5727,7 +5727,7 @@ html[data-theme="light"] .form-pill.form-ok {
 }
 html[data-theme="light"] .form-pill.form-cold {
   background: rgba(37, 99, 235, 0.12);
-  color: #1d4ed8;
+  color: var(--primary-hover);
 }
 .report-ratings {
   margin-top: 0.85rem;
@@ -5905,11 +5905,11 @@ html[data-theme="light"] .form-pill.form-cold {
 html[data-theme="light"] .board-box {
   background: #eef3fb !important;
   border-color: #c5d0e3 !important;
-  color: #1a2438 !important;
+  color: var(--text) !important;
 }
 html[data-theme="light"] .board-box.ok {
-  background: #ecfdf5 !important;
-  border-color: #86efac !important;
+  background: var(--open-bg) !important;
+  border-color: var(--open-border) !important;
   color: #14532d !important;
 }
 html[data-theme="light"] .board-box.warn {
@@ -5918,8 +5918,8 @@ html[data-theme="light"] .board-box.warn {
   color: #78350f !important;
 }
 html[data-theme="light"] .board-box.danger {
-  background: #fef2f2 !important;
-  border-color: #fca5a5 !important;
+  background: var(--closed-bg) !important;
+  border-color: var(--closed-border) !important;
   color: #7f1d1d !important;
 }
 html[data-theme="light"] .board-box.done {
@@ -7252,7 +7252,7 @@ html[data-theme="light"] .brief-chip {
 
 /* ===== 日间模式全面补丁 ===== */
 html[data-theme="light"] .btn {
-  background: #ffffff;
+  background: #fff;
   color: var(--text);
   box-shadow: 0 1px 2px rgba(30, 50, 90, 0.06);
 }
@@ -7269,7 +7269,7 @@ html[data-theme="light"] #btn-sim-fast,
 html[data-theme="light"] #btn-ht-continue {
   background: var(--primary) !important;
   border-color: var(--primary) !important;
-  color: #ffffff !important;
+  color: #fff !important;
   box-shadow: 0 2px 8px rgba(37, 99, 235, 0.28);
 }
 html[data-theme="light"] .btn.primary:hover:not(:disabled),
@@ -7277,10 +7277,10 @@ html[data-theme="light"] button.btn.primary:hover:not(:disabled),
 html[data-theme="light"] #btn-new-game:hover:not(:disabled) {
   background: var(--primary-hover) !important;
   border-color: var(--primary-hover) !important;
-  color: #ffffff !important;
+  color: #fff !important;
 }
 html[data-theme="light"] .btn.danger {
-  background: #ffffff;
+  background: #fff;
   color: var(--bad);
   border-color: color-mix(in srgb, var(--bad) 45%, var(--border));
 }
@@ -7312,13 +7312,13 @@ html[data-theme="light"] #formation-select,
 html[data-theme="light"] .filters select,
 html[data-theme="light"] .start-form input,
 html[data-theme="light"] .start-form select {
-  background: #ffffff;
+  background: #fff;
   color: var(--text);
   border-color: var(--input-border);
 }
 html[data-theme="light"] option {
-  background: #ffffff;
-  color: #1a2438;
+  background: #fff;
+  color: var(--text);
 }
 html[data-theme="light"] .export-reminder {
   background: #fffbeb;
@@ -7329,7 +7329,7 @@ html[data-theme="light"] .season-summary {
   background: rgba(15, 23, 42, 0.4);
 }
 html[data-theme="light"] .season-summary-card {
-  background: #ffffff;
+  background: #fff;
   border-color: var(--border);
   color: var(--text);
 }
@@ -7342,13 +7342,13 @@ html[data-theme="light"] .modal {
   background: rgba(15, 23, 42, 0.4);
 }
 html[data-theme="light"] #toast {
-  background: #ffffff !important;
+  background: #fff !important;
   border: 1px solid var(--border) !important;
   color: var(--text) !important;
   box-shadow: 0 8px 24px rgba(30, 50, 90, 0.15) !important;
 }
 html[data-theme="light"] .mp-card-meta .bad {
-  color: #c26a0a;
+  color: var(--event-injury);
 }
 html[data-theme="light"] .badge {
   background: rgba(37, 99, 235, 0.12);
@@ -7384,7 +7384,7 @@ html[data-theme="light"] .slot-section {
 html[data-theme="light"] .training-opt,
 html[data-theme="light"] .slot-card,
 html[data-theme="light"] .poach-row {
-  background: #ffffff;
+  background: #fff;
   color: var(--text);
 }
 html[data-theme="light"] .match-log,
@@ -7392,7 +7392,7 @@ html[data-theme="light"] .match-header,
 html[data-theme="light"] .match-ht-panel,
 html[data-theme="light"] .match-report,
 html[data-theme="light"] .mp-wrap {
-  background: #ffffff;
+  background: #fff;
   border-color: var(--border);
   color: var(--text);
 }
@@ -7404,20 +7404,20 @@ html[data-theme="light"] .transfer-window-box {
   color: var(--text);
 }
 html[data-theme="light"] .transfer-window-box.open {
-  background: #ecfdf5 !important;
-  border-color: #86efac !important;
-  color: #0f6b3e !important;
+  background: var(--open-bg) !important;
+  border-color: var(--open-border) !important;
+  color: var(--open-fg) !important;
 }
 html[data-theme="light"] .transfer-window-box.closed {
-  background: #fef2f2 !important;
-  border-color: #fca5a5 !important;
-  color: #b91c1c !important;
+  background: var(--closed-bg) !important;
+  border-color: var(--closed-border) !important;
+  color: var(--closed-fg) !important;
 }
 html[data-theme="light"] .prefs-seg {
-  background: #ffffff;
+  background: #fff;
 }
 html[data-theme="light"] .prefs-seg button.active {
-  color: #ffffff;
+  color: #fff;
 }
 html[data-theme="light"] .tab.active {
   color: var(--text);
@@ -7436,7 +7436,7 @@ html[data-theme="light"] .scout-report {
   color: var(--text);
 }
 html[data-theme="light"] .modal-card {
-  background: #ffffff;
+  background: #fff;
   color: var(--text);
 }
 html[data-theme="light"] table th {

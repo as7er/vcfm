@@ -3,6 +3,9 @@
 //
 // Usage:
 //   node scripts/_ui-survey.mjs [outDir]
+// Usage:
+//   node scripts/_ui-survey.mjs [outDir] [theme]
+//   theme: light (default, matches headless prefers-color-scheme) | dark | both
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -14,11 +17,13 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const port = 8898;
 const baseUrl = `http://127.0.0.1:${port}/`;
 const outArg = process.argv[2];
+const themeArg = process.argv[3] || "light";
+const THEMES = themeArg === "both" ? ["light", "dark"] : [themeArg];
 const out = outArg
   ? (isAbsolute(outArg) ? outArg : resolve(root, outArg))
   : join(root, ".tmp-continuity", `ui-survey-${Date.now()}`);
 mkdirSync(out, { recursive: true });
-console.log(JSON.stringify({ out }));
+console.log(JSON.stringify({ out, themes: THEMES }));
 
 // Tab -> primary nav group (mirrors MAIN_NAV_GROUPS in js/main.js:1628).
 // Secondary tabs are hidden unless their primary group is active, so the probe
@@ -156,37 +161,51 @@ try {
   await page.screenshot({ path: join(out, "00-start-screen.png"), fullPage: false });
   await boot(page, "UI Survey");
 
-  for (const tab of TABS) {
-    const group = groupOf(tab);
-    await page.click(`.primary-tab[data-nav-group="${group}"]`).catch(() => {});
-    await page.waitForTimeout(500);
-    const btn = page.locator(`.tab[data-tab="${tab}"]`);
-    if (!(await btn.count())) { report.errors.push(`missing tab ${tab}`); continue; }
-    await btn.click().catch(() => {});
-    await page.waitForTimeout(900);
-    await page.screenshot({ path: join(out, `desktop-${tab}.png`), fullPage: false });
-    const m = await page.evaluate(metrics);
-    if (m && m.tab !== tab) report.errors.push(`tab did not switch: wanted ${tab}, got ${m.tab}`);
-    report.captures.push({ viewport: "desktop", name: tab, metrics: m });
-    console.log(JSON.stringify({ tab, active: m?.tab, panelH: m?.panelH, cards: m?.cardCount, fonts: m?.fontSizes, overflow: m?.overflowCount }));
-  }
+  const applyTheme = (th) => page.evaluate((t) => {
+    if (t === "light") document.documentElement.setAttribute("data-theme", "light");
+    else document.documentElement.removeAttribute("data-theme");
+  }, th);
 
-  // Phone pass on the densest screens.
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.waitForTimeout(1200);
-  for (const tab of ["dashboard", "squad", "tactics", "table", "transfer"]) {
-    const group = groupOf(tab);
-    await page.click(`.primary-tab[data-nav-group="${group}"]`).catch(() => {});
-    await page.waitForTimeout(500);
-    const btn = page.locator(`.tab[data-tab="${tab}"]`);
-    if (!(await btn.count())) continue;
-    await btn.click().catch(() => {});
-    await page.waitForTimeout(900);
-    await page.screenshot({ path: join(out, `phone-${tab}.png`), fullPage: false });
-    const m = await page.evaluate(metrics);
-    if (m && m.tab !== tab) report.errors.push(`phone tab did not switch: wanted ${tab}, got ${m.tab}`);
-    report.captures.push({ viewport: "phone", name: tab, metrics: m });
-    console.log(JSON.stringify({ tab: `phone/${tab}`, active: m?.tab, panelH: m?.panelH, fonts: m?.fontSizes, overflow: m?.overflowCount }));
+  for (const theme of THEMES) {
+    await applyTheme(theme);
+    await page.waitForTimeout(400);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.waitForTimeout(600);
+
+    for (const tab of TABS) {
+      const group = groupOf(tab);
+      await page.click(`.primary-tab[data-nav-group="${group}"]`).catch(() => {});
+      await page.waitForTimeout(500);
+      const btn = page.locator(`.tab[data-tab="${tab}"]`);
+      if (!(await btn.count())) { report.errors.push(`missing tab ${tab}`); continue; }
+      await btn.click().catch(() => {});
+      await page.waitForTimeout(900);
+      const stem = THEMES.length > 1 ? `${theme}-desktop-${tab}` : `desktop-${tab}`;
+      await page.screenshot({ path: join(out, `${stem}.png`), fullPage: false });
+      const m = await page.evaluate(metrics);
+      if (m && m.tab !== tab) report.errors.push(`tab did not switch: wanted ${tab}, got ${m.tab}`);
+      report.captures.push({ theme, viewport: "desktop", name: tab, metrics: m });
+      console.log(JSON.stringify({ theme, tab, active: m?.tab, panelH: m?.panelH, cards: m?.cardCount, fonts: m?.fontSizes, overflow: m?.overflowCount }));
+    }
+
+    // Phone pass on the densest screens.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(1200);
+    for (const tab of ["dashboard", "squad", "tactics", "table", "transfer"]) {
+      const group = groupOf(tab);
+      await page.click(`.primary-tab[data-nav-group="${group}"]`).catch(() => {});
+      await page.waitForTimeout(500);
+      const btn = page.locator(`.tab[data-tab="${tab}"]`);
+      if (!(await btn.count())) continue;
+      await btn.click().catch(() => {});
+      await page.waitForTimeout(900);
+      const stem = THEMES.length > 1 ? `${theme}-phone-${tab}` : `phone-${tab}`;
+      await page.screenshot({ path: join(out, `${stem}.png`), fullPage: false });
+      const m = await page.evaluate(metrics);
+      if (m && m.tab !== tab) report.errors.push(`phone tab did not switch: wanted ${tab}, got ${m.tab}`);
+      report.captures.push({ theme, viewport: "phone", name: tab, metrics: m });
+      console.log(JSON.stringify({ theme, tab: `phone/${tab}`, active: m?.tab, panelH: m?.panelH, fonts: m?.fontSizes, overflow: m?.overflowCount }));
+    }
   }
 
   writeFileSync(join(out, "ui-survey.json"), `${JSON.stringify(report, null, 2)}\n`);
