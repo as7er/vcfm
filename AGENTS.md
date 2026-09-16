@@ -5,11 +5,21 @@
 > 仓库：https://github.com/as7er/vcfm.git · `master`（**2026-09-14 起规范地址为小写 `vcfm`**；
 > 大写 `VCFM` 仍可用但会走重定向，`origin` 已更新为小写）  
 > 预览：`python -m http.server 8765 --bind 127.0.0.1`  
-> 缓存：**vcfm-v262**（修复颜色去重把令牌定义改成自引用导致整页黑底；v261 是颜色去重：39 处可证明无操作的令牌别名 + 拼写统一。
+> 缓存：**vcfm-v263**（高光段入场加显式剪辑，修「球员/球/裁判整队瞬移」观感；
+> 根因是 `playSimTimeline` 每段开场 `applySimSnapshot(frames[0],{soft:false})` 硬切
+> + `sceneCut` 显式关掉 relocate 缓动。实测段间跨 129.5~956.8 比赛秒、位移中位 44.9 m。
+> 详见 `docs/matchview-teleport-investigation-2026-09-16.md`。
+> v262 是修复颜色去重把令牌定义改成自引用导致整页黑底；v261 是颜色去重：39 处可证明无操作的令牌别名 + 拼写统一。
 > v260 是字号令牌化：374 处 → 14 个 `--fs-*` 令牌。
 > v259 是修复手机/平板赛前简报被压成 2 px，v258 是中卫线前压加尾部加权）
 > ⚠ **改预缓存资源（尤其 `js/sim/engine.js`）后必须升 `sw.js` 的 `CACHE` 版本号**，
 > 否则回访用户会一直用旧引擎。`e6567a8` / `0692c6a` 两轮漏升，已由 v255 一并覆盖。
+> ⚠ **版本号有 9 处，而且 `cache-audit.mjs` 会逐个断言**：`sw.js` 的 `CACHE`、
+> `index.html` 的 `CURRENT_CACHE` / `style.css?v=` / `main.js?v=` / `sw.js?v=` /
+> `vcfm-sw-reloaded-v`，以及 **`js/main.js` 里 5 处动态 import 的 `?v=`**
+> （`flags` / `club-crest` / `squad-planning` / `avatar` / `matchview`）。
+> 只改 `sw.js` 会让审计报 `all entry query strings must use vNNN: 263, 258`。
+> 升版用 `grep -rn '?v=' --include=*.js --include=*.html` 一次找齐再统一替换。
 
 > **⚠ 本机 Git 环境（2026-09-14 实测，会浪费排查时间）**：
 > 1. **推送必须用系统 Git**：`"C:\Program Files\Git\cmd\git.exe" push origin master`。
@@ -43,10 +53,22 @@
 > ④ **颜色去重**（82 处可证明无操作的令牌别名 + 拼写统一）。
 >
 > **本轮的完整文档**：
+> - [docs/matchview-teleport-investigation-2026-09-16.md](docs/matchview-teleport-investigation-2026-09-16.md)
+>   （**比赛画面「整队瞬移」根因 + 修复 + 验收**；含 4 个排除性探针与 11 个新脚本）
 > - [docs/briefing-crush-2px-2026-09-16.md](docs/briefing-crush-2px-2026-09-16.md)（验证+修复+验收）
 > - [docs/ui-beautification-survey-2026-09-16.md](docs/ui-beautification-survey-2026-09-16.md)（美化调研）
 > - [docs/font-scale-tokens-2026-09-16.md](docs/font-scale-tokens-2026-09-16.md)（字号令牌化）
 > - [docs/color-dedup-2026-09-16.md](docs/color-dedup-2026-09-16.md)（颜色去重 + 未做部分的方案）
+>
+> ⚠ **瞬移这条线的核心认知（别丢）**：**「看起来在动」不等于「动得连续」。**
+> 段内平滑度、视在速度、图层对齐、可见性四项探针**全部 PASS**，
+> 缺陷仍然在**段边界**上——它们量的是不同维度，**必须分开测**。
+> 真正的原因是 `playSimTimeline` 每段开场 `applySimSnapshot(frames[0],{soft:false})`
+> 硬切 + `sceneCut` 显式关掉 `relocate()` 缓动，而实测相邻高光段跨 **129.5~956.8
+> 比赛秒**、位移中位 **44.9 m**、球 **83.4 m**、**26/26 实体**全部 >3 m。
+> 修法是**显式剪辑**（260 ms 淡场）而不是缓动——45 m 摊到 0.7 s 是 64 m/s 的扫掠，
+> 比瞬移更怪。⛔ **不要给段入口加缓动**：分档门限曾是 20 s，
+> 而真实间隔最小 129.5 s（= 6.5 倍门限），ease 分支是**纯死代码**。
 >
 > **下一台设备最该先做的**：**回主线的传球链 / 机会质量**
 > （见下方「块长是症状不是病因」）。美化这条线的剩余项都**需要用户做设计决策**，

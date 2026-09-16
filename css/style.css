@@ -3675,6 +3675,37 @@ html[data-theme="dark"] .mp-fmm-dock {
 .mp-field.mp-sim-drive.mp-replay-slow .mp-camera {
   transition: transform 0.35s cubic-bezier(0.22, 0.8, 0.28, 1);
 }
+/* 高光段之间的剪辑转场（`_playSegmentCut`）。
+   背景：相邻两个高光段之间可以隔十几分钟比赛时间，段入场那一帧 26 个实体
+   一起位移（实测中位 44.9 m、球 83.4 m）。这不是「过渡不够顺」，而是
+   「换场景没有做出换场景的样子」——观众只看到整队凭空换位。
+   缓动在这里是错的解法：0.7 s 平移 45 m = 64 m/s 的扫掠，比硬切更难看。
+   所以改成显式的剪辑提示，把这 0.26 s 讲成「换了条镜头」，
+   和 `playHighlightPlanBridge` 的「⏩ 跳过平淡」是同一套语汇。
+   只在 `.mp-camera` 之上、`.mp-banner` 之下，不抢事件横幅的层级。 */
+/* ⚠ `.mp-field::before` 已被 `.mp-field.mp-corner-active::before`（角旗黄光，z-index 3）
+   占用。两条规则特异性相同（0,2,1），所以**同一个伪元素只能有一条生效**——
+   本规则在文件里更靠后，所以剪辑期间它整体覆盖角旗黄光（包括 z-index/background 等
+   所有属性，CSS 不会把两条 ::before 合并）。这是想要的：剪辑本来就该盖住场景。
+   移除 `.mp-seg-cut` 后角旗规则立刻恢复，因为那是「哪条匹配」的问题，不是层叠问题。
+   若将来要给角旗光加持续动画并希望它在剪辑期间仍可见，必须改用独立元素。 */
+.mp-field.mp-seg-cut::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  background: #0a0e14;
+  animation: mp-seg-cut-fade 260ms ease-out both;
+}
+@keyframes mp-seg-cut-fade {
+  0% { opacity: 0.72; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  /* 尊重系统设置：不做淡入，直接切 */
+  .mp-field.mp-seg-cut::before { animation: none; opacity: 0; }
+}
 .mp-lines {
   position: absolute;
   inset: 0;

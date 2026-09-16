@@ -61,6 +61,33 @@ const RELOCATE_BALL_JUMP = 6;
 const RELOCATE_PLAYER_MAX_SPEED_MPS = 10;
 
 /**
+ * 高光段入场的转场（见 `_enterSegmentTransition`）。
+ *
+ * 背景：`playSimTimeline` 每段开场都用 `applySimSnapshot(frames[0], { soft:false })`
+ * 硬切，而 `applySimSnapshot` 的 `sceneCut` 判定会把缓动显式关掉
+ * （`simT - lastSimT > 0.55` → 非 adjacent → 不武装 relocate）。
+ * 于是段首那一帧把 26 个实体直接按到新坐标上。
+ *
+ * 实测（`scripts/_segment-boundary-probe.mjs`）：相邻段之间可隔 740 比赛秒，
+ * 位移中位 44.9 m、球 83.4 m、26/26 实体全部 >3 m —— 观众看到「整队凭空换位」。
+ *
+ * ⛔ **不要试图给段入口加缓动。** 曾经按「短间隔缓动 / 长间隔剪辑」分档实现过，
+ * 但 `scripts/_segment-gap-census.mjs` 跑完整场后量到真实间隔是
+ * **129.5 / 389.3 / 956.8 秒**（3 个间隔，无一例外都在长档），
+ * 最近的一对也是门限的 6.5 倍——**ease 分支永远不可能触发，是纯死代码**。
+ *
+ * 原因是窗口构造本身：每个高光窗只覆盖约 19 秒比赛时间
+ * （`buildHighlightWindows`：进球 lead 8 / trail 6，扑救还要 `farFromExisting(25)`，
+ * 射门按威胁度分散挑），而两窗之间必然隔着几分钟。
+ * 所以「两段本来就连续」这种情形在数据上不存在。
+ *
+ * ⇒ 一律按**显式剪辑**处理：不去伪造位移连续性，而是用一次短暂淡场
+ * 把「换场景了」讲出来（与 `playHighlightPlanBridge` 的「⏩ 跳过平淡」同一语汇）。
+ */
+/** 剪辑淡出的时长（ms）：够看出「换镜头了」，又不至于拖慢观赛节奏 */
+const SEGMENT_CUT_MS = 260;
+
+/**
  * 关键事件横幅停留时长（ms）。
  * 底栏是「解说文案 ↔ 控球条」互斥的同一个格子，横幅一超时就切回控球条。
  * 旧值 1.1–2.4s，换人/红黄牌/VAR/进球这类必须读到的事件常常一闪而过。
@@ -235,6 +262,10 @@ export class MatchView {
     this._lastDeflectionKey = null;
     this.camBoostUntil = 0;
     this.trails = []; // active trail animations
+    // 高光段入场转场（见 `_enterSegmentTransition`）：上一段结束的比赛秒 +
+    // 剪辑提示动画的定时器。
+    this._segLastEndSimT = null;
+    this._segCutTimer = null;
     this.heatLayer = null;
     this.pressLayer = null;
     this.networkSvg = null;
@@ -806,7 +837,20 @@ export class MatchView {
         _assistFocusDone: false,
       };
       this._simPlay = sp;
+      // 段入场转场（必须在硬切之前）：跨段的入场会配一次显式剪辑提示。
+      // 不这么做时，段首帧会走 sceneCut 分支，把 26 个实体一步按到新坐标上
+      // ——实测相邻段隔 129.5~956.8 比赛秒、位移中位 44.9 m（整队瞬移的成因）。
+      const entry = this._enterSegmentTransition(frames);
+      sp._entryMode = entry.mode;
       this.applySimSnapshot(frames[0], { soft: false });
+      // 记下本段结束的比赛秒，供下一段判断间隔。
+      // ⚠ 这里刻意记 `tEnd0`（可能被重播覆写）而不是「真实高光窗终点」：
+      //   `playFmmGoalReplay` 会用 climax+2 收尾再调进来，若改记真实窗终点，
+      //   重播段播完后 `_segLastEndSimT` 会跳回真实窗尾，反而多出一次假跨段剪辑。
+      //   代价是极少数相邻高光窗会因 gap ≤ 0 退化成 `first`（无剪辑提示）——
+      //   那是两窗之间**只差十来秒**的情况，本来也谈不上「跳过了一段」。
+      // 证据：`scripts/_segment-entry-trace.mjs`（记录 prevEnd 原始值 + 每帧游标）。
+      this._segLastEndSimT = tEnd0;
 
       const tick = (ts) => {
         if (this._simPlay !== sp) return;
@@ -1101,6 +1145,51 @@ export class MatchView {
     if (t.includes("角球") || t.includes("CORNER")) {
       this.replayBadgeEl.classList.add("hidden");
     }
+  }
+
+  /**
+   * 高光段入场转场 —— 修掉「整队瞬移」的观感（推导见 SEGMENT_CUT_MS 上方）。
+   *
+   * 必须在 `applySimSnapshot(frames[0], …)` **之前**调用：它要先知道
+   * 「上一段结束在哪个比赛秒」，才能判断这次入场是不是跨越了一段比赛。
+   *
+   * ⛔ 这里**刻意不做缓动**：整场实测的段间隔是 129.5 / 389.3 / 956.8 秒，
+   * 无一落在「相邻」档，缓动分支不可能触发（详见 SEGMENT_CUT_MS 的注释）。
+   * 而且缓动本身也是错的解法——45 m 位移摊到 0.7 s 等于 64 m/s 的扫掠。
+   *
+   * @param {Array} frames 即将播放的帧表
+   * @returns {{mode:'cut'|'first', gapSec:number|null}}
+   */
+  _enterSegmentTransition(frames) {
+    const t0 = Number(frames?.[0]?.t);
+    const prevEnd = Number(this._segLastEndSimT);
+    // 上一段结束的比赛秒。没有则说明是本场第一次入场（开球），
+    // 那是「比赛开始」而不是「跳过了内容」，不需要剪辑提示。
+    // 同理 gap ≤ 0 也归到 first：要么是本段起点落在上一段结束之前
+    // （回看重播的倒带，见 playFmmGoalReplay 的 climax-5.5），
+    // 要么是两窗本身几乎相接——两种情形都不该闪一下。
+    if (!Number.isFinite(prevEnd) || !Number.isFinite(t0)) {
+      return { mode: "first", gapSec: null };
+    }
+    const gapSec = t0 - prevEnd;
+    if (!(gapSec > 0)) return { mode: "first", gapSec };
+    this._playSegmentCut();
+    return { mode: "cut", gapSec };
+  }
+
+  /** 一次短暂的场景切换提示：淡场，明确告诉观众「换镜头了」 */
+  _playSegmentCut() {
+    const el = this.fieldEl;
+    if (!el) return;
+    el.classList.remove("mp-seg-cut");
+    // 强制重排，保证连续两次剪辑都能重放动画
+    void el.offsetWidth;
+    el.classList.add("mp-seg-cut");
+    if (this._segCutTimer) clearTimeout(this._segCutTimer);
+    this._segCutTimer = setTimeout(() => {
+      el.classList.remove("mp-seg-cut");
+      this._segCutTimer = null;
+    }, SEGMENT_CUT_MS + 40);
   }
 
   /**
@@ -1543,6 +1632,8 @@ export class MatchView {
     this._playCentre = null;
     this._relocLastSimT = null;
     this._lastDeflectionKey = null;
+    this._segLastEndSimT = null;
+    this._segCutTimer = null;
     this.setCameraPreset(this.cameraPreset, { persist: false });
     this._applyCamera();
     this._updatePossessionChrome();
