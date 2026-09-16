@@ -6799,8 +6799,16 @@ html[data-theme="light"] .badge-chip {
 }
 /* 简报 + 讲话整体：可滚、有上限，给全宽球场留位置 */
 .match-pre-brief {
-  flex: 0 1 auto;
-  flex-shrink: 1;
+  /* 2026-09-16：窄屏（flex 列）下必须不可收缩。这里原本是 flex: 0 1 auto +
+     min-height: 0，而同一个 flex 列里计分板 flex-shrink:0、.fmm-match-body
+     开赛前 flex:0 0 auto、评论流 flex:0 0 auto——于是它成了**唯一可收缩项**，
+     被全宽竖场（手机 390 宽 → .mp-field 367×505，比例 68/93.45 正确）挤成
+     2 px，819 px 简报内容全进滚动区、一屏都看不见。
+     原设计意图由外层 .match-layout.fm-match 的 overflow-y:auto 承担
+     （见下方「赛前简报+讲话变高后必须可滚」），所以这里取 0 0 auto，
+     由本元素按 max-height 内滚，整页超出时交给外层滚。
+     宽屏（≥1060px）是 grid，flex 属性对 grid item 无效 → 桌面零副作用。 */
+  flex: 0 0 auto;
   min-height: 0;
   max-height: min(36vh, 300px);
   overflow-x: hidden;
