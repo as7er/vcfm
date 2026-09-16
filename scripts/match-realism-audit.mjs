@@ -248,7 +248,22 @@ for (let match = 0; match < matches; match++) {
     integration.reasons[reason] = (integration.reasons[reason] || 0) + count;
   }
   const recentShots = [];
+  // ⚠ 角球窗口是**有方向的**：只认「这一条事件之前 ≤18s 内开出的角球」。
+  // 旧实现（历史缺陷，2026-09-17 修）把 `recentCorners` 声明在 `for (match)` 之外，
+  // 而 `event.t` 每场从 0 重新计（engine.js `_emit`），于是第 2 场起它仍持有
+  // 上一场最后一次角球的 t（例如 2700），本场事件 t∈[0,2700] 全部满足
+  // `t - 2700 <= 18` —— 判据被反转成「≥18s 前的角球」，86% 的射门被误计。
+  // 实测（后台 24 场）：错误口径 8.83 次/场（占全部射门 34.9%），正确口径 1.17。
+  // 修法同时做两件事：① 每场重置；② 用 `cornerAfter` 只判「已发生过」，
+  // 不做 kNN，也不改动任何越过角球时刻的事件归类。
+  // 复现：node scripts/_corner-window-audit-check.mjs --matches 24
   const recentCorners = { home: -Infinity, away: -Infinity };
+  // 角球后窗口的判据：事件**之前**发生过、且间隔 ≤ 窗口的角球。
+  // 只用「最近一次」即可（不做 kNN）：夹角球时刻本身的事件必然满足，
+  // 这与旧实现的意图一致，且不引入需要额外实测的判定复杂度。
+  const cornerAfter = (event, window) =>
+    event.t - recentCorners[event.team] >= 0 &&
+    event.t - recentCorners[event.team] <= window;
   for (const event of engine.events) {
     if (event.type === "shot") {
       const shot = {
@@ -269,7 +284,7 @@ for (let match = 0; match < matches; match++) {
         const reason = event.openGoalReason || "unknown";
         totals.openGoalReasons[reason] = (totals.openGoalReasons[reason] || 0) + 1;
       }
-      if (event.t - recentCorners[event.team] <= 18) totals.cornerShots++;
+      if (cornerAfter(event, 18)) totals.cornerShots++;
     } else if (event.type === "goal") {
       totals.goals++;
       if (event.ownGoal) totals.ownGoals++;
@@ -283,7 +298,7 @@ for (let match = 0; match < matches; match++) {
         shot.goal = true;
       }
       else totals.unattributedGoals++;
-      if (event.t - recentCorners[event.team] <= 18) totals.cornerGoals++;
+      if (cornerAfter(event, 18)) totals.cornerGoals++;
     } else if (event.type === "save") totals.saves++;
     else if (event.type === "gk_claim") totals.goalkeeperClaims++;
     else if (event.type === "gk_block") totals.goalkeeperBlocks++;
@@ -297,7 +312,7 @@ for (let match = 0; match < matches; match++) {
     else if (event.type === "intercept") totals.interceptions++;
     else if (event.type === "corner") {
       totals.corners++;
-      recentCorners[event.team] = event.t;
+      recentCorners[event.team] = event.t; // 仅供 cornerAfter 读
     } else if (event.type === "foul") {
       totals.fouls++;
       if (engine.agentById(event.agentId)?.role === "GK") totals.goalkeeperFouls++;
