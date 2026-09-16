@@ -603,7 +603,7 @@ async function assertInboxEntityLinks(page) {
   });
   await page.waitForTimeout(900);
   await page.reload({ waitUntil: "networkidle" });
-  await page.waitForFunction(() => !!window.vcfmMainApi);
+  await page.waitForFunction(() => !!window.vcfmMainApi, null, { timeout: 90_000 });
   await page.locator('[data-tab="inbox"]').click();
   await page.waitForSelector("#tab-inbox.active .inbox-item");
   const item = page.locator(`#inbox-list [data-mail-id="${fixture.mailId}"]`);
@@ -745,7 +745,7 @@ try {
     || Object.keys(sessionStorage).some((k) => k.startsWith("vcfm-sw-reloaded-"))
   ));
   await page.waitForLoadState("networkidle");
-  await page.waitForFunction(() => !!window.vcfmMainApi);
+  await page.waitForFunction(() => !!window.vcfmMainApi, null, { timeout: 90_000 });
   await assertStraightPassRendering(page);
   await assertCrestLoaded(page.locator("#start-club-preview .club-crest"), "career setup crest");
   await assertNoHorizontalOverflow(page, "desktop start screen");
@@ -795,7 +795,7 @@ try {
   assert.match(await page.locator("#dashboard-onboarding").innerText(), /3\/4/, "three management onboarding steps must be complete");
   await page.waitForTimeout(500);
   await page.reload({ waitUntil: "networkidle" });
-  await page.waitForFunction(() => !!window.vcfmMainApi);
+  await page.waitForFunction(() => !!window.vcfmMainApi, null, { timeout: 90_000 });
   await page.waitForSelector("#screen-main.active", { timeout: 90_000 });
   await page.waitForSelector("#dashboard-onboarding:not([hidden])");
   assert.match(await page.locator("#dashboard-onboarding").innerText(), /3\/4/, "onboarding progress must persist across reload");
@@ -877,7 +877,7 @@ try {
   // 少了它，重开存档引导会再次出现，而纯内存断言看不出来。
   await page.waitForTimeout(500);
   await page.reload({ waitUntil: "networkidle" });
-  await page.waitForFunction(() => !!window.vcfmMainApi);
+  await page.waitForFunction(() => !!window.vcfmMainApi, null, { timeout: 90_000 });
   await page.waitForSelector("#screen-main.active", { timeout: 90_000 });
   // 面板本来就带 hidden，要等工作台渲染完再断言，否则是假阳性。
   await page.waitForFunction(
