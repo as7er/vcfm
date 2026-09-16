@@ -125,12 +125,25 @@ console.log(JSON.stringify({
   mismatches: mismatches.length,
   unpairedLines: unpaired.length,
 }));
-if (mismatches.length) {
-  console.log("--- MISMATCHES ---");
-  for (const m of mismatches) console.log("  ", JSON.stringify(m));
+
+// ── cycle check ─────────────────────────────────────────────────────────────
+// The value-preservation check above reads token values from the PREVIOUS
+// revision, so it is blind to a replacement that rewrites a token's own
+// definition: `--bg: #0b1220` -> `--bg: var(--bg)` "matches" (both sides resolve
+// to #0b1220) while actually creating a custom-property cycle that invalidates
+// the token and kills the whole palette. That bug shipped once; this check is
+// what catches it.
+const SELF_REF = /^\s*--([a-z0-9-]+):\s*var\(--\1\);\s*$/;
+const cycles = [];
+for (let i = 0; i < newLines.length; i++) {
+  const m = newLines[i].match(SELF_REF);
+  if (m) cycles.push({ line: i + 1, token: m[1], text: newLines[i].trim() });
 }
-if (unpaired.length) {
-  console.log("--- UNPAIRED ---");
-  for (const u of unpaired.slice(0, 10)) console.log("  ", JSON.stringify(u));
+console.log(JSON.stringify({ selfReferentialTokens: cycles.length }));
+if (cycles.length) {
+  console.log("--- CUSTOM-PROPERTY CYCLES ---");
+  for (const c of cycles.slice(0, 10)) console.log("  ", JSON.stringify(c));
 }
-console.log(mismatches.length === 0 && unpaired.length === 0 ? "PASS: every replacement is value-preserving" : "FAIL");
+
+const ok = mismatches.length === 0 && unpaired.length === 0 && cycles.length === 0;
+console.log(ok ? "PASS: every replacement is value-preserving and no token cycles exist" : "FAIL");

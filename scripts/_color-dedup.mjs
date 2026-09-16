@@ -75,8 +75,17 @@ for (const rel of FILES) {
   for (const s of scoped) if (s.open) s.end = lines.length;
   const themeAt = (n) => scoped.find((s) => n >= s.start && n <= s.end)?.theme || null;
 
+  // ⛔ A token DEFINITION block is itself a data-theme scope, so the rule above
+  // matches it. Rewriting `--bg: #0b1220` into `--bg: var(--bg)` creates a
+  // custom-property cycle: the token becomes invalid at computed-value time and
+  // every consumer falls back to the initial value — the whole palette dies.
+  // Never touch a line that defines a custom property.
+  const DEFINES_TOKEN = /^\s*--[a-z0-9-]+\s*:/;
+  const isTokenDefinition = (line) => DEFINES_TOKEN.test(line);
+
   const out = lines.map((line, idx) => {
     const n = idx + 1;
+    if (isTokenDefinition(line)) return line; // never rewrite a custom-property definition
     const theme = themeAt(n);
     return line.replace(HEX, (hexRaw) => {
       const hex = hexRaw.toLowerCase();
