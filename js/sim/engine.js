@@ -100,6 +100,23 @@ export const SIM = {
   // 3 级 1.00、5 级 1.70。delegation.js 已按实力差给强队 ≥4、弱队 ≤2，
   // 所以这个因子让强队压上、弱队回收，而不是两队共用一个常数。
   CB_BLOCK_SHIFT_LINE_GAIN: 0.35,
+  // 尾部加权（2026-09-15）：前压量对 `prog` 的响应在中场保持线性，只有球被压进
+  // 对方半场深处时才陡增：
+  //     blockCurve = prog > TAIL_FROM ? prog + (prog - TAIL_FROM) * TAIL_GAIN : prog
+  //
+  // 为什么需要它：`CB_BLOCK_SHIFT_MAX_M` 线性于 `prog`，整体抬高会连中场块一起抬，
+  // 反击暴露随之上升，强弱分离被摊薄（探针阶梯：-14 → 强队 1.92、-19 → 1.67、
+  // -26 → 1.46，门槛 1.5）。而队形拉长**只发生在进攻三区**，所以只需要在最深处加量。
+  //
+  // 实测（标准档同种子，48 场；形状取 4 场中位）：
+  //     配置      attack   span   后卫线   进球48  强弱分离48
+  //     未修      47.38   44.70   49.69    2.73    1.92
+  //     尾部1.5   41.08   40.25   53.44    2.67    2.04
+  // 目标区间 30–40 m（AGENTS.md 的 FM26 对照）；信封无代价，分离度略升。
+  // 尾部 2.0 能进区间（39.08/38.96）但强弱分离掉到 1.52（擦线），故取 1.5。
+  // 详见 docs/cb-block-tail-2026-09-15.md。
+  CB_BLOCK_TAIL_FROM: 0.7,
+  CB_BLOCK_TAIL_GAIN: 1.5,
   // 球门：主队球门在 y≈100 一侧，客队球门在 y≈0 一侧；门宽以 x 计
   GOAL_X0: 44,
   GOAL_X1: 56,
@@ -3761,7 +3778,12 @@ export class SimEngine {
       SIM.CB_BLOCK_SHIFT_MAX_M * (1 + (cbLineLevel - 3) * SIM.CB_BLOCK_SHIFT_LINE_GAIN);
     // 符号：-dir * shiftY，其中 shiftY 为负 → home(dir=-1) 时 ty 增大 = 向前压。
     // 用米制换算回 y 格，保证同一物理前压量在任何球场尺度下对应同一格数。
-    const blockShiftY = (prog * cbShiftMax) / (SIM.PITCH_H_METRES / SIM.FIELD_H);
+    // `blockCurve` 是尾部加权（见 SIM.CB_BLOCK_TAIL_FROM 注释）：中场保持线性，
+    // 球被压进对方半场深处时才陡增，队形长度因此在进攻三区回落而防反保护不变。
+    const cbTailFrom = SIM.CB_BLOCK_TAIL_FROM;
+    const blockCurve =
+      prog > cbTailFrom ? prog + (prog - cbTailFrom) * SIM.CB_BLOCK_TAIL_GAIN : prog;
+    const blockShiftY = (blockCurve * cbShiftMax) / (SIM.PITCH_H_METRES / SIM.FIELD_H);
     const blockForward = -dir * blockShiftY;
     const dBall = dist(a.x, a.y, b.x, b.y);
     const core = !!a.isCore;
@@ -4008,12 +4030,21 @@ export class SimEngine {
     // —— 边后卫：进攻时套边前插 / 提供传中 ——
     if (this._isFullback(a)) {
       const wide = a.baseX < 50 ? -1 : 1;
-      // 本队控球且球已过半场：有概率沿边路前插
+      // 本队控球且球已过半场：有概率沿边路前插。
+      // 「球在本侧」是新增门槛：套边是沿球所在边路的配合，远侧边卫应内收保护
+      // 而不是横穿整个半场去套边（旧门槛 `dBall < 55` 在 09-14 提高远侧兜底站位后
+      // 大量失效，远侧套边率被动升到 27.3%）。
+      // ⚠ 必须与 `dBall < 55` **同时**成立，不能拿同侧判定替换它：实测（标准档 24 场
+      // 同种子）替换式会让近侧在 dBall≥55 时也套边（仅占近侧决策的 0.3%），
+      // 进球 2.75 → **2.29 跌破下限 2.5**；保留距离门槛、只额外要求同侧则读到 **2.92**，
+      // 且近侧行为与 HEAD 逐位一致。两者对远侧的效果相同（都不套边）。
+      const ballOnSide = wide < 0 ? b.x < 50 : b.x > 50;
       const bombOn =
         prog > 0.38 &&
         (prog > 0.55 ||
           this.random() < 0.32 + a.attr.pace * 0.25 + (getsForward ? 0.12 : 0) + roleDepth * 0.1 - roleHold * 0.08) &&
-        dBall < 55;
+        dBall < 55 &&
+        ballOnSide;
       if (bombOn) {
         // 套边：贴边线 + 推到球的平行甚至更前，准备传中
         a.tx = clamp(wide < 0 ? 8 + this.random() * 6 : 86 + this.random() * 6, 4, 96);
@@ -4023,7 +4054,7 @@ export class SimEngine {
         return;
       }
       // 未前插：保持宽度、略前压，避开拥挤区。**同样叠加整体前压量**。
-      // 远侧边卫通常离球 >55 m，永远进不了上面的套边分支（门槛 `dBall < 55`），
+      // 远侧边卫（球在对侧）进不了上面的套边分支（门槛：球须在本侧），
       // 于是只能落到这里；如果这里只留一个与球位几乎无关的 `4 + prog*5`（0→5 m），
       // 它就会钉在距己方门线约 38 m —— 球队在对方禁区前沿围攻时，一名边卫却仍站在
       // 己方三区边缘，整条后防线被撕成两截（实测控球时 85.1% 的队帧两名边卫相差 >20 m，

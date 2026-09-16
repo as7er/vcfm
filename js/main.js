@@ -57,8 +57,8 @@ import {
   habitLabel,
   startHabitTraining,
 } from "./player-habits.js";
-import { nationFlagHtml } from "./flags.js?v=256";
-import { clubCrestHtml } from "./club-crest.js?v=256";
+import { nationFlagHtml } from "./flags.js?v=258";
+import { clubCrestHtml } from "./club-crest.js?v=258";
 import { applyWorldClubBranding, localizedClubName } from "./branding.js";
 import { recordFinanceEntry } from "./finance-ledger.js";
 import { renderFinance as renderFinanceView } from "./ui/finance.js";
@@ -323,7 +323,7 @@ import {
   selectPlannedSaleCandidate,
   squadPlayerPlan,
   squadPositionPlan,
-} from "./squad-planning.js?v=256";
+} from "./squad-planning.js?v=258";
 import {
   TRAINING_MODES,
   ensureTrainingBoost,
@@ -390,7 +390,7 @@ import {
   staffAvatarHtml,
   avatarHtml,
   hydrateAvatarKitRecolor,
-} from "./avatar.js?v=256";
+} from "./avatar.js?v=258";
 import { attributeArchetypeLabel } from "./player-attributes.js";
 import {
   MANAGER_ONBOARDING_TAB_STEPS,
@@ -490,7 +490,7 @@ let matchViewModulePromise = null;
 
 function loadMatchViewModule() {
   if (!matchViewModulePromise) {
-    matchViewModulePromise = import("./matchview.js?v=256").then((module) => {
+    matchViewModulePromise = import("./matchview.js?v=258").then((module) => {
       matchViewApi = module;
       return module;
     });
@@ -9776,9 +9776,22 @@ function renderPrematchBriefHtml(brief, opts = {}) {
   const me = brief.me || {};
   const opp = brief.opp || {};
   const wx = brief.weather;
-  const formPill = (str, tone) => {
-    const s = str && str !== "—" ? str : en ? "n/a" : "暂无";
-    return `<span class="form-pill tone-${tone || "neutral"}">${escapeHtml(s)}</span>`;
+  // 最近五场：5 个独立方块（W 绿 / D 灰 / L 红），而不是把 "WWDLW" 一坨塞进一个 pill。
+  // 不足 5 场用 · 占位，无数据时整组显示「暂无」。
+  const formBlocks = (form) => {
+    const arr = Array.isArray(form) ? form.slice(-5) : [];
+    if (!arr.length) {
+      return `<span class="form-strip"><span class="form-cell empty">${en ? "n/a" : "暂无"}</span></span>`;
+    }
+    const cells = [];
+    for (let i = 0; i < 5; i++) {
+      const r = arr[i];
+      if (!r) cells.push(`<span class="form-cell none" title="—">·</span>`);
+      else if (r === "W") cells.push(`<span class="form-cell win" title="${en ? "Win" : "胜"}">W</span>`);
+      else if (r === "L") cells.push(`<span class="form-cell loss" title="${en ? "Loss" : "负"}">L</span>`);
+      else cells.push(`<span class="form-cell draw" title="${en ? "Draw" : "平"}">D</span>`);
+    }
+    return `<span class="form-strip">${cells.join("")}</span>`;
   };
   const chips = [];
   if (wx) chips.push(`<span class="brief-chip weather">${escapeHtml(wx.icon + " " + wx.name)}</span>`);
@@ -9881,9 +9894,9 @@ function renderPrematchBriefHtml(brief, opts = {}) {
   const formRow =
     !compact
       ? `<div class="brief-form-row">
-          <span>${escapeHtml(me.short || me.name || "")} ${formPill(me.formStr, me.formTone)}</span>
-          <span class="muted">vs</span>
-          <span>${escapeHtml(opp.short || opp.name || "")} ${formPill(opp.formStr, opp.formTone)}</span>
+          <span class="brief-form-team">${escapeHtml(me.short || me.name || "")}</span>${formBlocks(me.form)}
+          <span class="muted brief-form-vs">${en ? "vs" : "对"}</span>
+          <span class="brief-form-team">${escapeHtml(opp.short || opp.name || "")}</span>${formBlocks(opp.form)}
         </div>`
       : "";
 

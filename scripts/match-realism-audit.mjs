@@ -59,16 +59,40 @@ const separationPasses = simulationProfile === "background" ? 4 : 8;
 //   · 收缩 SHOOT_ZONE：禁区外占比压到 22.9%，跌破护栏下沿 25。
 //   · 缩短全队冷却到 180~270 秒：射门反而升到 34.13，转化率掉到 8.2%（破护栏）。
 // 两者都保持原值。刷新后标准档 24 场九项护栏全绿。
+// ⚠ 2026-09-15 有意刷新（第二次）：中卫线前压加尾部加权（`SIM.CB_BLOCK_TAIL_*`，
+// 见 docs/cb-block-tail-2026-09-15.md）。这是**引擎的有意改动**，所以按本文件的
+// 设计把标准档快照重新钉到新引擎的读数上；不是因为某项变红就把它改绿。
+//
+// 刷新前后（标准档 24 场，同种子）：
+//     指标                    旧值      新值(tail 1.5)   容差
+//     goals                   2.71      2.54            ±0.55
+//     shots                  26.25     26.46            ±3
+//     passes               1032.04   1063.08            ±100
+//     passCompletionPct       81.4      81.1            ±2
+//     fouls                  26.42     24.63            ±6
+//     openGoalShots           0.33      0.67            ±0.65
+//     goalkeeperClaims       14.21     13.75            ±4
+//     goalkeeperChallenges    7.83      7.08            ±3
+//     strongPointsPerMatch    1.75     见下             ±0.5
+//
+// ⚠ `strongPointsPerMatch` 不能钉在标准档自己的读数上：**一份冻结参考同时服务两档**
+// （见 :404-406 的注释），而两档在这个指标上天然相差 0.54——
+// 标准档 24 场读 **2.29**、后台档读 **1.75**，而容差是 ±0.5。
+// 于是不存在任何一个值能同时贴住两档（旧值 1.75 被标准档顶破 +0.54，
+// 钉 2.29 又被后台档顶破 −0.54）。取两档中点 **2.02**：标准档 +0.27、后台档 −0.27，
+// 两侧都在**未改动**的容差内。
+// 代价：标准档这一项的「快照自查应接近 0」性质对这个指标不成立（偏 +0.27），
+// 这是「一参考两档」的结构决定的，不是本次改动引入的。
 const STANDARD_PROFILE_REFERENCE_24 = Object.freeze({
-  goals: 2.71,
-  shots: 26.25,
-  passes: 1032.04,
-  passCompletionPct: 81.4,
-  fouls: 26.42,
-  openGoalShots: 0.33,
-  goalkeeperClaims: 14.21,
-  goalkeeperChallenges: 7.83,
-  strongPointsPerMatch: 1.75,
+  goals: 2.54,
+  shots: 26.46,
+  passes: 1063.08,
+  passCompletionPct: 81.1,
+  fouls: 24.63,
+  openGoalShots: 0.67,
+  goalkeeperClaims: 13.75,
+  goalkeeperChallenges: 7.08,
+  strongPointsPerMatch: 2.02,
 });
 
 function seededRandom(seed) {
