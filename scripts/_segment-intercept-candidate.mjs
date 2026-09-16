@@ -1,6 +1,38 @@
 // Diagnostic candidate: make the in-flight interception test geometric over the
 // ball's swept path instead of a point sample at the end of the step.
 //
+// ⛔ REJECTED — 2026-09-16. Do NOT merge. Kept only as a documented dead end.
+//
+// Ran as Experiment 2 (docs/through-pass-profile-fidelity-2026-09-16.md §8).
+// Result: it did flatten the interception-count disagreement between profiles
+// (background 13.0% -> 4.8%, standard 2.2% -> 10.4%), so point sampling IS one
+// real source of profile divergence. But it is NOT the cause of the completion-rate
+// gap, and it breaks the standard profile's frozen calibration:
+//
+//   node --import ./scripts/_segment-intercept-candidate.mjs \
+//     scripts/match-realism-audit.mjs 24 standard
+//     -> goals 2.00 (reference 2.54, floor 2.5), conversion 7.4% (floor 9%)
+//     -> AssertionError: goals per match left the calibration envelope
+//
+// Why, mechanically: a segment test strictly enlarges the set of defenders that
+// satisfy it (distance to a whole swept segment <= distance to any single point
+// on it), so interceptions can only go UP. More interceptions => attacks broken
+// up earlier => fewer goals and lower conversion.
+//
+// Why the original reasoning missed it: it only considered that the coarse
+// background step *undersamples* (missing defenders). It did not account for
+//   (a) `_teamInterceptUntil` being armed inside `if (d < radius)` — i.e. BEFORE
+//       the probability roll — so merely being in range costs a 75-105s team-wide
+//       lock, making each coarse step far more expensive than a fine one; and
+//   (b) that the standard profile shares this code path and its 24-match snapshot
+//       is a frozen reference.
+//
+// If this idea is ever revisited, the test must be made step-size-independent
+// WITHOUT changing how often it fires (e.g. a swept minimum distance sampled at a
+// fixed density), and the standard reference must be recalibrated as a whole.
+//
+// Original rationale (retained for context):
+//
 // The production test in `_resolvePossession` is
 //
 //     const d = pitchDistanceBetween(o.x, o.y, b.x, b.y);
