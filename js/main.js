@@ -2486,15 +2486,15 @@ function nationDetailHtml(code, competitionId = null, meta = null, record = null
     : `${record.played} 场 · ${record.w}胜 ${record.d}平 ${record.l}负 · 净胜 ${record.gd}`;
   return `
     <div class="row-between" style="flex-wrap:wrap;gap:0.35rem;margin-bottom:0.45rem">
-      <strong style="font-size:1rem">${nationFlagHtml(code)}${escapeHtml(nationName(code, getLang()))}</strong>
-      <span class="muted" style="font-size:0.85rem">${escapeHtml(
+      <strong style="font-size:var(--fs-lg)">${nationFlagHtml(code)}${escapeHtml(nationName(code, getLang()))}</strong>
+      <span class="muted" style="font-size:var(--fs-base)">${escapeHtml(
         en
           ? `Pool ${meta?.pool ?? "—"} · XI OVR ${meta?.strength ?? "—"}`
           : `人才池 ${meta?.pool ?? "—"} · 首发均能 ${meta?.strength ?? "—"}`
       )}</span>
     </div>
-    <p class="muted" style="margin:0 0 0.5rem;font-size:0.85rem">${escapeHtml(recText)}</p>
-    <h3 style="margin:0 0 0.35rem;font-size:0.9rem">${escapeHtml(t("intl.squad"))}</h3>
+    <p class="muted" style="margin:0 0 0.5rem;font-size:var(--fs-base)">${escapeHtml(recText)}</p>
+    <h3 style="margin:0 0 0.35rem;font-size:var(--fs-base)">${escapeHtml(t("intl.squad"))}</h3>
     <div class="table-wrap" style="max-height:22rem;overflow:auto">
       <table>
         <thead>
@@ -2555,7 +2555,7 @@ function nationDetailHtml(code, competitionId = null, meta = null, record = null
         </tbody>
       </table>
     </div>
-    <p class="hint" style="margin:0.4rem 0 0;font-size:0.8rem">${escapeHtml(
+    <p class="hint" style="margin:0.4rem 0 0;font-size:var(--fs-sm)">${escapeHtml(
       en ? "★ last match XI · (n) this competition" : "★ 最近一场首发 · (n) 为本赛事数据"
     )}</p>`;
 }
@@ -2790,7 +2790,7 @@ function renderClubCompetitions() {
             ? `${fixture.homeGoals ?? 0} - ${fixture.awayGoals ?? 0}`
             : "—";
           return `<tr class="${fixture.home === world.userClubId || fixture.away === world.userClubId ? "me" : ""}">
-            <td>D${fixture.day ?? "—"}<div class="muted" style="font-size:0.75rem">${escapeHtml(continentalRoundLabel(fixture))}</div></td>
+            <td>D${fixture.day ?? "—"}<div class="muted" style="font-size:var(--fs-xs)">${escapeHtml(continentalRoundLabel(fixture))}</div></td>
             <td>${clubLinkHtml(fixture.home)}</td>
             <td><strong>${score}</strong></td>
             <td>${clubLinkHtml(fixture.away)}</td>
@@ -2911,7 +2911,7 @@ function renderCompetitions() {
     for (const g of competition.groups) {
       const rows = internationalTable(competition, g.teams);
       tablesHtml += `<div class="card" style="padding:0.6rem;margin:0">
-        <strong style="font-size:0.85rem">${escapeHtml(t("intl.group", { id: g.id }))}</strong>
+        <strong style="font-size:var(--fs-base)">${escapeHtml(t("intl.group", { id: g.id }))}</strong>
         <div class="table-wrap" style="margin-top:0.35rem">
           <table>
             <thead><tr>
@@ -2940,7 +2940,7 @@ function renderCompetitions() {
     tablesEl.style.display = "block";
     const rows = internationalTable(competition);
     tablesHtml = `<div class="card" style="padding:0.6rem;margin:0">
-      <strong style="font-size:0.85rem">${escapeHtml(t("intl.series"))}</strong>
+      <strong style="font-size:var(--fs-base)">${escapeHtml(t("intl.series"))}</strong>
       <div class="table-wrap" style="margin-top:0.35rem;max-height:22rem;overflow:auto">
         <table>
           <thead><tr>
@@ -2978,11 +2978,11 @@ function renderCompetitions() {
               : "—";
           const round = en ? m.roundLabelEn || m.roundLabel : m.roundLabel;
           return `<tr>
-            <td>D${m.day ?? "—"}<div class="muted" style="font-size:0.75rem">${escapeHtml(round || "")}</div></td>
+            <td>D${m.day ?? "—"}<div class="muted" style="font-size:var(--fs-xs)">${escapeHtml(round || "")}</div></td>
             <td>${nationCellHtml(m.home)}</td>
             <td><strong>${score}</strong>${
               m.penalties
-                ? `<div class="muted" style="font-size:0.75rem">(${m.penalties.home}-${m.penalties.away} pen)</div>`
+                ? `<div class="muted" style="font-size:var(--fs-xs)">(${m.penalties.home}-${m.penalties.away} pen)</div>`
                 : ""
             }</td>
             <td>${nationCellHtml(m.away)}</td>
@@ -3796,7 +3796,7 @@ function renderStaff() {
     }
     if (pending.length) {
       approachBox.classList.remove("hidden");
-      approachBox.innerHTML = `<h3 style="margin:0 0 0.45rem;font-size:0.95rem">${en ? "Incoming approaches" : "收到的接触"}</h3>
+      approachBox.innerHTML = `<h3 style="margin:0 0 0.45rem;font-size:var(--fs-md)">${en ? "Incoming approaches" : "收到的接触"}</h3>
         ${pending
           .map((a) => {
             const roleLabel = en ? roleCopy[a.role]?.[0] || a.role : ROLES[a.role]?.label || a.role;
@@ -4566,7 +4566,7 @@ function renderDashboard() {
       : en ? `Round ${next.round}` : `第 ${next.round} 轮`;
     box.innerHTML = `
       <div><strong>${roundLabel}</strong> · ${en ? `Day ${next.day}` : `第 ${next.day} 天`} · ${next.home === club.id ? (en ? "Home" : "主场") : (en ? "Away" : "客场")}</div>
-      <div style="margin-top:0.4rem;font-size:1.25rem">
+      <div style="margin-top:0.4rem;font-size:var(--fs-3xl)">
         ${clubLinkHtml(home.id, clubDisplayName(home))} <span class="muted">vs</span> ${clubLinkHtml(away.id, clubDisplayName(away))}
       </div>
       <div class="muted" style="margin-top:0.35rem">
@@ -5419,7 +5419,7 @@ function showPlayerModal(playerId, context = {}) {
     ${!fromOther && !isYouth ? renderPlayerTalkPanel(player) : ""}
     ${!isYouth ? renderPlayerContractActions(player, fromOther) : ""}
 
-    <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem">${en ? "This season (club)" : "本赛季（俱乐部）"}</h3>
+    <h3 style="margin:1rem 0 0.4rem;font-size:var(--fs-md)">${en ? "This season (club)" : "本赛季（俱乐部）"}</h3>
     <p class="muted" style="margin:0">${en ? "Apps" : "出场"} ${season.apps}
       ${
         isGk
@@ -5444,9 +5444,9 @@ function showPlayerModal(playerId, context = {}) {
       }
     </p>
 
-    ${!fromOther ? `<h3 style="margin:1rem 0 0.4rem;font-size:0.95rem">${en ? "Development record" : "成长记录"}</h3>${renderPlayerDevelopmentPanel(player)}` : ""}
+    ${!fromOther ? `<h3 style="margin:1rem 0 0.4rem;font-size:var(--fs-md)">${en ? "Development record" : "成长记录"}</h3>${renderPlayerDevelopmentPanel(player)}` : ""}
 
-    <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem">${en ? "Career total (club)" : "生涯总计（俱乐部）"}</h3>
+    <h3 style="margin:1rem 0 0.4rem;font-size:var(--fs-md)">${en ? "Career total (club)" : "生涯总计（俱乐部）"}</h3>
     <p class="muted" style="margin:0">${en ? "Apps" : "出场"} ${career.apps}
       ${
         isGk
@@ -5456,7 +5456,7 @@ function showPlayerModal(playerId, context = {}) {
       <span style="opacity:0.7">${en ? "(including this season)" : "（含本赛季）"}</span>
     </p>
 
-    <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem">${en ? "National team" : "国家队"}</h3>
+    <h3 style="margin:1rem 0 0.4rem;font-size:var(--fs-md)">${en ? "National team" : "国家队"}</h3>
     <p class="muted" style="margin:0">
       ${nationLabel(player)} · ${en ? "Caps" : "出场（Caps）"} <strong>${intl.caps || 0}</strong>
       ${
@@ -5467,12 +5467,12 @@ function showPlayerModal(playerId, context = {}) {
     </p>
     <p class="hint" style="margin:0.25rem 0 0">${en ? "International breaks occur about every 30 days; selected players accumulate international stats." : "约每 30 天国际比赛日，优秀球员可能入选并累积数据"}</p>
 
-    <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem">${en ? "Honours" : "个人荣誉"}</h3>
+    <h3 style="margin:1rem 0 0.4rem;font-size:var(--fs-md)">${en ? "Honours" : "个人荣誉"}</h3>
     ${honorHtml}
 
-    <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem">${en ? "Season history" : "分赛季历史"}</h3>
+    <h3 style="margin:1rem 0 0.4rem;font-size:var(--fs-md)">${en ? "Season history" : "分赛季历史"}</h3>
     <div class="table-wrap">
-      <table style="font-size:0.85rem">
+      <table style="font-size:var(--fs-base)">
         <thead><tr>${histHead}</tr></thead>
         <tbody>
           ${
@@ -5485,7 +5485,7 @@ function showPlayerModal(playerId, context = {}) {
     </div>
     <p class="hint" style="margin-top:0.35rem">${en ? "* current season (not archived yet)" : "* 表示当前赛季（尚未归档）"}</p>
 
-    <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem">${isOther ? (getLang() === "en" ? "Attributes (scout)" : "属性（球探可见）") : getLang() === "en" ? "Attributes" : "属性"}</h3>
+    <h3 style="margin:1rem 0 0.4rem;font-size:var(--fs-md)">${isOther ? (getLang() === "en" ? "Attributes (scout)" : "属性（球探可见）") : getLang() === "en" ? "Attributes" : "属性"}</h3>
     <div class="attrs${isOther ? " attrs-fogged" : ""}">
       ${fogRows
         .map((r) => {
@@ -5763,7 +5763,7 @@ function renderPlayerTalkPanel(player) {
   const cd = player.talkCooldown || 0;
   const cooling = cd > (world.day || 0);
   return `<div class="player-talk-panel">
-    <h3 style="margin:0.85rem 0 0.35rem;font-size:0.95rem">${en ? "Manager talk" : "主帅约谈"}</h3>
+    <h3 style="margin:0.85rem 0 0.35rem;font-size:var(--fs-md)">${en ? "Manager talk" : "主帅约谈"}</h3>
     <p class="muted" style="margin:0 0 0.4rem">${en ? "Relation: " : "关系："}
       <strong class="rel-${relationTone(player.relation)}">${escapeHtml(relationLabel(player.relation, en ? "en" : "zh"))}</strong>
       ${cooling ? ` · ${en ? "Cooldown until D" : "冷却至第"}${cd}${en ? "" : " 天"}` : ""}
@@ -7513,14 +7513,14 @@ function showClubModal(clubId) {
           · ${escapeHtml(t("tac.outOfPossessionFormation"))} ${escapeHtml(outOfPossessionFormation)}
           · ${escapeHtml(styleLabel)}
         </p>
-        <div style="margin-top:0.4rem">${formatFormHtml(club.form)} <span class="muted" style="font-size:0.8rem">${escapeHtml(t("clubs.formHint"))}</span></div>
+        <div style="margin-top:0.4rem">${formatFormHtml(club.form)} <span class="muted" style="font-size:var(--fs-sm)">${escapeHtml(t("clubs.formHint"))}</span></div>
       </div>
     </div>
 
     <section class="club-staff-section">
       <div class="row-between" style="align-items:baseline;gap:0.5rem;flex-wrap:wrap">
-        <h3 style="margin:0;font-size:0.95rem">${escapeHtml(t("clubs.staff"))}</h3>
-        <span class="muted" style="font-size:0.8rem">${escapeHtml(me ? t("clubs.staffHintOwn") : t("clubs.staffHintOther"))}</span>
+        <h3 style="margin:0;font-size:var(--fs-md)">${escapeHtml(t("clubs.staff"))}</h3>
+        <span class="muted" style="font-size:var(--fs-sm)">${escapeHtml(me ? t("clubs.staffHintOwn") : t("clubs.staffHintOther"))}</span>
       </div>
       <div class="club-staff-grid">
         ${staffCardsHtml || `<p class="muted" style="margin:0">${escapeHtml(t("clubs.noStaff"))}</p>`}
@@ -7529,7 +7529,7 @@ function showClubModal(clubId) {
 
     <div class="club-modal-grid">
       <div>
-        <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem">${escapeHtml(t("clubs.squad"))}</h3>
+        <h3 style="margin:1rem 0 0.4rem;font-size:var(--fs-md)">${escapeHtml(t("clubs.squad"))}</h3>
         <p class="hint" style="margin:0 0 0.4rem">${escapeHtml(t("clubs.squadHint", { n: (club.players || []).length }))}</p>
         <div class="table-wrap">
           <table class="compact-table">
@@ -7551,7 +7551,7 @@ function showClubModal(clubId) {
         </div>
       </div>
       <div>
-        <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem">${escapeHtml(t("clubs.upcoming"))}</h3>
+        <h3 style="margin:1rem 0 0.4rem;font-size:var(--fs-md)">${escapeHtml(t("clubs.upcoming"))}</h3>
         <div class="table-wrap">
           <table class="compact-table">
             <thead><tr><th>D</th><th>${escapeHtml(t("th.home"))}</th><th></th><th>${escapeHtml(t("th.away"))}</th><th></th></tr></thead>
@@ -7564,7 +7564,7 @@ function showClubModal(clubId) {
             </tbody>
           </table>
         </div>
-        <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem">${escapeHtml(t("clubs.recent"))}</h3>
+        <h3 style="margin:1rem 0 0.4rem;font-size:var(--fs-md)">${escapeHtml(t("clubs.recent"))}</h3>
         <div class="table-wrap">
           <table class="compact-table">
             <thead><tr><th>D</th><th>${escapeHtml(t("th.home"))}</th><th></th><th>${escapeHtml(t("th.away"))}</th><th></th></tr></thead>
@@ -7577,7 +7577,7 @@ function showClubModal(clubId) {
             </tbody>
           </table>
         </div>
-        <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem">${escapeHtml(t("clubs.honors"))}</h3>
+        <h3 style="margin:1rem 0 0.4rem;font-size:var(--fs-md)">${escapeHtml(t("clubs.honors"))}</h3>
         ${honorHtml}
       </div>
     </div>
@@ -12052,13 +12052,13 @@ function renderCareer() {
                   : "空缺职位";
           return `<article class="job-offer-card">
             <div>
-              <div class="muted" style="font-size:0.78rem">${escapeHtml(kindLabel)}</div>
+              <div class="muted" style="font-size:var(--fs-xs)">${escapeHtml(kindLabel)}</div>
               <strong>${escapeHtml(o.clubName)}</strong>
               <div class="muted">${escapeHtml(o.divName || "")} · ${en ? "Power" : "实力"} ${o.power ?? "—"} · ${en ? "Wage" : "周薪"} ${formatMoney(o.wage)}${
                 o.repTier ? ` · ${en ? "Your rep" : "名望档"} ${escapeHtml(o.repTier)}` : ""
               }</div>
               <div class="hint" style="margin:0.25rem 0 0">${escapeHtml(o.note || "")}</div>
-              <div class="muted" style="font-size:0.78rem">D${o.day} → D${o.expiresDay}</div>
+              <div class="muted" style="font-size:var(--fs-xs)">D${o.day} → D${o.expiresDay}</div>
             </div>
             <div class="staff-card-actions">
               <button type="button" class="btn small primary" data-job-accept="${escapeHtml(o.id)}">${en ? "Accept" : "接受"}</button>
@@ -12127,7 +12127,7 @@ function renderCareer() {
                  <button type="button" class="btn small" id="btn-job-advance">${en ? "Advance 1 day" : "推进 1 天"}</button>`
           }
         </div>
-        <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem">${en ? "Trophy cabinet" : "荣誉柜"}</h3>
+        <h3 style="margin:1rem 0 0.4rem;font-size:var(--fs-md)">${en ? "Trophy cabinet" : "荣誉柜"}</h3>
         <div class="honor-list">${trophies || `<p class="muted">${en ? "No trophies yet" : "暂无奖杯"}</p>`}</div>
       </div>
       <div class="card">
@@ -12138,7 +12138,7 @@ function renderCareer() {
             : "解雇或请辞后可接受新东家；在职且战绩出色时也可能收到更高水平俱乐部邀请。"
         }</p>
         ${offerHtml}
-        <h3 style="margin:1.1rem 0 0.4rem;font-size:0.95rem">${en ? "Club honours" : "俱乐部荣誉墙"}</h3>
+        <h3 style="margin:1.1rem 0 0.4rem;font-size:var(--fs-md)">${en ? "Club honours" : "俱乐部荣誉墙"}</h3>
         <div class="honor-list">${
           unemployed
             ? `<p class="muted">${en ? "Not attached to a club" : "当前无执教俱乐部"}</p>`
@@ -12223,7 +12223,7 @@ function maybeShowSeasonSummary() {
     <div class="season-summary-card">
       <h2>🏆 ${s.season} ${getLang() === "en" ? "Season review" : "赛季结算"}</h2>
       <p class="muted">${escapeHtml(s.clubName)} · ${escapeHtml(s.divName)}</p>
-      <p style="font-size:1.35rem;margin:0.5rem 0"><strong>#${s.pos}</strong> · ${s.pts} pts · ${s.w}W ${s.d}D ${s.l}L · ${s.gf}:${s.ga}</p>
+      <p style="font-size:var(--fs-4xl);margin:0.5rem 0"><strong>#${s.pos}</strong> · ${s.pts} pts · ${s.w}W ${s.d}D ${s.l}L · ${s.gf}:${s.ga}</p>
       ${trop ? `<ul class="season-trop-list">${trop}</ul>` : `<p class="muted">${getLang() === "en" ? "No new silverware" : "本季无新奖杯"}</p>`}
       <p class="muted" style="margin-top:0.75rem">${getLang() === "en" ? "Career: " : "生涯："}${s.career?.seasons || 0} seasons · ${s.career?.titles || 0} titles · ${s.career?.promotions || 0} promos</p>
       <button type="button" class="btn primary" id="btn-close-season-summary">${getLang() === "en" ? "Continue" : "继续"}</button>

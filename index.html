@@ -11,7 +11,7 @@
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icons/icon.svg" />
   <title>VCFM</title>
-  <link rel="stylesheet" href="css/style.css?v=259" />
+  <link rel="stylesheet" href="css/style.css?v=260" />
   <script>
     /* 尽早应用主题/语言，避免闪白 */
     (function () {
@@ -91,8 +91,8 @@
 
           <div class="slot-section">
             <div class="row-between" style="margin-bottom:0.4rem">
-              <strong style="font-size:0.9rem" data-i18n="start.slots">存档槽</strong>
-              <span class="muted" id="active-slot-label" style="font-size:0.8rem"></span>
+              <strong style="font-size:var(--fs-base)" data-i18n="start.slots">存档槽</strong>
+              <span class="muted" id="active-slot-label" style="font-size:var(--fs-sm)"></span>
             </div>
             <div id="save-slots" class="save-slots"></div>
             <p class="hint save-tip" data-i18n-html="start.saveTipHtml">换手机/浏览器请先<strong>导出存档</strong>；清缓存会丢进度。</p>
@@ -492,7 +492,7 @@
           <div class="grid-2">
             <div class="card">
               <h2 data-i18n="youth.title">青训学院</h2>
-              <div id="youth-info" class="rank-box" style="font-size:1rem;line-height:1.6"></div>
+              <div id="youth-info" class="rank-box" style="font-size:var(--fs-lg);line-height:1.6"></div>
               <div style="margin-top:0.85rem;display:flex;gap:0.5rem;flex-wrap:wrap">
                 <button id="btn-youth-upgrade" class="btn primary" data-i18n="youth.upgrade">升级设施</button>
               </div>
@@ -780,7 +780,7 @@
                   <tbody></tbody>
                 </table>
               </div>
-              <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem" data-i18n="clubIntl.recent">赛程与赛果</h3>
+              <h3 style="margin:1rem 0 0.4rem;font-size:var(--fs-md)" data-i18n="clubIntl.recent">赛程与赛果</h3>
               <div class="table-wrap">
                 <table id="club-competition-matches">
                   <thead>
@@ -866,7 +866,7 @@
             </p>
             <div id="intl-summary" class="intl-summary muted" style="margin-bottom:0.75rem"></div>
             <div id="intl-tables" class="intl-tables" style="display:grid;gap:0.75rem"></div>
-            <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem" data-i18n="intl.recent">近期国家队比赛</h3>
+            <h3 style="margin:1rem 0 0.4rem;font-size:var(--fs-md)" data-i18n="intl.recent">近期国家队比赛</h3>
             <div class="table-wrap">
               <table id="intl-matches">
                 <thead>
@@ -900,14 +900,14 @@
                 <div id="intl-keepers" class="muted"></div>
               </section>
             </div>
-            <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem" data-i18n="intl.history">历届冠军</h3>
+            <h3 style="margin:1rem 0 0.4rem;font-size:var(--fs-md)" data-i18n="intl.history">历届冠军</h3>
             <div id="intl-history" class="muted"></div>
           </div>
 
           <div class="card" style="margin-top:0.75rem">
             <div class="row-between" style="flex-wrap:wrap;gap:0.5rem;align-items:center">
-              <h2 style="margin:0;font-size:1.05rem" data-i18n="intl.nations">国家队一览</h2>
-              <span id="intl-nations-count" class="muted" style="font-size:0.85rem"></span>
+              <h2 style="margin:0;font-size:var(--fs-xl)" data-i18n="intl.nations">国家队一览</h2>
+              <span id="intl-nations-count" class="muted" style="font-size:var(--fs-base)"></span>
             </div>
             <p class="hint" style="margin:0.4rem 0 0.6rem" data-i18n="intl.nationsHint">
               按现役球员池组成国家队。点击一行查看 23 人大名单与国际数据。
@@ -1096,7 +1096,7 @@
             <div class="card span-2">
               <h2 data-i18n="tr.poach">来自其他俱乐部的报价</h2>
               <div id="poach-bids" class="poach-bids">—</div>
-              <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem" data-i18n="transfer.scoutMission">球探任务</h3>
+              <h3 style="margin:1rem 0 0.4rem;font-size:var(--fs-md)" data-i18n="transfer.scoutMission">球探任务</h3>
               <div class="filters scout-mission-filters" style="margin-bottom:0.5rem">
                 <select id="scout-mission-pos" aria-label="球探位置">
                   <option value="" data-i18n="tr.allPos">全部位置</option>
@@ -1123,8 +1123,8 @@
                 <button type="button" class="btn small" data-scout-mission="intl" data-i18n="scout.scopeTop">顶级联赛 · €40K</button>
               </div>
               <p class="hint" id="scout-mission-status" style="margin:0 0 0.65rem">—</p>
-              <h3 style="margin:1rem 0 0.4rem;font-size:0.95rem" data-i18n="transfer.scoutWatch">球探关注</h3>
-              <label class="row-between" style="margin-bottom:0.35rem;font-size:0.85rem">
+              <h3 style="margin:1rem 0 0.4rem;font-size:var(--fs-md)" data-i18n="transfer.scoutWatch">球探关注</h3>
+              <label class="row-between" style="margin-bottom:0.35rem;font-size:var(--fs-base)">
                 <span data-i18n="transfer.watchOnly">仅显示关注</span>
                 <input type="checkbox" id="filter-watch-only" />
               </label>
@@ -1507,12 +1507,12 @@
       });
     })();
   </script>
-  <script type="module" src="js/main.js?v=259"></script>
+  <script type="module" src="js/main.js?v=260"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {
         // 清理历史版本缓存，范围与 sw.js 保持一致。
-        var CURRENT_CACHE = "vcfm-v259";
+        var CURRENT_CACHE = "vcfm-v260";
         if (window.caches && caches.keys) {
           caches.keys().then(function (keys) {
             return Promise.all(
@@ -1523,7 +1523,7 @@
           }).catch(function () {});
         }
         // 本地开发：若 SW 异常可导致旧坏缓存；注册失败不阻断游戏
-        navigator.serviceWorker.register("./sw.js?v=259").then(function (reg) {
+        navigator.serviceWorker.register("./sw.js?v=260").then(function (reg) {
           try { reg.update(); } catch (e) {}
           if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
         }).catch(function () {});
@@ -1532,8 +1532,8 @@
           if (refreshing) return;
           refreshing = true;
           try {
-            if (!sessionStorage.getItem("vcfm-sw-reloaded-v259")) {
-              sessionStorage.setItem("vcfm-sw-reloaded-v259", "1");
+            if (!sessionStorage.getItem("vcfm-sw-reloaded-v260")) {
+              sessionStorage.setItem("vcfm-sw-reloaded-v260", "1");
               location.reload();
             }
           } catch (e) {
