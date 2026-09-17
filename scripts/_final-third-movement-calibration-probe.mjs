@@ -145,6 +145,30 @@ const GATE = {
   boxSecondsCeiling: 1200,
 };
 
+// ⚠ 2026-09-17：上面的 `GATE.goals = [2.5, 3.3]` 是 **`match-realism-audit` 口径**
+//   （能力 13、含强弱对阵、24 场）的真实带。**本探针是另一个口径**
+//   （能力 15、同强度、`SIM.DT` 0.1s），两者不可互相判定。
+//
+//   实测（同种子、同一探针文件、`git worktree` 各引擎实跑，见
+//   `docs/measurements/` 与 `docs/offball-run-primitive-design-2026-09-17.md` §6.7）：
+//       v251 524589d  12 场 2.50
+//       v252 468816e  48 场 2.35
+//       今日 3f10fd5  48 场 2.38
+//       （同批四组 12 场读数 2.50 / 2.50 / 3.50 / 2.25 —— 12 场下 SE ≈ ±0.35）
+//   ⇒ **本口径下没有任何历史版本进过 2.5**。若继续拿 2.5 当门，
+//     等于给「跑动原语」预设一个历史版本从未满足的门槛，**任何档位都会被判失败**。
+//
+//   ⇒ 因此本探针分两条判据（都打印，不互相替代）：
+//     ① `PROBE_BAND.goals` —— 本口径的历史值域，**只标注不判死**：
+//        落在带内 = 与前三个版本同量级；越出 = 需要解释（真回归 或 真增益）。
+//     ② `GATE.goals` —— 审计口径的真实带，**本探针不能自证**，
+//        必须另跑 `node scripts/match-realism-audit.mjs 24` 才能判。
+const PROBE_BAND = {
+  // v251/v252/今日 三点：2.50 / 2.35 / 2.38 ⇒ 取 [2.2, 2.7]，
+  // 下沿留 0.15 给抽样（12 场 SE ≈ 0.35 的一半），上沿留 0.2 到 2.50 + 余量。
+  goals: [2.2, 2.7],
+};
+
 const ORIG = {
   think: SimEngine.prototype._thinkAttackOffBall,
   clamp: SimEngine.prototype._clampOffside,
@@ -501,7 +525,8 @@ for (const level of LEVELS) {
   console.log(`  [比分] ${level.label}: ${r.scores.join(" ")}`);
   const inBand = r.越位 >= REAL.offsideBand[0] && r.越位 <= REAL.offsideBand[1];
   const warn = [];
-  if (r.进球 < GATE.goals[0] || r.进球 > GATE.goals[1]) warn.push("进球");
+  // ① 本口径历史值域（软标注：越出要解释，不直接判死）
+  if (r.进球 < PROBE_BAND.goals[0] || r.进球 > PROBE_BAND.goals[1]) warn.push("进球越本口径值域");
   if (r.传球 < GATE.passes[0] || r.传球 > GATE.passes[1]) warn.push("传球量");
   if (r.传中占比 < GATE.crossSharePct[0] || r.传中占比 > GATE.crossSharePct[1]) warn.push("传中占比");
   if (r.boxSeconds > GATE.boxSecondsCeiling) warn.push("boxSeconds");
@@ -558,13 +583,14 @@ for (const r of rows) {
   );
 }
 
-console.log("\n[3] 真实参照与护栏：");
+console.log("\n[3] 真实参照与护栏（⚠ 注意口径！）：");
 console.log({
   "越位 目标/带（每队每场）": `${REAL.offsideTarget}（${REAL.offsideBand.join("~")}）`,
   "射门 真实/队场": REAL.shots.join("~"),
   "禁区触球 真实/队场": `${REAL.boxTouches}（20~30）`,
   "直塞 真实/场（双方合计尝试）": REAL.through,
-  "护栏 进球/场": GATE.goals.join("~"),
+  "进球 本探针口径值域（软标注）": `${PROBE_BAND.goals.join("~")} ← v251 2.50 / v252 2.35 / 今日 2.38`,
+  "进球 审计口径真实带（本探针不能自证）": `${GATE.goals.join("~")} ← 须另跑 match-realism-audit.mjs 24`,
   "护栏 传球/场": GATE.passes.join("~"),
   "护栏 传中占比": `${GATE.crossSharePct.join("~")}%`,
   "护栏 boxSeconds/场": `≤${GATE.boxSecondsCeiling}（基线 1092.12）`,
@@ -576,8 +602,12 @@ console.log(
     "· 验收主指标 = [2c] 的目标纵深分布（领先≥5m 占比 / 领先中位 / 越过线占比 / 距防线中位）；",
     "  近静止% 只作次要参考——它对跑位杠杆几乎不响应（releasePass+wingRotate 只动 2pp），",
     "  且「到位即停」本身正常，病在「位」没有纵深。",
-    "· 想看到的方向：boxSeconds / 禁区触球下降、直塞上升、[2c] 纵深三列上移，而进球留在 2.5~3.3。",
-    "· 只要某档把进球顶出 3.3 或压到 2.5 以下，就重演了留档五/留档二那两种失败，别硬上。",
+    "· 想看到的方向：boxSeconds / 禁区触球下降、直塞上升、[2c] 纵深三列上移，而进球留在本口径值域内。",
+    `· ⚠ 进球判据有两条口径，别混用：本探针口径值域 ${PROBE_BAND.goals.join("~")}（历史三点 2.50/2.35/2.38，`,
+    `  史无版本进过 2.5）；审计口径真实带 ${GATE.goals.join("~")}（能力 13、含强弱，须另跑 match-realism-audit）。`,
+    "  拿 2.5 当本探针的门 = 预设一个历史从未满足的门槛，任何档位都会被判失败。",
+    "· 判决用相对量：同种子 48 场、同探针对 control 做 A/B，进球只要求**不显著下降**",
+    "  （48 场下差异需 >0.34 才算有差；12 场 SE ≈ ±0.35，**12 场不能看进球**）。",
     "· `depthRelease` 预期会推高越位（现状已是 4.56、真实 1.7）。它不是独立可采用项——",
     "  要与 v241 标定好的 `peelB`+`hardA` 成对，那一对备着 4.54 → 2.04 的下调预算。",
     "· 本表不测 `box-defending-audit` 的 `crowdedPairs`（上限 14、干净基线 12，余量只有 2）。",
