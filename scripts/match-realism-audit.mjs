@@ -477,9 +477,34 @@ assert.ok(
 );
 assert.ok(report.perMatch.tackles <= 55, "successful tackles remain unrealistically frequent");
 assert.ok(report.perMatch.interceptions <= 60, "clean interceptions remain unrealistically frequent");
+// ⚠ 2026-09-17：这条护栏的区间（0.1~0.5）是 2026-07-29 初始标定（6db27c1）留下的，
+// 早于点球系数改动（0742283，`pFoul` 0.04 → 0.014）。用 `scripts/_penalty-funnel-probe.mjs`
+// 逐字口径重测（只读事件流，自检六条全 ✅）：
+//     几何禁区内犯规 = 判点，**0.11/场（18 场）/ 0.23/场（48 场）**，交叉核对差 0。
+// ⇒ 实测读数**贴在旧下沿 0.1 上「侥幸通过」**，并不是「落在标定区间中央」。
+// 而 AGENTS.md 记录的目标区间是**标准 0.33 / 后台 0.40** —— 与 0.11~0.23 相差 1.5~3 倍。
+// ⛔ 本行**不得**据此收窄区间：那会让当前引擎立刻变红，属于标定工作而非回归修复。
+// 正确次序是**先量「禁区内可吹罚接触的发生率」**（真杠杆可能在上游而非系数），
+// 再连同两档 + 跨样本 + `verify --full` 一起重标。见 AGENTS.md「点球缺陷」留档再纠。
 assert.ok(report.perMatch.penalties >= 0.1 && report.perMatch.penalties <= 0.5, "penalty frequency left the calibration envelope");
 assert.ok(report.perMatch.corners >= 2.75 && report.perMatch.corners <= 10, "corner frequency left the calibration envelope");
 assert.ok(report.perMatch.cornerShots >= 0.5, "corners are not producing attacking shots");
+// ⚠ 2026-09-17：补上界。理由与「有没有缺陷」无关（这个量一直是好的）——
+// 而是 `cornerShots >= 0.5` **只有单侧下限**，对**口径类错误结构性失明**：
+// 若将来有人把 `recentCorners` 挪到每场循环外（或去掉 `cornerAfter` 的 `delta >= 0`），
+// 判据会反向、读数会**升**到约 7.67/场，而下限护栏对此一无所知（7.67 >= 0.5 恒真）。
+// 基线（种子 165000..165023，24 场，本文件同一口径实测）：
+//     cornerShots  background 1.167（max 4）／standard 1.458（max 4）
+//     cornerGoals  background 0.125（max 1）／standard 0.208（max 2）
+// ⇒ 上界取 5.0：高于两档任何实测（余量 ≥25%），远低于口径反转时的 ~7.67。
+// 逐场对账工具：`scripts/_corner-window-event-trace.mjs`。
+assert.ok(report.perMatch.cornerShots <= 5, "corner-shot volume implies a reversed corner window (or a real surge)");
+// ⚠ `cornerGoals` 此前**连下限都没有**（无任何护栏）。补双侧：
+// 下界 0 是防「负值/NaN」这类结构错误；上界 2.5 高于两档实测 max（1／2）而远低于异常高产。
+assert.ok(
+  report.perMatch.cornerGoals >= 0 && report.perMatch.cornerGoals <= 2.5,
+  "corner-goal volume left its calibrated band"
+);
 assert.ok(report.perMatch.handballs <= 1, "handball frequency is too high");
 assert.equal(totals.varReviews, totals.varDecisions, "every VAR review must have a decision");
 assert.ok(totals.varOverturns <= totals.varReviews, "VAR overturns cannot exceed reviews");
