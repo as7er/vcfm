@@ -1165,14 +1165,33 @@ export class MatchView {
     const prevEnd = Number(this._segLastEndSimT);
     // 上一段结束的比赛秒。没有则说明是本场第一次入场（开球），
     // 那是「比赛开始」而不是「跳过了内容」，不需要剪辑提示。
-    // 同理 gap ≤ 0 也归到 first：要么是本段起点落在上一段结束之前
-    // （回看重播的倒带，见 playFmmGoalReplay 的 climax-5.5），
-    // 要么是两窗本身几乎相接——两种情形都不该闪一下。
+    //
+    // ⚠ 这里必须把「倒带」与「两窗相接」分开处理（`gap < 0` vs `gap === 0`）：
+    //   旧实现把两者一起归到 first，理由是「倒带/相接都不该闪一下」。
+    //   对**相接**成立（两窗本就连续，没有换场景）；对**倒带**恰恰相反：
+    //   那是「进球重播从 climax+2 倒回 climax-5.5」—— 画面上是一次明确的换镜头。
+    //   而倒带会让 `applySimSnapshot` 的 `sceneCut` 判定成立（simT < lastSimT），
+    //   于是 relocate 缓动被显式关掉（`entity._relocAt = 0`），球和 26 个实体
+    //   被一步按到新坐标 —— 既不淡场也不缓动，观众看到的就是**球凭空瞬移**。
+    //   角球最容易撞上：它是进球/扑救之后最常见的下一事件，段与段紧邻。
+    //
+    //   证据链：
+    //     · `scripts/_restart-teleport-probe.mjs`：角球搬运球位移中位 14.37 单位
+    //       （≈15 m），远超 `RELOCATE_BALL_JUMP = 6`，只要缓动武装就该被缓动。
+    //     · `scripts/_segment-entry-trace.mjs` 头部已记录：重播回跳被当成 gap，
+    //       `_segLastEndSimT` 停在 climax+2，后续窗判 `gap <= 0` → mode "first"。
+    //     · `js/matchview.js` 的 sceneCut 定义含 `simT < lastSimT - 1e-6`（倒带）。
+    //
+    //   注意：**不给段首加缓动**。倒带时球是从「进球后」缓动回「5.5 秒前」，
+    //   那是倒着飞回去，比硬切更怪；正确解法是让淡场把它讲成换镜头。
     if (!Number.isFinite(prevEnd) || !Number.isFinite(t0)) {
       return { mode: "first", gapSec: null };
     }
     const gapSec = t0 - prevEnd;
-    if (!(gapSec > 0)) return { mode: "first", gapSec };
+    // gap === 0：两窗几乎相接（本来是连续的），不需要剪辑提示。
+    if (gapSec === 0) return { mode: "first", gapSec };
+    // gap < 0：倒带重播 —— 明确的换镜头，必须淡场，否则球被硬置。
+    // gap > 0：跨段跳帧 —— 原本就走剪辑。
     this._playSegmentCut();
     return { mode: "cut", gapSec };
   }
