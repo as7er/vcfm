@@ -249,18 +249,21 @@ for (let match = 0; match < matches; match++) {
   }
   const recentShots = [];
   // ⚠ 角球窗口是**有方向的**：只认「这一条事件之前 ≤18s 内开出的角球」。
-  // 旧实现（历史缺陷，2026-09-17 修）把 `recentCorners` 声明在 `for (match)` 之外，
-  // 而 `event.t` 每场从 0 重新计（engine.js `_emit`），于是第 2 场起它仍持有
-  // 上一场最后一次角球的 t（例如 2700），本场事件 t∈[0,2700] 全部满足
-  // `t - 2700 <= 18` —— 判据被反转成「≥18s 前的角球」，86% 的射门被误计。
-  // 实测（后台 24 场）：错误口径 8.83 次/场（占全部射门 34.9%），正确口径 1.17。
-  // 修法同时做两件事：① 每场重置；② 用 `cornerAfter` 只判「已发生过」，
-  // 不做 kNN，也不改动任何越过角球时刻的事件归类。
-  // 复现：node scripts/_corner-window-audit-check.mjs --matches 24
+  // 判据必须带 `delta >= 0` 这一半，否则「未来」会被当成「过去」。
+  // 本文件里 `recentCorners` **一直**声明在每场循环内，所以 `event.t`（每场从 0 重计，
+  // engine.js `_emit` 写 `this.t`）不会跨场泄漏，缺的那一半从未被激活；
+  // 下面 `cornerAfter` 把不变式**显式化**，即使将来声明被移出去也不会静默反转。
+  //
+  // ⚠ 记录更正（2026-09-17）：此前提交信息与本注释曾称「旧实现声明在 `for (match)` 之外，
+  // 修复前 8.83 次/场」。**那是错的**——`git log -p` 显示该行自 6db27c1 引入起
+  // 一直在循环内（缩进两格），补丁前后聚合逐位相同（1.17 次/场）。
+  // 8.83 是 `scripts/_corner-window-audit-check.mjs` 的 A 路**人为把状态提到循环外**
+  // 造出的假想读数，不是本文件的任何历史版本。详见
+  // `docs/corner-window-audit-defect-2026-09-17.md` §9。
   const recentCorners = { home: -Infinity, away: -Infinity };
   // 角球后窗口的判据：事件**之前**发生过、且间隔 ≤ 窗口的角球。
   // 只用「最近一次」即可（不做 kNN）：夹角球时刻本身的事件必然满足，
-  // 这与旧实现的意图一致，且不引入需要额外实测的判定复杂度。
+  // 这与意图一致，且不引入需要额外实测的判定复杂度。
   const cornerAfter = (event, window) =>
     event.t - recentCorners[event.team] >= 0 &&
     event.t - recentCorners[event.team] <= window;
