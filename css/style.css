@@ -4820,6 +4820,20 @@ html[data-theme="light"] .fm-com-log .event.ft {
 }
 .match-ht-panel.hidden { display: none; }
 .match-ht-panel h3 { margin: 0; font-size: var(--fs-xl); }
+/* ⚠ 2026-09-17 修「中场两个面板被压成 16px」：
+   `#match-ht-panel` 是 flex column（上面那条），`.ht-fitness` / `.ht-roles` 各有
+   自己的 `max-height` + `overflow-y: auto`（设计意图＝**各自内部滚动**），但它们同时
+   是 flex 子项、默认 `flex-shrink: 1`，在 11 个子项里是**唯一可收缩**的 ⇒ 把整抽屉的
+   溢出全吸收，双双被压到 **16px**，连一行都放不下（实测 phone 390×844：
+   fitness 16/270、roles 16/1140）。抽屉自己虽有 `overflow-y: auto` 且确实溢出
+   （scrollH 1505 > clientH 678），但 flex 先压扁了子项，滚动条永远没机会生效。
+   ⇒ 正解是**停止子项收缩**（不是"让它滚动"）：两个面板保持自身 max-height 内的完整高度，
+      溢出交给抽屉滚动。实测 phone 390×844：fitness 16→182、roles 16→222。
+   ⚠ 必须写在 `.ht-fitness` / `.ht-roles` 的定义之后（同特异性下后者胜）。 */
+.ht-fitness,
+.ht-roles {
+  flex: 0 0 auto;
+}
 .ht-tactics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));

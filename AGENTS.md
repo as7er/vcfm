@@ -1751,6 +1751,16 @@ offside-integrity ✅，但——
    设计见 [docs/offball-run-primitive-design-2026-09-17.md](docs/offball-run-primitive-design-2026-09-17.md)。
    > ✅ 原「第 5 条先决问题」已于 2026-09-17 查清并**证伪**（是口径差异，不是回归），
    > 见下面第 5 条的更正。**跑位可以直接开始，但验收判据必须先改口径**（见第 5 条末）。
+   >
+   > **🟢 2026-09-17 晚更新：跑动原语已实现为探针档位并完成 12 场首筛**（引擎仍零改动）。
+   > `runC*` 档给目标附加 `arriveBy` 到达时刻 + 跨 tick 承诺态（`commit` Map），七次尝试里
+   > **第一次**让 `[2c]` 动起来：领先中位 −10.6m → **−7.38m**（runC1.0）、领先 ≥5m 8.5% → 11.1%、
+   > 近静止 −5.2pp、均速 +0.18。⚠ **但越位升到 2.67~3.42（真实带 1.4~2.1）**——已加
+   > `runMargin` 档（目标退到越位线后 2/4/6 单位，防惯性滑过 `tol 0.45` 容差）**尚未跑**。
+   > 完整读数归档在 `docs/measurements/probe-final-third-12-runC-levels-3f10fd5.txt`。
+   > **接手后第一件实验**：`node scripts/_final-third-movement-calibration-probe.mjs 12
+   > "control,runC1.0+margin"` 跑 margin 档找配平点；命中后 48 场确认（同种子 A/B、
+   > 进球只要求不显著下降，差异 >0.34 才算有差）。
 
 5. **⚠ 进球护栏只有一种口径（2026-09-17 定案；初版「丢了 0.67 球」的结论已作废）。**
    同一引擎、同一批种子，**两个仪器给出不同量级的进球读数**：
@@ -1802,6 +1812,79 @@ offside-integrity ✅，但——
 `node scripts/_final-third-movement-calibration-probe.mjs 12 "control,runBehind,wingD"`
 —— 第二参数=档位名子串过滤。[2c]=验收主指标；[比分]=落地忠实性校验（引擎内嵌版 control
 必须逐场等于探针包装档）；wingDepths={back,near,mid} 旋钮供 wingRotate 重标定。
+**2026-09-17 晚新增**：`runC*`（跑动原语档，`runLead`=到达时刻余量系数）与
+`runC1.0+margin{2,4,6}`（越位线安全余量，**未跑**）。
+
+`node scripts/_halftime-sheet-layout-probe.mjs <outDir> --shots`
+—— 中场抽屉布局实验室（一次 boot，5 候选 × 5 视口）。
+`--verify --quick` 只测真实 CSS + phone 单视口（验证用）。
+`node scripts/_halftime-fitness-display-probe.mjs`
+—— 中场数据探针（Node 侧 `playFirstHalf`，验体能记账与角色取数）。
+
+## 交接(2026-09-17 晚,换设备:跑动原语已首筛+中场面板修复待提交)
+
+> **一句话留给下一个接手者**：跑动原语已做成探针档位并 12 场首筛成功
+> （`[2c]` 领先中位 −10.6 → −7.38m，七次尝试首次），**卡在越位 2.67~3.42 超带**，
+> 已加 `runMargin` 档**待跑**；用户报的中场面板「显示不全」已定位为 flex 挤压
+> （两面板被压到 16px）并修复验证（182/222px），**CSS 与探针已提交**（见 git log）。
+> 引擎 `js/sim/engine.js` 全程零改动，缓存仍 vcfm-v263。
+
+### 本轮完成（按时间序，均已提交）
+
+| 提交 | 内容 |
+|---|---|
+| `c635c08` | 角球护栏双侧化（`cornerShots ≤5`、`cornerGoals [0,2.5]`）+ 点球旧结论撤回 |
+| `3f10fd5` | 主线交接对账（v252 已压降禁区循环）+ 设计文档 + 进球口径盲区暴露 |
+| `b9dd183` | 撤回「丢 0.67 球」（48 场 A/B 证伪：2.35 vs 2.38 无差异）+ 归档 `docs/measurements/` |
+| `99dcb4b` | 探针口径进球护栏（`PROBE_BAND [2.2,2.7]` 软标注，审计带不再误套探针） |
+| （本轮）| 中场抽屉 CSS 修复 + 跑动原语探针档位 + 两个新探针 + 本交接 |
+
+### 用户报告的中场面板问题（2026-09-17，已修复待验证收尾）
+
+用户原话：「中场休息 · 调整」里「各队员体能」与「下半场角色指令」
+**「显示不全，里面的内容只能慢慢滑动鼠标看一行」**。
+
+**根因（实测）**：抽屉 `#match-ht-panel` 是 flex column + `overflow-y: auto`，
+而 `.ht-fitness` / `.ht-roles` 各有 `max-height` + `flex-shrink: 1` ⇒ 在 11 个子项里
+是唯一可收缩的，把整抽屉溢出全吸收，**双双压到 16px**（fitness 16/270、roles 16/1140）。
+**修复**：`css/style.css` 加 `.ht-fitness, .ht-roles { flex: 0 0 auto }`（`:4833`，
+必须在两条定义之后）。**验证**：phone 390×844 实测 16→182 / 16→222px，
+`browser-e2e` 全过（含 overflow 检查）。读数归档 `docs/measurements/ht-sheet-*.json`。
+
+**同轮发现的独立问题（未修，已诊断）**：同步路径（`simulatePeriodWithSimSync`，
+`js/match.js:1700`）的体能记账是**每 15 分钟全队同值扣减**（`drain` 只含
+`fitnessMultOf(球队战术)`，无个体因素）⇒ 中场时全队 11 人**完全同值**（实测全 87）。
+直播路径有 rng 差异、赛后 `drainFitness(:2972)` 也有，唯同步路径是团块。
+**用户已选「修根因：逐人连续消耗」**——候选方案：同步路径结算时读引擎内
+`agent.fitness`（个体连续值）回写 `player.fitness`，或给 drain 加个体 rng。
+⚠ 改 `match.js` 属引擎侧改动，改前先跑 `_halftime-fitness-display-probe.mjs` 建基线。
+
+**另一未修（已归档为「需要单独一轮」）**：`.ht-roles` 窄屏单行 95px 偏高
+（`.ht-role-edit` 2×2 grid 在 390px 宽被压成 1 列，11 行 × 95px = 1045px 要滚很久）。
+属体验优化非缺陷，与本次 flex 修复分开。
+
+### 跑动原语当前状态（主线）
+
+- **已实现**：`runCommit`（承诺态 `commit` Map）+ `arriveBy = t + dist/speed × runLead + 0.05`
+  + 越位线截断 + `runMargin` 安全余量（截断退到线后 m 单位，防惯性滑过 `tol 0.45`）。
+  `eligible` 按 role/fsm 判（⚠ 不要写死拼串分支名——第一版写 `"att-support"` 小写
+  与实际 `"ATT-support"` 不匹配，静默空转）。
+- **12 场首筛**：见上表（`docs/measurements/probe-final-third-12-runC-levels-3f10fd5.txt`）。
+- **下一步**：① 跑 `margin{2,4,6}` 档找越位配平点（越位 ≤2.1 且领先中位仍显著上移）；
+  ② 命中档 48 场确认（同种子 A/B、进球不显著下降即可，差异 >0.34 才算有差）；
+  ③ 若 48 场站住，才考虑把档位语义落进引擎（走完整标定流程，参考 `_commitFoul` 纪律）。
+- **判据口径**（第 5 条定案）：探针口径值域 [2.2,2.7] 软标注；审计口径 2.5~3.3 须另跑
+  `match-realism-audit.mjs 24`；12 场不能看进球（SE ≈ ±0.35）。
+
+### 环境坑（本轮新遇）
+
+1. **`rm` 触发安全删除保护**：`rm -f .tmp-xx.txt` 被判 `SAFE_DELETE_BULK_CONFIRM_REQUIRED`
+   且**把同一条命令链里的后续命令一起挡下**（verify「5 秒失败」实际根本没跑）。
+   ⇒ 清理与运行**分开两条命令**。
+2. **`page.waitForFunction(!!vcfmMainApi)` 偶发 90s 超时**（boot 是探针最 flaky 段）。
+   探针已改为「有界等待 + 重载重试 ×3」。
+3. Bash 工具 SIGTERM 老问题依旧：一切输出 `> file 2>&1` 或 `run_in_background`。
+4. 推送仍用 `"C:/Program Files/Git/cmd/git.exe" push origin master` + `ls-remote` 独立核对。
 
 ## 交接(2026-09-04 傍晚,换机/换会话前补记:角球标定快照在 d0eef32 引擎上已过期)
 

@@ -179,6 +179,9 @@ const V = {
   wingRotate: false, midLate: false, release: 0, releaseMode: "always", runBehind: 0,
   // wingRotate 三个深度（后点/前点/中路，单位=距门线）；null=用引擎已落地的 7/13/16
   wingDepths: null,
+  // 跑动原语：runCommit=开启承诺态，runLead=到达时刻的余量系数
+  // runMargin=目标距越位线的安全余量（场地单位，1 ≈ 1.05m）——防惯性滑过线被判越位
+  runCommit: false, runLead: 1.0, runMargin: 0,
 };
 
 /**
@@ -196,17 +199,88 @@ function branchKeyOf(eng, a, ownerOk, prog, fsm, kind) {
 }
 
 /** 覆写计数（每个档位重置），用来确认档位真的作用到了预期的样本量上 */
-let applied = { wingRotate: 0, midLate: 0, depthRelease: 0, runBehind: 0 };
+let applied = { wingRotate: 0, midLate: 0, depthRelease: 0, runBehind: 0, runCommit: 0, runBlocked: 0 };
+
+// —— 跑动原语（设计见 docs/offball-run-primitive-design-2026-09-17.md §5）——
+//   病是「目标分布没有纵深」：`_thinkAttackOffBall` 逐 tick 重算目标，
+//   球员永远只需走几米就到位 ⇒ 任何目标点公式改动都只是「换个地方站住」。
+//
+//   本原语给目标附加 **到达时刻**：一旦为某球员选定一个「必须跑到」的目标，
+//   在 `arriveBy` 之前**不接受新目标**——即使球的移动让「最优目标」变了，也先跑完。
+//   位移因此真的产生，而不是换个地方站着。
+//
+//   承诺态的关键是**跨 tick 状态**：`_thinkAttackOffBall` 每次被调用时，
+//   引擎已把 `a.ty` 覆写成本 tick 的最优值，所以必须在**覆写之后**把它掰回承诺值。
+const commit = new Map(); // agent.id -> { ty, tx, arriveBy, t, dir }
+
+/** 当前时刻（秒）。引擎用 `this.t` 累计，探针不额外取随机数。 */
+function nowOf(eng) {
+  return Number.isFinite(eng.t) ? eng.t : 0;
+}
 
 SimEngine.prototype._thinkAttackOffBall = function _thinkProbe(a, owner) {
   const ownerOk = !!(owner && owner.team === a.team && owner !== a);
   ORIG.think.call(this, a, owner);
-  if (!V.wingRotate && !V.midLate && !V.runBehind) return;
   const dir = this.attackDir(a.team);
   const goalY = this.targetGoalY(a.team);
   const ownGoalY = a.team === "home" ? SIM.HOME_GOAL_Y : SIM.AWAY_GOAL_Y;
   const prog = Math.abs(this.ball.y - ownGoalY) / 100;
-  if (prog <= 0.64) return;
+
+  // —— 跑动原语：跨 tick 承诺（先于其它档位，因为它要读到引擎刚覆写的 a.ty）——
+  if (V.runCommit && prog > 0.64) {
+    const t = nowOf(this);
+    // ① 已在承诺中且还没到点 ⇒ 掰回承诺目标，本 tick 不接受新目标
+    const held = commit.get(a.id);
+    if (held && t < held.arriveBy && held.dir === dir) {
+      a.tx = held.tx;
+      a.ty = held.ty;
+      applied.runCommit++;
+      return;
+    }
+    // ② 到期或首次进入 ⇒ 按当前引擎目标与距离算一个新的到达时刻
+    if (held && t < held.arriveBy) { /* 不成立，上面已 return */ }
+    commit.delete(a.id);
+    // 只给「该跑」的角色与分支：ATT 全部 + 主前插中场。
+    // ⚠ 分支 key 是拼串（`${a.role}-${fsm}`），不要写死字面量——
+    //   第一版我写了 `"att-support"`（小写），与 `"ATT-support"` 不匹配，
+    //   会让 `eligible` **恒为假**、整个档位静默空转（覆写计数为 0）。
+    //   这里改成按 `role` / `fsm` / `isCore` 直接判，绕开拼串。
+    const key = branchKeyOf(this, a, ownerOk, prog, a.fsm, a.offBallTargetKind);
+    // `mid-2nd-layer` = 纵深接应层（非主前插者），它的动机是「接应」不是「跑动」，
+    // 按 §5 的触发条件排除在外；主前插中场由 `_isPrimaryMidRunner` 认。
+    const isAttacker = a.role === "ATT" || this._isPrimaryMidRunner(a);
+    const eligible = isAttacker && key !== "mid-2nd-layer" && key !== "cb-hold";
+    if (!eligible) return;
+    // 目标必须**不越位**（越位线以内）——越过防线的纵深仍由 `_clampOffside` 管。
+    // 这条是 `release{R}` 失败的教训：允许把防线身后当目标 ⇒ 永久站在越位位置。
+    //
+    // ⚠ 2026-09-17：第一版直接在 `lineY` 上截断（`capped = min/max(ty, lineY)`），
+    //   12 场实测**越位升到 2.67~3.42**（真实带 1.4~2.1）。原因是 `_isOffsidePosition`
+    //   有 `tol = 0.45` 容差（`engine.js:4104`），而球员**带着惯性**跑到线上会滑过去；
+    //   站位刚好贴线 ⇒ 极易被判越位。
+    //   ⇒ 截断时退到线后方 `V.runMargin` 个单位（`var`，单位=场地单位 1 ≈ 1.05m）。
+    const lineY = this._offsideLineY(a.team);
+    const tyRaw = a.ty;
+    if (Number.isFinite(lineY)) {
+      const safeLine = lineY - dir * V.runMargin;
+      const capped = a.team === "home" ? Math.min(tyRaw, safeLine) : Math.max(tyRaw, safeLine);
+      if (Math.abs(capped - tyRaw) > 1e-9) applied.runBlocked++;
+      a.ty = capped;
+    }
+    // 距离 → 到达时刻：按该球员可用速度（引擎的 `a.speedMax`，退化到 7.0 m/s）
+    const speed = Number(a.speedMax) || 7.0;
+    const dx = (a.tx - a.x) * 1.05;
+    const dy = (a.ty - a.y) * 1.05;
+    const dist = Math.hypot(dx, dy);
+    // `V.runLead` = 余量系数：1.0 = 只给「跑得到」的时间；>1 = 多留余量（跑得更急）
+    const arriveBy = t + (dist / speed) * V.runLead + 0.05;
+    commit.set(a.id, { tx: a.tx, ty: a.ty, arriveBy, t, dir });
+    applied.runCommit++;
+    return;
+  }
+  if (!V.runCommit) commit.clear();
+
+  if (!V.wingRotate && !V.midLate && !V.runBehind) return;
   const key = branchKeyOf(this, a, ownerOk, prog, a.fsm, a.offBallTargetKind);
   // u 单位远离对方球门（u>0 = 距球门线 u 个场地单位，1 单位 ≈ 1.05m）
   const fromGoal = (u) => clamp(goalY - dir * u, 3, 97);
@@ -426,6 +500,15 @@ const LEVELS = [
   { label: "wingD 11/15/16", set: { wingRotate: true, wingDepths: [11, 15, 16] } },
   { label: "wingD 9/14/16", set: { wingRotate: true, wingDepths: [9, 14, 16] } },
   { label: "wingD 12/16/17", set: { wingRotate: true, wingDepths: [12, 16, 17] } },
+  // —— 跑动原语（§5）：给目标附加 arriveBy，到点前不接受新目标 ——
+  //   runLead=1.0「只给跑得到的时间」；2.0/3.0 让球员跑得更急（到达时刻更早 ⇒ 承诺更短）
+  { label: "runC1.0 承诺·只给跑得到", set: { runCommit: true, runLead: 1.0 } },
+  { label: "runC2.0 承诺·留 2 倍余量", set: { runCommit: true, runLead: 2.0 } },
+  { label: "runC3.0 承诺·留 3 倍余量", set: { runCommit: true, runLead: 3.0 } },
+  // 越位配平：目标退到线后 m 单位（runMargin），压 `runC*` 推高的越位
+  { label: "runC1.0+margin2 线后2", set: { runCommit: true, runLead: 1.0, runMargin: 2 } },
+  { label: "runC1.0+margin4 线后4", set: { runCommit: true, runLead: 1.0, runMargin: 4 } },
+  { label: "runC1.0+margin6 线后6", set: { runCommit: true, runLead: 1.0, runMargin: 6 } },
 ];
 
 function median(arr) {
@@ -441,7 +524,11 @@ function sweep(level) {
   V.releaseMode = level.set.releaseMode || "always";
   V.runBehind = Number(level.set.runBehind) || 0;
   V.wingDepths = Array.isArray(level.set.wingDepths) ? level.set.wingDepths : null;
-  applied = { wingRotate: 0, midLate: 0, depthRelease: 0, runBehind: 0 };
+  V.runCommit = !!level.set.runCommit;
+  V.runLead = Number(level.set.runLead) || 1.0;
+  V.runMargin = Number(level.set.runMargin) || 0;
+  commit.clear();
+  applied = { wingRotate: 0, midLate: 0, depthRelease: 0, runBehind: 0, runCommit: 0, runBlocked: 0 };
   const agg = {
     offsides: 0, passes: 0, crosses: 0, through: 0, shots: 0, goals: 0,
     corners: 0, boxTouches: 0, boxSeconds: 0, finalThirdSeconds: 0,
@@ -553,7 +640,10 @@ for (const r of rows) {
       `目标距离 ${String(r.目标距离m).padStart(5)} m  ` +
       `最后三区 ${String(r.最后三区秒).padStart(7)}s  ` +
       `boxSec占比 ${String(r["boxSec占最后三区%"]).padStart(5)}%  ` +
-      `覆写 wing=${r.applied.wingRotate} mid=${r.applied.midLate} clamp=${r.applied.depthRelease} run=${r.applied.runBehind}`
+      `覆写 wing=${r.applied.wingRotate} mid=${r.applied.midLate} clamp=${r.applied.depthRelease} run=${r.applied.runBehind}` +
+      (r.applied.runCommit
+        ? `  承诺 commit=${r.applied.runCommit} 越位线截断=${r.applied.runBlocked}`
+        : "")
   );
 }
 
