@@ -6,22 +6,32 @@
  * 成为三大进入来源之一。该分类的判定是 `b.state === "pass" && b.kickTeam !== 进攻方`
  * ——即**防守方踢出的球又进了自家禁区**。
  *
- * ⚠️ 口径更正（2026-09-17 自查）：本脚本第一版把这些一律叫「解围」，**是错的**。
- * 读引擎后发现，从本方禁区起脚并置 `kickTeam = 防守方` 的路径主要是**防守性触球**：
- *   - 封堵（`_blockShotAt`，`engine.js` 约 5862）：`b.vy = bylineDir * (9..15)` —— 朝**自家底线**
- *   - 门将托救（`_thinkGK`，约 5797）：`b.vy = bylineDir * (10..16)` —— 同样朝自家底线
- *   - 门将扑救脱手（约 5610）：`b.vx = ±(8..14)`，朝边路
- *   - 失控（`_miscontrolBall`，约 1251）：4~9 m/s 的随机方向磕开
- * 而**普通传球**被 `if (d < 6 || d > 45) continue` 截断在 45 单位内，
- * 实测本方禁区内的传球**中位只有 14.18、没有一次超过 45**
- * （`_box-clearance-distpen-probe.mjs`）——所以这里量到的长距离位移不是传球。
- * ⇒ 正确读法：本脚本量的是**「防守方在自家禁区触球后，球被送到多远」**，
- * 而不是「解围质量」。落点近 = 防守性触球把球留在了危险区。
+ * ⚠️ 口径更正（2026-09-17 自查，**两轮，两次都是我自己写错**）：
  *
- * 本脚本只量三件事，不做任何改动建议：
+ * 第一轮 —— 命名错：本脚本第一版把这些一律叫「解围」，**是错的**。
+ * 读引擎后发现，从本方禁区起脚并置 `kickTeam = 防守方` 的路径主要是**防守性触球**：
+ *   - 封堵（`_blockShotAt`，`engine.js` 5865）：`b.vy = bylineDir * (9..15)` —— 朝**自家底线**
+ *   - 门将托救（`_thinkGK`，5800）：`b.vy = bylineDir * (10..16)` —— 同样朝自家底线
+ *   - 门将扑救脱手（5797）：`b.vx = ±(10..20)`，朝边路
+ *   - 失控（`_miscontrolBall`，约 1251）：4~9 m/s 的随机方向磕开
+ * ⇒ 正确读法：本脚本量的是**「防守方在自家禁区触球后，球被送到多远」**，不是「解围质量」。
+ *
+ * 第二轮 —— **判据错（更严重）**：第二版把检测写成 `b.state === "pass"`，
+ * 而上面这些防守性触球**全部置 `b.state = "loose"`**（见 5869、5807）——
+ * 所以那一版报出的「86.7 次/场 / 落点仍在禁区内 24.6% / 落点中位 40.7」
+ * **实际只量到了「本方禁区内的有意传球」**，与 `_box-clearance-distpen-probe.mjs`
+ * 量到的传球中位 14.18 直接矛盾。**旧数全部作废。**
+ * 现检测已放宽到 `pass || loose`（并处理同状态内换队），下面是重测后的数。
+ *
+ * 本脚本量四件事，不做任何改动建议：
  *   1. 本方禁区内防守方触球后，球的落点相对本方禁区的分布、离本方球门多远。
- *   2. 落点纵向分区（本方禁区 / 本方半场深处 / 中场 / 对方半场）。
- *   3. 触球后 N 秒内球是否又回到本方禁区，以及耗时。
+ *   2. **起点 vs 位移** —— 用于判别「起点太深」还是「球飞得不够远」。
+ *   3. 落点纵向分区（本方禁区 / 本方半场深处 / 中场 / 对方半场）。
+ *   4. 触球后 N 秒内球是否又回到本方禁区，以及耗时。
+ *
+ * 18 场（n=1734）结论：位移中位 33.6 单位已贴物理上限（`v·DT/(1-0.96)/1.05`，
+ * 15 m/s → 35.7），**「飞得不够远」被否**；成因是**起点太深**（中位离自家球门 7.38，
+ * 禁区纵深 16 单位）。详见 `AGENTS.md`「防守性触球的去向追踪」。
  *
  * 全程只读引擎公开状态，不消费随机数。种子与口径同 `_box-entry-rate-probe.mjs`：
  * 起点 372000、能力 15、标准档、`_inOwnFoulBox` 判禁区。
@@ -91,6 +101,13 @@ let kicks = 0;                 // 从自家禁区附近起脚的触球次数
 let landedOutside = 0;         // 落点在本方禁区外
 let landedInside = 0;          // 落点仍在本方禁区内
 const landingGoalDist = [];    // 落点离本方球门距离（场地单位）
+const originGoalDist = [];     // 起点离本方球门距离（区分「起点太深」与「飞得不够远」）
+const travelDist = [];         // 起点到落点的直线位移（场地单位）
+const originKind = new Map();  // 起脚时的球状态：pass = 有意传球；loose = 防守性触球/失控
+const travelByKind = {
+  pass: { n: 0, travel: [], origin: [], inside: 0 },
+  loose: { n: 0, travel: [], origin: [], inside: 0 },
+};
 const landingZone = new Map();
 const returnDelays = [];       // 清球后球又回到本方禁区的耗时（秒）
 let returned = 0;
@@ -124,29 +141,54 @@ for (const seed of seeds) {
       const owner = b.owner ? engine.agentById(b.owner) : null;
       const t = engine.t;
 
-      // —— 检测一次新的起脚 ——
-      // 传球/清球：state=pass 且 owner 为空、有 kickTeam。
-      const kicked =
-        b.state === "pass" &&
-        b.kickTeam &&
-        Number.isFinite(b.kickX) &&
-        b.kickY !== undefined &&
-        (prevState !== "pass" || prevOwner);
+      // —— 检测一次新的离脚 ——
+      // ⚠️ 必须同时覆盖 `pass` 与 `loose`：
+      //  · 传球/清球 → `state === "pass"`，带 kickX/kickY
+      //  · 防守性触球（封堵、门将托救/脱手、失控）→ `state === "loose"`，同样带 kickX/kickY
+      // 初版只判 `pass`，把这些全漏了（见文件头「口径更正」）。
+      const hasKickOrigin =
+        b.kickTeam && Number.isFinite(b.kickX) && Number.isFinite(b.kickY);
+      const isNewKick =
+        hasKickOrigin &&
+        (b.state === "pass" || b.state === "loose") &&
+        prevState !== b.state;
+      // 同一状态内换队（例：A 方 loose → B 方 loose 抢断）也算一次新的触球
+      const teamChanged =
+        hasKickOrigin &&
+        (b.state === "pass" || b.state === "loose") &&
+        lastKickTeam !== null &&
+        lastKickTeam !== b.kickTeam &&
+        prevState === b.state;
 
-      if (kicked) {
+      if (hasKickOrigin && (b.state === "pass" || b.state === "loose")) {
+        lastKickTeam = b.kickTeam;
+      }
+
+      if (isNewKick || teamChanged) {
         const kickerTeam = b.kickTeam;
         const fromOwnBox = engine._inOwnFoulBox(kickerTeam, b.kickX, b.kickY);
         if (fromOwnBox) {
-          // 起脚点在本方禁区内 → 记为一次清球候选，等落点
-          pending = { team: kickerTeam, x: b.kickX, y: b.kickY, at: t };
+          // 起脚点在本方禁区内 → 记一次候选，等落点
+          pending = {
+            team: kickerTeam,
+            x: b.kickX,
+            y: b.kickY,
+            at: t,
+            kind: b.state, // pass = 有意传球；loose = 防守性触球/失控
+          };
         } else if (pending && pending.team === kickerTeam) {
-          // 同一方在落点前又碰了一次，作废（不是干净的清球）
+          // 同一方在落点前又碰了一次，作废（不是干净的一次）
           pending = null;
         }
       }
 
-      // —— 结算清球落点：球落地或易主 ——
-      if (pending && (b.state !== "pass" || (owner && owner.team !== pending.team))) {
+      // —— 结算落点：球停下 / 易主 / 状态再变 ——
+      if (
+        pending &&
+        ((b.state !== "pass" && b.state !== "loose") ||
+          (owner && owner.team !== pending.team) ||
+          (b.kickTeam && b.kickTeam !== pending.team))
+      ) {
         kicks++;
         const stillInOwnBox = engine._inOwnFoulBox(pending.team, b.x, b.y);
         if (stillInOwnBox) landedInside++;
@@ -154,6 +196,17 @@ for (const seed of seeds) {
         // 本方球门位置：team 防守的那一端。约定 home 守 y 高、away 守 y 低。
         const goalY = pending.team === "home" ? 100 : 0;
         landingGoalDist.push(Math.hypot(b.x - 50, b.y - goalY) * 1.0);
+        // 起点离本方球门的距离（用于区分「起点太深」与「飞得不够远」）
+        const originDist = Math.hypot(pending.x - 50, pending.y - goalY);
+        const moved = Math.hypot(b.x - pending.x, b.y - pending.y);
+        originGoalDist.push(originDist);
+        travelDist.push(moved);
+        bump(originKind, pending.kind);
+        const bucket = travelByKind[pending.kind] || travelByKind.loose;
+        bucket.n++;
+        bucket.travel.push(moved);
+        bucket.origin.push(originDist);
+        if (stillInOwnBox) bucket.inside++;
         // 纵向分区（场地单位，100 长）：本方半场 = 靠近自家球门一侧
         const towardOwnGoal = pending.team === "home" ? b.y : 100 - b.y;
         if (stillInOwnBox) bump(landingZone, "本方禁区内");
@@ -199,6 +252,28 @@ console.log({
   p75: quantile(landingGoalDist, 0.75),
   p90: quantile(landingGoalDist, 0.9),
 });
+console.log("\n[2b] 起点 vs 位移 —— 判别「起点太深」还是「飞得不够远」：");
+console.log({
+  "起点离球门中位": median(originGoalDist),
+  "起点离球门 p75": quantile(originGoalDist, 0.75),
+  "位移中位": median(travelDist),
+  "位移 p75": quantile(travelDist, 0.75),
+  "位移 p90": quantile(travelDist, 0.9),
+});
+console.log("  触球种类构成（球状态）：");
+for (const [kind, count] of [...originKind.entries()].sort((a, b) => b[1] - a[1])) {
+  const label = kind === "pass" ? "pass（有意传球）" : "loose（防守性触球/失控）";
+  console.log(`    ${label}: ${count} (${pct(count, kicks)}%)  ${per(count)}/场`);
+}
+console.log("  分种类看位移：");
+for (const kind of ["pass", "loose"]) {
+  const label = kind === "pass" ? "pass（有意传球）" : "loose（防守性触球/失控）";
+  console.log(
+    `    ${label}: n=${travelByKind[kind].n}  位移中位=${median(travelByKind[kind].travel)}  ` +
+      `起点中位=${median(travelByKind[kind].origin)}  ` +
+      `落点仍在禁区内=${pct(travelByKind[kind].inside, travelByKind[kind].n)}%`
+  );
+}
 console.log("\n[3] 落点纵向分区：");
 for (const [zone, count] of [...landingZone.entries()].sort((a, b) => b[1] - a[1])) {
   console.log(`  ${zone}: ${count} (${pct(count, kicks)}%)  ${per(count)}/场`);
@@ -212,7 +287,7 @@ console.log({
   "p75": quantile(returnDelays, 0.75),
 });
 console.log(
-  "  ⚠️ 耗时中位为 0 说明：这些不是「清出去又回来」，而是**从未离开**\n" +
+  "  ⚠️ 若耗时中位为 0：这些不是「清出去又回来」，而是**从未离开**\n" +
   "     （落点结算那一帧球已在禁区内，窗口内又立刻满足「在禁区内」）。\n" +
-  "     与 [1] 的「落点仍在禁区内 24.6%」是同一批球，两个口径互相印证。"
+  "     与 [1] 的「落点仍在禁区内」是同一批球，两个口径互相印证。"
 );
