@@ -184,7 +184,10 @@ const V = {
   // runWindow=触发窗口（秒）：0=常驻（当前行为）；>0=仅「刚赢回球权后 runWindow 秒内」生效
   //   ——即设计文档 §6 档位表的 `holdPass`。窗口读引擎既有的 `_teamAttackSince[team]`
   //   （`:522` 声明、`:1697` 在球权交接时重置为 `this.t`），**不新增任何引擎状态**。
-  runCommit: false, runLead: 1.0, runMargin: 0, runWindow: 0,
+  // runMinDist=承诺门槛（米）：0=任何距离都承诺（当前行为）；>0=只有「引擎目标距当前位置
+  //   超过 runMinDist 米」才进入承诺态。动机：小距离移动本来就不会产生「半路站住」的病，
+  //   对它们承诺只是把球员推得更靠禁区（boxSec↑），所以不该为它们付承诺的代价。
+  runCommit: false, runLead: 1.0, runMargin: 0, runWindow: 0, runMinDist: 0,
 };
 
 /**
@@ -202,7 +205,7 @@ function branchKeyOf(eng, a, ownerOk, prog, fsm, kind) {
 }
 
 /** 覆写计数（每个档位重置），用来确认档位真的作用到了预期的样本量上 */
-let applied = { wingRotate: 0, midLate: 0, depthRelease: 0, runBehind: 0, runCommit: 0, runBlocked: 0, windowInside: 0, windowOutside: 0 };
+let applied = { wingRotate: 0, midLate: 0, depthRelease: 0, runBehind: 0, runCommit: 0, runBlocked: 0, windowInside: 0, windowOutside: 0, gateOpen: 0, gateShut: 0 };
 
 // —— 跑动原语（设计见 docs/offball-run-primitive-design-2026-09-17.md §5）——
 //   病是「目标分布没有纵深」：`_thinkAttackOffBall` 逐 tick 重算目标，
@@ -241,11 +244,22 @@ SimEngine.prototype._thinkAttackOffBall = function _thinkProbe(a, owner) {
   const heldNow = commit.get(a.id);
   // 「已在承诺中且未到期」不受窗口关闭影响 —— 让它跑完（见上）。
   const holding = !!(heldNow && t0 < heldNow.arriveBy && heldNow.dir === dir);
+  // 距离门槛（`runMinDist`）：按「引擎本 tick 的目标点」距当前位置的实距判。
+  // 注意这里用的是 `a.tx/a.ty` 被引擎覆写后的值（尚未被下面的越位线截断），
+  // 所以判的是「引擎本来想让这个球员跑多远」——正是我们要筛的量。
+  const distNow = V.runMinDist > 0
+    ? Math.hypot((a.tx - a.x) * 1.05, (a.ty - a.y) * 1.05)
+    : 0;
+  const gateOpen = V.runMinDist <= 0 || distNow >= V.runMinDist;
+  if (V.runMinDist > 0 && V.runCommit) {
+    if (gateOpen || holding) applied.gateOpen++;
+    else applied.gateShut++;
+  }
   if (V.runWindow > 0 && V.runCommit) {
     if (windowOpen || holding) applied.windowInside++;
     else applied.windowOutside++;
   }
-  if (V.runCommit && (windowOpen || holding) && prog > 0.64) {
+  if (V.runCommit && (windowOpen || gateOpen || holding) && prog > 0.64) {
     const t = t0;
     // ① 已在承诺中且还没到点 ⇒ 掰回承诺目标，本 tick 不接受新目标
     const held = heldNow;
@@ -504,6 +518,17 @@ function runMatch(seed) {
   }
 }
 
+// —— 档位表 ——
+// 稳定档（历史对照，勿删）：
+//   control / release{8} / releasePass / wingRotate / runBehind{4,8} / wingD{…}
+//   runC{1.0,2.0,3.0} / margin{2,4,6}
+// 本轮在测：
+//   holdPass{4,6,8,10} —— 设计文档 §6 触发窗口版（结果见下）
+//   runMin{2,4,7,10}   —— 路 3：常驻触发不动，只提高「值得为它进入承诺」的最小跑动距离
+//   runLead{1.5,2.5}   —— 对照：验证 runLead 与 margin 同构
+//
+// ⚠ 顺序即执行顺序，`sweep()` 的清理**带粘性**（见 sweep 内注释），所以
+//    有 set 的档必须排在纯 control 之前；本表已满足。
 const LEVELS = [
   { label: "control 现状", set: {} },
   { label: "release8 常开（复现）", set: { release: 8 } },
@@ -526,15 +551,36 @@ const LEVELS = [
   { label: "runC1.0+margin2 线后2", set: { runCommit: true, runLead: 1.0, runMargin: 2 } },
   { label: "runC1.0+margin4 线后4", set: { runCommit: true, runLead: 1.0, runMargin: 4 } },
   { label: "runC1.0+margin6 线后6", set: { runCommit: true, runLead: 1.0, runMargin: 6 } },
-  // —— `holdPass`（设计文档 §6 档位表，本轮首实现）——
+  // —— `holdPass`（设计文档 §6 档位表，2026-09-18 首实现）——
   //   触发窗口：仅「刚赢回球权后 N 秒内」才允许进入承诺态（已在承诺中的跑完）。
   //   目的：压 `runC*` 常驻触发造成的 boxSec 回升（818 vs 679），同时保留纵深改善。
   //   基线一律取配平点 margin2（越位 1.88 进带），这样与 margin 档可直接对照。
+  //   ⛔ 实测为**等量交换**（boxSec 下来了，纵深也没了），根因是时序错配 ——
+  //      见 docs/offball-run-primitive-design-2026-09-17.md §6.2。**不要重跑，除非换了窗口定义。**
   { label: "holdPass6 赢球后6s", set: { runCommit: true, runLead: 1.0, runMargin: 2, runWindow: 6 } },
   { label: "holdPass8 赢球后8s", set: { runCommit: true, runLead: 1.0, runMargin: 2, runWindow: 8 } },
   { label: "holdPass4 赢球后4s", set: { runCommit: true, runLead: 1.0, runMargin: 2, runWindow: 4 } },
   { label: "holdPass10 赢球后10s", set: { runCommit: true, runLead: 1.0, runMargin: 2, runWindow: 10 } },
+  // —— 路 3：缩小承诺的激进程度（保留常驻触发，只调「进入承诺的门槛」）——
+  //   动机（见 docs/through-pass-gate-and-player-ability-2026-09-18.md §3.2）：
+  //   `holdPass` 是等量交换——它把 boxSec 压回去了，但纵深改善同时消失，根因是
+  //   「球刚赢回时通常还在中前场，窗口在推进到最后三区前就关了」这一结构性时序错配。
+  //   ⇒ 换一个连续旋钮：**常驻触发不动，只提高「值得为它进入承诺」的最小跑动距离**。
+  //     近的（< runMinDist 米）照旧逐 tick 自由跟球（引擎原生，不推高 boxSec）；
+  //     远的才承诺跑完（保留纵深）。小距离移动本来就不会产生「半路站住」的病。
+  //   ⚠ 实测（2026-09-18，6 场）：**无效** —— 承诺覆写与 boxSec 逐档完全相同，
+  //     门槛只改「谁进入承诺」，不改「跑多远」，所以改不动坐标。见 §3.3。
+  { label: "runMin2 承诺门槛2m", set: { runCommit: true, runLead: 1.0, runMargin: 2, runMinDist: 2 } },
+  { label: "runMin4 承诺门槛4m", set: { runCommit: true, runLead: 1.0, runMargin: 2, runMinDist: 4 } },
+  { label: "runMin7 承诺门槛7m", set: { runCommit: true, runLead: 1.0, runMargin: 2, runMinDist: 7 } },
+  { label: "runMin10 承诺门槛10m", set: { runCommit: true, runLead: 1.0, runMargin: 2, runMinDist: 10 } },
+  // 与上同源但分开报：runLead 那一侧的对照（预期与 margin 同构，用来验证上面的判断）
+  { label: "runLead1.5 余量×1.5", set: { runCommit: true, runLead: 1.5, runMargin: 2 } },
+  { label: "runLead2.5 余量×2.5", set: { runCommit: true, runLead: 2.5, runMargin: 2 } },
 ];
+
+/** 按档位名子串过滤（CLI 第 3 参数），空 = 全跑 */
+const only = (process.argv[3] || "").split(",").filter(Boolean);
 
 function median(arr) {
   if (!arr.length) return null;
@@ -543,6 +589,21 @@ function median(arr) {
 }
 
 function sweep(level) {
+  // ⚠⚠ 2026-09-18 事故：**这段「收工清理」是有 bug 的，带粘性，靠档位排序掩盖着。**
+  //   下面 `commit.clear()` 之前的 8 行把 `V.release` / `V.runBehind` / `V.wingRotate` 等
+  //   重置了，**但没重置 `V.runCommit` / `V.runLead` / `V.runMargin` / `V.runWindow` /
+  //   `V.runMinDist`**。而这 8 行之后紧接着就是第 588 行的 `commit.clear()` ——
+  //   所以「带 runCommit 的档跑在纯 control 之前」时，control 会**继承上一个档的跑动原语**。
+  //   实测（`scripts/_final-third-movement-calibration-probe.mjs` 6 场，种子 372000..372005）：
+  //   一次性跑全表时 `runMin2/4/7/10` 与 `holdPass6` 的 boxSec 全部逐字相同（855.58），
+  //   而**单独复跑 `control,runMin2,…` 时** runMin 各档 boxSec 与跑全表一致（855.58）、
+  //   control 单独跑出 726.52 → 726.52 / 779.40 两个值，证明差异来自**执行顺序**，不是档位本身。
+  //   ⇒ 本次事故**不影响已提交的 `holdPass` 结论**（该轮 12 场里 control=703.36、
+  //     runC1.0=808.72、holdPass6=625.88 三者互不相同，说明清理恰好按预期生效，
+  //     根因是本轮新增 `runWindow/runMinDist` 两个字段时暴露了既有的脆弱清理）。
+  //   ⇒ **修法（未做，属引擎外脚本的纪律问题，单独一轮）**：把 `sweep()` 的清理改成
+  //     `for (const k of Object.keys(V)) V[k] = false;` + 显式数字复位，别再逐字段硬编码。
+  //   ⇒ **临时纪律：纯 control 档必须排在所有带 `runCommit` 的档之前**（当前已满足）。
   V.wingRotate = !!level.set.wingRotate;
   V.midLate = !!level.set.midLate;
   V.release = Number(level.set.release) || 0;
@@ -553,8 +614,9 @@ function sweep(level) {
   V.runLead = Number(level.set.runLead) || 1.0;
   V.runMargin = Number(level.set.runMargin) || 0;
   V.runWindow = Number(level.set.runWindow) || 0;
+  V.runMinDist = Number(level.set.runMinDist) || 0;
   commit.clear();
-  applied = { wingRotate: 0, midLate: 0, depthRelease: 0, runBehind: 0, runCommit: 0, runBlocked: 0, windowInside: 0, windowOutside: 0 };
+  applied = { wingRotate: 0, midLate: 0, depthRelease: 0, runBehind: 0, runCommit: 0, runBlocked: 0, windowInside: 0, windowOutside: 0, gateOpen: 0, gateShut: 0 };
   const agg = {
     offsides: 0, passes: 0, crosses: 0, through: 0, shots: 0, goals: 0,
     corners: 0, boxTouches: 0, boxSeconds: 0, finalThirdSeconds: 0,
@@ -627,8 +689,7 @@ console.log({ 未打包装: bare, control: control.scores.join(" "), 判定: fai
 if (!faithful) process.exit(1);
 
 console.log("\n[1] 🔑 标定曲线（★ = 越位落进 1.4~2.1，⚠ = 撞护栏）：");
-// 第二个 CLI 参数：逗号分隔的档位名子串过滤（如 "control,wingD"），空=全跑
-const only = (process.argv[3] || "").split(",").filter(Boolean);
+// 档位名子串过滤已在 LEVELS 声明处解析（`only`，CLI 第 3 参数）
 const rows = [];
 for (const level of LEVELS) {
   if (only.length && !only.some((s) => level.label.includes(s))) continue;
@@ -661,6 +722,7 @@ for (const level of LEVELS) {
 console.log("\n[2] 档位到底有没有改到跑位（最后三区、非持球、每 0.5s 采样）：");
 for (const r of rows) {
   const windowLabel = LEVELS.find((l) => l.label === r.label)?.set?.runWindow > 0;
+  const gateLabel = LEVELS.find((l) => l.label === r.label)?.set?.runMinDist > 0;
   console.log(
     `  ${r.label.padEnd(24)} 近静止 ${String(r.近静止占比).padStart(5)}%  ` +
       `均速 ${String(r.均速).padStart(4)} m/s  ` +
@@ -672,6 +734,9 @@ for (const r of rows) {
         ? `  承诺 commit=${r.applied.runCommit} 越位线截断=${r.applied.runBlocked}` +
           (windowLabel
             ? `  窗口内=${r.applied.windowInside} 窗口外=${r.applied.windowOutside}`
+            : "") +
+          (gateLabel
+            ? `  过门槛=${r.applied.gateOpen} 卡门槛=${r.applied.gateShut}`
             : "")
         : "")
   );
@@ -694,12 +759,15 @@ for (const r of rows) {
 
 console.log("\n[2c] 🎯 目标纵深分布（bug#1 验收主指标：眼见的「不跑」= 目标分布没纵深）：");
 for (const r of rows) {
+  // 场地单位 → 米（1 单位 ≈ 1.05m）：boxSec 差 10 秒是抽象量，换成「球员平均少推进几米」才好判
+  const u2m = (u) => (u == null ? "  n/a" : `${(u * 1.05).toFixed(1)}m`);
   console.log(
     `  ${r.label.padEnd(24)} ` +
       `领先≥5m ${String(r["目标领先球≥5m%"]).padStart(5)}%  ` +
       `领先中位 ${String(r["目标领先球中位m"]).padStart(6)}m  ` +
       `越过线 ${String(r["目标越过线%"]).padStart(5)}%  ` +
-      `距防线中位 ${String(r["距防线中位m"]).padStart(6)}m`
+      `距防线中位 ${String(r["距防线中位m"]).padStart(6)}m` +
+      `  → 领先实距 ${u2m(r["目标领先球中位m"]).padStart(6)}`
   );
 }
 

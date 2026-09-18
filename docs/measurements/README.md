@@ -15,6 +15,9 @@
 | `probe-final-third-12-runMargin-levels-213991b.txt` | v263 | `213991b` | 12 | 372000..372011 | 同上；**runMargin 配平曲线**（control/margin2/4/6） |
 | `probe-final-third-48-runMargin-margin2-213991b.txt` | v263 | `213991b` | 48 | 372000..372047 | 同上；**runMargin 配平点同种子 A/B** |
 | `probe-final-third-6-runMargin-margin2-213991b.txt` | v263 | `213991b` | 6 | 372000..372005 | 同上；**与 `box-possession-sampling-audit` 同窗口** |
+| `probe-final-third-12-holdPass-93fb16c.txt` | v263 | `93fb16c` | 12 | 372000..372011 | 同上；**`holdPass{4,6,8,10}` 触发窗口曲线**（⛔ 等量交换，见下） |
+| `probe-final-third-6-runmin-1b958f3.txt` | v263 | `1b958f3` | 6 | 372000..372005 | 同上；**`runMin{2,4,7,10}` + `runLead{1.5,2.5}`**（⛔ 无效/同构，见下） |
+| `probe-final-third-6-runmin-isolated-1b958f3.txt` | v263 | `1b958f3` | 6 | 372000..372005 | 同上；**隔离复跑**，用来定位 `sweep()` 清理粘性缺陷 |
 | `ht-sheet-broken-phone-390x844.json` | — | `3f10fd5`+探针 | — | — | 中场抽屉**修复前**布局读数（两面板 16px） |
 | `ht-sheet-fixed-phone-390x844.json` | — | 修复后 | — | — | 中场抽屉**修复后**布局读数（182/222px） |
 
@@ -65,6 +68,40 @@ margin4/6 是**双向反向**——越位被压到带外下沿（1.25/1.38），
 的 `makeClub()` 不带（17 vs 18 项）；同种子 6 场受控 A/B 下 boxSeconds 差 **+51.5s**。
 ⇒ **探针与审计测的不是同一支球队**，跨口径比 boxSec 时要把这点算进去
 （详见 [docs/handoff-runmargin-2026-09-18.md](../handoff-runmargin-2026-09-18.md) §4）。
+
+## boxSec 取舍：`holdPass` + 路 3 全部走完，**没有中间点**（2026-09-18 下午，引擎零改动）
+
+`probe-final-third-12-holdPass-93fb16c.txt`（12 场）与
+`probe-final-third-6-runmin-1b958f3.txt` + `probe-final-third-6-runmin-isolated-1b958f3.txt`（6 场）。
+
+| 档位 | boxSec | 领先≥5m | 领先中位 | 越位 | 承诺覆写 |
+|---|---:|---:|---:|---:|---:|
+| `control`（12 场） | 703.36 | 8.5% | −10.60m | 1.75 | — |
+| `runC1.0+margin2`（常驻） | **832.70** | **10.1%** | **−7.38m** | 1.88 | 135716 |
+| `holdPass6` | **625.88** | 7.7% | −11.15m | 1.88 | 9827 |
+| `runMin2/4/7/10`（6 场） | **855.58（四档逐字相同）** | 10.0% | −7.41m | 2.25 | **67638（逐字相同）** |
+| `runLead1.5`（6 场） | 815.70 | 10.4% | −7.55m | **1.08（跌出真实带）** | 67145 |
+| `runLead2.5`（6 场） | 735.35 | 9.7% | −8.50m | 1.92 | 66275 |
+
+**三条结论：**
+1. **`holdPass` = 等量交换**：boxSec 解决了（625.88，比 control 还低 11%），**纵深改善同时消失**。
+   根因是**时序错配**：球刚赢回时还在中前场，等推进到最后三区窗口早关。扩窗无效（4s→10s
+   承诺升 2.6 倍，纵深不动）。
+2. **`runMinDist` 完全无效**：四档 boxSec / 承诺覆写 / 领先中位**逐字相同**。
+   门槛只改「谁进入承诺」，改不动「球员跑多远」——承诺的动作是「把 `a.ty` 掰回快照」。
+3. **`runLead` 与 `runMargin` 同构**：`runLead↑ ⇒ boxSec↓ 且纵深↓`，单调。
+   `runLead1.5 / margin2 / runLead2.5` 三点落在同一条线上 —— **不是独立旋钮。**
+
+⇒ **原语的验收指标本身在打架**：它的效果是「让球员更靠近对方球门」，
+「目标领先球」读数改善、「boxSeconds」读数回升，**同一件事两个方向**。
+剩两条真路：**(1) 接受 `margin2` + 重标 850 天花板**；**(2) 窗口改成「球进最后三区后才开窗」**（未测）。
+详见 [docs/through-pass-gate-and-player-ability-2026-09-18.md](../through-pass-gate-and-player-ability-2026-09-18.md) §3.2 / §3.3。
+
+⚠ **仪器缺陷（本轮暴露，未修）**：`sweep()` 的收工清理**漏复位**
+`runCommit/runLead/runMargin/runWindow/runMinDist` ⇒ **纯 `control` 档会继承上一档的跑动原语**。
+**临时纪律：纯 control 档必须排在所有带 `runCommit` 的档之前**（档位表已满足）。
+证据：一次性跑全表时 control 读到 855.58，单独复跑时读到 726.52。
+⚠ 该缺陷**不影响 `holdPass` 那轮数据**（那轮 control=703.36 / runC1.0=808.72 / holdPass6=625.88 互不相同）。
 
 ## 直塞噪声标定：那条「直塞 ❌ 反向」的判决**已作废**（2026-09-18）
 
