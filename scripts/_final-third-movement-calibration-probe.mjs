@@ -181,7 +181,10 @@ const V = {
   wingDepths: null,
   // 跑动原语：runCommit=开启承诺态，runLead=到达时刻的余量系数
   // runMargin=目标距越位线的安全余量（场地单位，1 ≈ 1.05m）——防惯性滑过线被判越位
-  runCommit: false, runLead: 1.0, runMargin: 0,
+  // runWindow=触发窗口（秒）：0=常驻（当前行为）；>0=仅「刚赢回球权后 runWindow 秒内」生效
+  //   ——即设计文档 §6 档位表的 `holdPass`。窗口读引擎既有的 `_teamAttackSince[team]`
+  //   （`:522` 声明、`:1697` 在球权交接时重置为 `this.t`），**不新增任何引擎状态**。
+  runCommit: false, runLead: 1.0, runMargin: 0, runWindow: 0,
 };
 
 /**
@@ -199,7 +202,7 @@ function branchKeyOf(eng, a, ownerOk, prog, fsm, kind) {
 }
 
 /** 覆写计数（每个档位重置），用来确认档位真的作用到了预期的样本量上 */
-let applied = { wingRotate: 0, midLate: 0, depthRelease: 0, runBehind: 0, runCommit: 0, runBlocked: 0 };
+let applied = { wingRotate: 0, midLate: 0, depthRelease: 0, runBehind: 0, runCommit: 0, runBlocked: 0, windowInside: 0, windowOutside: 0 };
 
 // —— 跑动原语（设计见 docs/offball-run-primitive-design-2026-09-17.md §5）——
 //   病是「目标分布没有纵深」：`_thinkAttackOffBall` 逐 tick 重算目标，
@@ -227,18 +230,32 @@ SimEngine.prototype._thinkAttackOffBall = function _thinkProbe(a, owner) {
   const prog = Math.abs(this.ball.y - ownGoalY) / 100;
 
   // —— 跑动原语：跨 tick 承诺（先于其它档位，因为它要读到引擎刚覆写的 a.ty）——
-  if (V.runCommit && prog > 0.64) {
-    const t = nowOf(this);
+  // 触发窗口（`holdPass`）：`V.runWindow > 0` 时，只有「本队刚赢回球权后 runWindow 秒内」
+  // 才允许进入/维持承诺态。窗口读引擎既有的 `_teamAttackSince[team]`——它在球权交接时
+  // 被重置为 `this.t`（`engine.js:1697`），语义正是「本队本次进攻始于何时」。
+  // ⚠ 窗口是**进入条件**，不是「出了窗口就把已承诺的目标丢掉」：一旦进入承诺，
+  //   就让它跑完（否则 `arriveBy` 到期前被打断，球员会在半路站住 —— 那正是要修的病）。
+  const attackAge = this.t - (this._teamAttackSince[a.team] || 0);
+  const windowOpen = V.runWindow <= 0 || attackAge <= V.runWindow;
+  const t0 = nowOf(this);
+  const heldNow = commit.get(a.id);
+  // 「已在承诺中且未到期」不受窗口关闭影响 —— 让它跑完（见上）。
+  const holding = !!(heldNow && t0 < heldNow.arriveBy && heldNow.dir === dir);
+  if (V.runWindow > 0 && V.runCommit) {
+    if (windowOpen || holding) applied.windowInside++;
+    else applied.windowOutside++;
+  }
+  if (V.runCommit && (windowOpen || holding) && prog > 0.64) {
+    const t = t0;
     // ① 已在承诺中且还没到点 ⇒ 掰回承诺目标，本 tick 不接受新目标
-    const held = commit.get(a.id);
-    if (held && t < held.arriveBy && held.dir === dir) {
+    const held = heldNow;
+    if (holding) {
       a.tx = held.tx;
       a.ty = held.ty;
       applied.runCommit++;
       return;
     }
     // ② 到期或首次进入 ⇒ 按当前引擎目标与距离算一个新的到达时刻
-    if (held && t < held.arriveBy) { /* 不成立，上面已 return */ }
     commit.delete(a.id);
     // 只给「该跑」的角色与分支：ATT 全部 + 主前插中场。
     // ⚠ 分支 key 是拼串（`${a.role}-${fsm}`），不要写死字面量——
@@ -509,6 +526,14 @@ const LEVELS = [
   { label: "runC1.0+margin2 线后2", set: { runCommit: true, runLead: 1.0, runMargin: 2 } },
   { label: "runC1.0+margin4 线后4", set: { runCommit: true, runLead: 1.0, runMargin: 4 } },
   { label: "runC1.0+margin6 线后6", set: { runCommit: true, runLead: 1.0, runMargin: 6 } },
+  // —— `holdPass`（设计文档 §6 档位表，本轮首实现）——
+  //   触发窗口：仅「刚赢回球权后 N 秒内」才允许进入承诺态（已在承诺中的跑完）。
+  //   目的：压 `runC*` 常驻触发造成的 boxSec 回升（818 vs 679），同时保留纵深改善。
+  //   基线一律取配平点 margin2（越位 1.88 进带），这样与 margin 档可直接对照。
+  { label: "holdPass6 赢球后6s", set: { runCommit: true, runLead: 1.0, runMargin: 2, runWindow: 6 } },
+  { label: "holdPass8 赢球后8s", set: { runCommit: true, runLead: 1.0, runMargin: 2, runWindow: 8 } },
+  { label: "holdPass4 赢球后4s", set: { runCommit: true, runLead: 1.0, runMargin: 2, runWindow: 4 } },
+  { label: "holdPass10 赢球后10s", set: { runCommit: true, runLead: 1.0, runMargin: 2, runWindow: 10 } },
 ];
 
 function median(arr) {
@@ -527,8 +552,9 @@ function sweep(level) {
   V.runCommit = !!level.set.runCommit;
   V.runLead = Number(level.set.runLead) || 1.0;
   V.runMargin = Number(level.set.runMargin) || 0;
+  V.runWindow = Number(level.set.runWindow) || 0;
   commit.clear();
-  applied = { wingRotate: 0, midLate: 0, depthRelease: 0, runBehind: 0, runCommit: 0, runBlocked: 0 };
+  applied = { wingRotate: 0, midLate: 0, depthRelease: 0, runBehind: 0, runCommit: 0, runBlocked: 0, windowInside: 0, windowOutside: 0 };
   const agg = {
     offsides: 0, passes: 0, crosses: 0, through: 0, shots: 0, goals: 0,
     corners: 0, boxTouches: 0, boxSeconds: 0, finalThirdSeconds: 0,
@@ -634,6 +660,7 @@ for (const level of LEVELS) {
 
 console.log("\n[2] 档位到底有没有改到跑位（最后三区、非持球、每 0.5s 采样）：");
 for (const r of rows) {
+  const windowLabel = LEVELS.find((l) => l.label === r.label)?.set?.runWindow > 0;
   console.log(
     `  ${r.label.padEnd(24)} 近静止 ${String(r.近静止占比).padStart(5)}%  ` +
       `均速 ${String(r.均速).padStart(4)} m/s  ` +
@@ -642,7 +669,10 @@ for (const r of rows) {
       `boxSec占比 ${String(r["boxSec占最后三区%"]).padStart(5)}%  ` +
       `覆写 wing=${r.applied.wingRotate} mid=${r.applied.midLate} clamp=${r.applied.depthRelease} run=${r.applied.runBehind}` +
       (r.applied.runCommit
-        ? `  承诺 commit=${r.applied.runCommit} 越位线截断=${r.applied.runBlocked}`
+        ? `  承诺 commit=${r.applied.runCommit} 越位线截断=${r.applied.runBlocked}` +
+          (windowLabel
+            ? `  窗口内=${r.applied.windowInside} 窗口外=${r.applied.windowOutside}`
+            : "")
         : "")
   );
 }

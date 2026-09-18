@@ -145,7 +145,7 @@ a.ty = clamp(goalY - this.attackDir(a.team) * depth, 3, 97);
 | `control` | 现状 |
 | `hold1` | `arriveBy` = 距离/速度 × 1.0，仅 `mid-2nd-layer` 的 MID |
 | `hold2` | 同上，覆盖 MID + `wing-home` |
-| `holdPass` | 触发条件：仅「刚赢回球权后 6 秒内」 |
+| `holdPass` | 触发条件：仅「刚赢回球权后 6 秒内」［**2026-09-18 已实现，探针档 `holdPass{4,6,8,10}`**］ |
 | `hold1` + `peelB` | 验证与越位预算的配平（`peelB` 已落地，故只需确认不恶化） |
 
 **接缝纪律**（照抄 `_final-third-movement-calibration-probe.mjs`）：
@@ -153,6 +153,36 @@ a.ty = clamp(goalY - this.attackDir(a.team) * depth, 3, 97);
 - 覆写公式**全是状态与 id 的确定性函数**，一个随机数都不取；
 - **不自己调 `_clampOffside`**：引擎随后的 `_applyAttackTactics` 与 `_commitOffBallTarget` 会照常各夹一次，保证每 tick `random()` 次数与原版逐位相同；
 - 自检：control 档必须与未打包装引擎**逐场同分**。
+
+### 6.1 `holdPass` 实现要点（2026-09-18）
+
+**窗口读引擎既有的 `_teamAttackSince[team]`，零引擎改动：**
+
+- 声明在 `engine.js:522`，**在球权交接时被重置为 `this.t`**（`:1697`，由 `controlTeam !== this._phaseTeam` 触发）；
+- 引擎自己就在用它判「进攻新鲜度」：`:1597` 的 `t - attackSince >= 6.5`（进攻「成熟」才允许某类行为）、
+  `:2376` 的 `attackAge`（供决策），并作为 `offBallTarget` 计划的**跨 tick 身份校验**字段
+  （`:3545/3577/3687/3750`）；
+- 另有语义更直白的双胞胎字段 `_teamGainAt`（`:502` 声明、`:1698` 同处重置、`:995` 被
+  `_teamShapePhase` 读作 `gainedAt`）。**两者都在球权交接时刷新，任选其一即可。**
+
+⇒ `holdPass` 是**纯探针侧的触发窗口**，不新增引擎状态、不动引擎一行代码。
+
+**接缝的一半是新的（本条档位特有）：**
+
+- 上面「接缝纪律」的「不自己调 `_clampOffside`」是针对**改目标点**的档位（`wingRotate` 等）。
+  `holdPass` 继承 `runCommit` 的**承诺态**，它的接缝风险不同：承诺在**跨 tick 维持**，
+  所以必须处理「**窗口关了但承诺还没到期**」这个状态。
+- **处理方式（重要）**：窗口是**进入条件，不是维持条件**。一旦某球员进入承诺，
+  就让他跑完（`arriveBy` 到期或球权变更才释放）。**否则**承诺会被半路丢弃，
+  球员在跑动中途站住 —— 那正是本原语要修的病。
+- 探针把这点写成 `holding`（已在承诺中且未到期）与 `windowOpen` 的**并集**：
+
+  ```js
+  const holding = !!(heldNow && t0 < heldNow.arriveBy && heldNow.dir === dir);
+  if (V.runCommit && (windowOpen || holding) && prog > 0.64) { ... }
+  ```
+
+- 窗口覆盖率的实测（3 场首筛）：**窗口内 37064 / 窗口外 120573 ⇒ 只覆盖约 23.5% 的 tick。**
 
 **验收判据**（同时看，缺一不可）：
 
