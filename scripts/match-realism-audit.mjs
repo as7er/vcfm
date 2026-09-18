@@ -460,6 +460,12 @@ assert.ok(report.shotConversionPct >= 9 && report.shotConversionPct <= 15, "shot
 assert.ok(report.perMatch.passes >= 800 && report.perMatch.passes <= 1250, "pass volume left the calibration envelope");
 assert.ok(report.passCompletionPct >= 72 && report.passCompletionPct <= 88, "pass completion left the calibration envelope");
 assert.ok(report.crossSharePct >= 3 && report.crossSharePct <= 14, "cross share left the calibration envelope");
+// ⚠ 2026-09-18：这两条上下沿差 24 倍（0.5 ~ 12），**不是「落在标定区间中央」的质量判据**，
+// 而是**爆炸半径限制**（防这项指标整体消失/爆表）。实测均值 2.2~2.33，贴在下沿上方 4.4 倍。
+// 噪声标定（`scripts/_through-pass-noise-calibration-probe.mjs`，240 场/档）：
+// 批间标准差 0.38/0.49，12 场批均值在 1.67~3.08 间跳；48 场 A/B 的 2SE = 0.61。
+// ⇒ **直塞不可用作细粒度 A/B 方向判据**（要检出 0.30/场 需每组约 295 场），
+// 只能作大样本方向性参考。详见 docs/through-pass-gate-and-player-ability-2026-09-18.md。
 assert.ok(
   report.perMatch.throughPasses >= 0.5 && report.perMatch.throughPasses <= 12,
   "through-ball volume left the calibration envelope"
