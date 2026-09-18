@@ -1,0 +1,42 @@
+{
+  "profile": "standard",
+  "matches": 24,
+  "seeds": {
+    "first": 372000,
+    "last": 372023
+  },
+  "boxSpellsPerMatch": 229.96,
+  "boxSecondsPerMatch": 693.3,
+  "medianSpellSeconds": 2.6,
+  "spellEndingSharePct": {
+    "pass": 57.4,
+    "shot": 6.6,
+    "lost": 6.3,
+    "cleared": 22.6,
+    "other": 7.1
+  },
+  "boxPassDestinationPct": {
+    "recycledInBox": 41.3,
+    "exitedBox": 58.7
+  },
+  "medianAttackersInBoxAtSpellStart": 2,
+  "unmarkedCloseChancesPerMatch": 19.46,
+  "unmarkedChanceOutcomePct": {
+    "shot": 8.4,
+    "pass": 59.7
+  },
+  "pressTargetToCarrierMedian": 2.29,
+  "pressLagBehindTargetMedian": 1.9,
+  "pressActualToCarrierMedian": 2.37,
+  "nearestDefenderToCarrierMedian": 2.25,
+  "keeperOffLineMedian": 3.77,
+  "keeperLateralOffsetMedian": 9.95,
+  "keeperLaneDistanceMedian": 1.37,
+  "samples": {
+    "press": 166386,
+    "keeper": 166392,
+    "spells": 5519
+  }
+}
+Box possession sampling audit passed: real-match box spells, chances, press pursuit and keeper angles
+EXIT=0

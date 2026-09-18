@@ -1,0 +1,16 @@
+
+=== boxSeconds 在**审计口径**下的重标定（24 场，种子 372000..372023）===
+
+[0] 仪器自检 —— 本探针 control 必须与 `box-possession-sampling-audit.mjs` 的读数逐位相同：
+  control boxSeconds/场 = 693.3   boxSpells/场 = 43.63
+  ⚠ 比对命令：node scripts/box-possession-sampling-audit.mjs 24（看它的 boxSecondsPerMatch / boxSpellsPerMatch）
+
+[1] 两档对照：
+  control    boxSeconds/场    693.3   boxSpells/场   43.63
+  margin2    boxSeconds/场   830.98   boxSpells/场   50.83   （比 control +137.68）
+
+[2] 读法：
+· 这一档的 boxSeconds 才是**与审计 850 天花板同口径**的数字；校准探针的 855.58 不可直接比（17 vs 18 项属性）。
+· 若 margin2 在此口径下 ≤850，则**不需要重标天花板** —— 原来的「顶破」是跨口径比较造成的假象。
+· 若 >850，则需按 v252 先例重标（v252 是**收紧**：1200→850；本次将是**放宽**，须在注释里写明理由与代价）。
+EXIT=0

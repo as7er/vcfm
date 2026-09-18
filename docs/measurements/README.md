@@ -103,6 +103,38 @@ margin4/6 是**双向反向**——越位被压到带外下沿（1.25/1.38），
 证据：一次性跑全表时 control 读到 855.58，单独复跑时读到 726.52。
 ⚠ 该缺陷**不影响 `holdPass` 那轮数据**（那轮 control=703.36 / runC1.0=808.72 / holdPass6=625.88 互不相同）。
 
+## boxSec 跨口径问题已解决：`_box-seconds-rebaseline-probe.mjs`（2026-09-18 晚）
+
+交接文档长期挂着一条**未解决的口径不一致**：跑动原语的 boxSec 只在
+`_final-third-movement-calibration-probe.mjs` 里测过（`club()` 是 **18 项属性、带 `crossing`**），
+而 `box-possession-sampling-audit.mjs` 的 `makeClub()` 是 **17 项属性、无 `crossing`**
+（同种子 6 场受控 A/B 差 **+51.5s**）。
+
+**新探针 `scripts/_box-seconds-rebaseline-probe.mjs` 把它修好了**：逐字搬用审计的球队构造 /
+回合判据 / 采样循环，只多挂一个跑动原语。**自检 = `control` 的 boxSeconds 必须与审计逐位相同**：
+
+| 窗口 | 探针 control | 审计 | 判定 |
+|---|---:|---:|---|
+| 6 场 372000..372005 | **679.53** | **679.53** | ✅ |
+| 24 场 372000..372023 | **693.30** | **693.30** | ✅ |
+
+⚠ 保留：探针 `boxSpells` 比审计低（43.6 vs 216.8；审计按「换持球人」开回合，探针按「换持球方」）。
+`boxSeconds` 逐位相同，故对护栏判定有效；**别用 boxSpells 跨工具比**。
+
+### 复核推翻了「margin2 破 850」
+
+| 窗口 | control | margin2 | 判定 |
+|---|---:|---:|---|
+| 6 场 | 679.53 | **878.28** | ❌ 破 |
+| 24 场 372000.. | 693.30 | **830.98** | ✅ 过 |
+| 24 场 480000.. | 666.75 | **864.01** | ❌ 破 |
+
+**`margin2` 的 24 场均值 847.50 vs 护栏 850 ⇒ 只低 2.5；窗间 SD = 23.36。**
+⇒ **护栏落在噪声尺度内，24 场分不出过/破。** 6 场的 878.28 是小样本偏移
+（同时刻 `control` 也偏高）。**因此不落引擎、也不重标** ——
+要判定必须先给 boxSec 做噪声标定（N 批互不重叠窗口）。
+详见 [docs/through-pass-gate-and-player-ability-2026-09-18.md](../through-pass-gate-and-player-ability-2026-09-18.md) §3.4。
+
 ## 直塞噪声标定：那条「直塞 ❌ 反向」的判决**已作废**（2026-09-18）
 
 新探针 `scripts/_through-pass-noise-calibration-probe.mjs`（纯测量，不改引擎）：
