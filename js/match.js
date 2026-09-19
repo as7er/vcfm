@@ -1382,6 +1382,33 @@ function pushSimFlavor(state, item) {
 }
 
 /**
+ * 下半场开始时把「换边」开到引擎上，再做阵型重同步。
+ *
+ * 换边是**调用层**的职责（合同 A）：引擎自己不认比赛时长、不知道什么时候该换，
+ * 只提供一个 `endsSwapped` 开关。所以必须由真正知道「现在是下半场」的这层来置位。
+ *
+ * ⚠ `resyncSimAfterHalfTime` 另有换人/换阵触发路径（`state._simNeedsResync`），
+ *   那条路径**不能**顺带开换边 —— 否则用户在 60 分钟换个阵型，全队会当场换边。
+ *   因此换边置位只认 `fromMin === 46`（两个入口都固定从 46 开始下半场）。
+ *
+ * ⚠ `simEng` **不进存档**（见 PREPARED_MATCH_STATE_FIELDS，引擎实例不在其中），
+ *   读档续赛时 `ensureSimEngine` 会新建一个默认 `endsSwapped=false` 的引擎。
+ *   所以「是否已换边」必须记在 **state** 上，并在这里回灌给引擎，否则从下半场
+ *   读档继续的比赛会静默换回原半场。
+ *
+ * @param {object} state
+ * @param {number} fromMin 本段起始分钟
+ */
+function applyHalfTimeSwap(state, fromMin) {
+  const eng = state.simEng;
+  if (!eng) return;
+  if (fromMin === 46) state._endsSwappedApplied = true;
+  // 幂等：以 state 为准回灌引擎（新建的引擎也能自愈）
+  if (state._endsSwappedApplied) eng.endsSwapped = true;
+  resyncSimAfterHalfTime(state);
+}
+
+/**
  * 用户场：SimEngine 跑完时段 → scaled 记账。
  * 直播：只细播「高光窗」（进球/扑救/威胁），其余 skip，整场观赛约 ≤10 分钟。
  * opts.playHighlightPlan 由 main 注入。
@@ -1390,7 +1417,7 @@ async function simulatePeriodWithSim(state, fromMin, toMin, { onEvent, playHighl
   ensureSimEngine(state);
   wireSimInjuries(state);
   if (fromMin === 46 || state._simNeedsResync) {
-    resyncSimAfterHalfTime(state);
+    applyHalfTimeSwap(state, fromMin);
     state._simNeedsResync = false;
   }
 
@@ -1644,7 +1671,7 @@ function simulatePeriodWithSimSync(state, fromMin, toMin) {
   // 为避免微任务时序问题，内联同步路径：
   ensureSimEngine(state);
   wireSimInjuries(state);
-  if (fromMin >= 46) resyncSimAfterHalfTime(state);
+  if (fromMin >= 46) applyHalfTimeSwap(state, fromMin);
 
   const period = runSimPeriodRaw(state.simEng, fromMin, toMin);
   const { scaled, flavor, tStart, tEnd } = period;
@@ -3539,6 +3566,9 @@ const PREPARED_MATCH_STATE_FIELDS = Object.freeze([
   "_weatherImpact",
   "_simNeedsResync",
   "_simPendingSubs",
+  // 下半场是否已换边。simEng 本身不入档，读档后引擎会重建为
+  // endsSwapped=false，必须靠这个 state 字段在下一段模拟开始时回灌。
+  "_endsSwappedApplied",
 ]);
 
 function beginMatchSimulation(state, opts = {}) {

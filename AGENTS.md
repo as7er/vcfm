@@ -5,7 +5,7 @@
 > 仓库：https://github.com/as7er/vcfm.git · `master`（**2026-09-14 起规范地址为小写 `vcfm`**；
 > 大写 `VCFM` 仍可用但会走重定向，`origin` 已更新为小写）  
 > 预览：`python -m http.server 8765 --bind 127.0.0.1`  
-> 缓存：**vcfm-v268**（**有球跑位/无球跑位归因续查 + 换边前置重构 + 进场动画 + 一处方法论级坑**）：
+> 缓存：**vcfm-v269**（**有球跑位/无球跑位归因续查 + 换边前置重构 + 进场动画 + 一处方法论级坑**）：
 > ① **「下半场换边」查证结论：引擎从未实现** —— 不是「没处理好」，而是完全不存在。
 >    `attackDir(team)` 是纯函数无半场参数；`grep swapEnds|secondHalf` 实现 0 处；
 >    `grep MATCH_SECONDS js/` = 0 处（半场划分只在解说文案层 `js/match.js:1410/1655`）；
@@ -73,9 +73,40 @@
 >    候选：A2（`drop` 锚改 `lerp(baseY, b.y+dir*dropDepth, 0.65)`，推荐）/ A3（去骰子，
 >    根治）/ B（渲染层解耦开关，治标）；建议 A2→B 组合。**待用户拍板，未实施。**
 >    详见 `docs/offball-upstream-target-flip-2026-09-16.md`。
-> **换边第 2 步的设计**（加 `endsSwapped` 开关 + `_kickoff` 按方向选式子 +
-> `adapt.js` 阵型位镜像感知）见 `docs/halftime-side-swap-implementation-design-2026-09-19.md`，
-> **未实施**：会改随机流 ⇒ 进球率/强弱分离/beat 带宽/队形审计基线全需重标定。
+> ⑥ **换边第 2 步已实施（`endsSwapped` 开关 + 调用层接线）** —— 契约按设计文档的
+>    **方案 A**（调用层显式通知引擎，引擎保持「不知道比赛时长」）。
+>    `engine.js`：构造加 `this.endsSwapped = opts.endsSwapped === true`（**默认 false**）；
+>    `attackDir`/`targetGoalY`/`ownGoalY` 三入口换边取反；`_kickoff` 改按
+>    `attackingUp = attackDir(a.team) < 0` 选式子（含中圈退出）。
+>    `adapt.js:150-159`：镜像条件改 `isHome ? !!eng.endsSwapped : !eng.endsSwapped`。
+>    `match.js`：新增 `applyHalfTimeSwap(state, fromMin)` 取代两处裸 `resync` 调用。
+>    **两个非显然设计点（都容易踩）**：
+>    ① `resyncSimAfterHalfTime` 有**两条**触发路径 —— `fromMin === 46`（进下半场）
+>    与 `state._simNeedsResync`（换人/换阵）。**只有前者该开换边**；若把置位塞进
+>    函数内部，用户在 60 分钟换个阵型就会**全队当场换边**。
+>    ② `simEng` **不进存档**（不在 `PREPARED_MATCH_STATE_FIELDS`），读档后
+>    `ensureSimEngine` 新建的是默认引擎 ⇒ 换边状态必须记在
+>    `state._endsSwappedApplied` 上并回灌（已加入白名单）。
+>    **验证**：4 个新脚本 42 例全过（`_swap-ends-behavior-check` 13 /
+>    `_swap-ends-resync-check` 8+1 / `_swap-ends-wiring-check` 16 /
+>    `_swap-ends-fullmatch-probe` 5）；`endsSwapped=false` 下 3 场 × 16200 帧
+>    **bit-for-bit 相同**（`cmp` 退出码 0）。
+>    🔴🔴 **但发现换边范围是设计文档预估的 4 倍，本轮就此打住**：
+>    `grep -cE 'team === "home" \?' js/sim/engine.js` = **51 处**，剔除「球队标识
+>    互换」类后**仍有约 30 处「场地坐标推断」未收敛**（`yLo/yHi`、`bylineDir`、
+>    `boxY`、`nearBox`、`inOwnBuildZone`、越位线、门将站位、点球/门球位置……），
+>    换边时会**静默错位**。实证退化：`endsSwapped=true` 跑整场，主队射门位均 y
+>    从 ~10 翻到 ~67（射门链路换了），但**客队射门位均 y ≈ 49~55 仍在中线**
+>    （推进链路只换了一半，客队攻不上去）。
+>    ⇒ **判据不是「有没有异常」，而是「两队射门位均 y 是否各自翻到对面半场」。**
+>    下一步工作已分类成 4 类 / 3 个新入口（`_sign` / `_ownGoalSideY` / `_onOwnSide`），
+>    见设计文档 §7.5。⚠ 例外：`:2022` 的 `tx = 1 : 99` 是 **x 轴**，与换边无关。
+>    **在客队射门位均 y 翻到 y<50 侧之前，不要把换边暴露给用户。**
+>    **铁律**：换边改动每步都必须过「`endsSwapped=false` 逐位相同」这道门槛。
+> **换边第 2 步**（加 `endsSwapped` 开关 + `_kickoff` 按方向选式子 +
+> `adapt.js` 阵型位镜像感知 + 调用层接线）**已实施并通过 42 例验证 + 逐位等价**，
+> 状态见下方 ⑥。设计见 `docs/halftime-side-swap-implementation-design-2026-09-19.md`
+> （§7 是实施记录）。🔴 **但换边尚不可对用户开放** —— 详见 ⑥ 的范围发现。
 > v266 是总览·赛季快照排版修复 + 两处用户报告的缺陷修复 + 主动突破原语仍在：
 > ① **赛季快照「联赛排名」摘要不再"字体太大换行违和"** —— `css/style.css` 的
 > `.rank-box` 原用 `--fs-4xl`（22px，**页面标题**级字号）渲染一行密集信息

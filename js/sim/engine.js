@@ -508,6 +508,20 @@ export class SimEngine {
     this.away = away;
     this.opts = opts;
     this.random = typeof opts.random === "function" ? opts.random : Math.random;
+    /**
+     * 半场是否已换边（两队互易攻守方向）。
+     *
+     * 默认 `false` ⇒ **行为与不换边逐位相同**，因此旧基线全部有效。
+     * 由**调用层**在中场时置位（合同 A，见
+     * `docs/halftime-side-swap-implementation-design-2026-09-19.md` §6）：
+     * 引擎刻意不知道「比赛时长」，`this.t` 只是被外部 `step()` 驱动的
+     * 无限累加时钟，没有半场概念（`grep MATCH_SECONDS js/` = 0 处）。
+     * 让引擎自己按时间推断换边会把「赛制」塞进纯模拟器，是架构降级。
+     *
+     * ⚠ 改动这个位会**改随机流**（`attackDir` 翻转 ⇒ 所有 `dir * …` 的
+     * 目标点全变），所以任何翻转到 `true` 的场景都必须全量重标定。
+     */
+    this.endsSwapped = opts.endsSwapped === true;
     this.matchModifiers = opts.modifiers || null;
     this.simulationProfile = opts.simulationProfile || "standard";
     this.timeStep = clamp(Number(opts.timeStep) || SIM.DT, SIM.DT, 0.5);
@@ -798,12 +812,15 @@ export class SimEngine {
    * 详见 docs/halftime-side-swap-verification-2026-09-16.md §4。
    */
   attackDir(team) {
-    return team === "home" ? -1 : 1;
+    const base = team === "home" ? -1 : 1;
+    // 换边后攻守互易：原本朝 y 小进攻的改为朝 y 大。
+    return this.endsSwapped ? -base : base;
   }
 
   /** 该队此刻进攻的**目标球门** y（对手那侧的门）。 */
   targetGoalY(team) {
-    return team === "home" ? SIM.AWAY_GOAL_Y : SIM.HOME_GOAL_Y;
+    const base = team === "home" ? SIM.AWAY_GOAL_Y : SIM.HOME_GOAL_Y;
+    return this.endsSwapped ? 100 - base : base;
   }
 
   /**
@@ -815,7 +832,8 @@ export class SimEngine {
    * 反义，所以看起来像是同一个东西——换边时这就是最危险的一类重复。
    */
   ownGoalY(team) {
-    return team === "home" ? SIM.HOME_GOAL_Y : SIM.AWAY_GOAL_Y;
+    const base = team === "home" ? SIM.HOME_GOAL_Y : SIM.AWAY_GOAL_Y;
+    return this.endsSwapped ? 100 - base : base;
   }
 
   /**
@@ -7914,10 +7932,15 @@ export class SimEngine {
       if (a.sentOff) continue; // 已离场者不回基准位（保持走向边线/场外）
       a.x = a.baseX;
       // 常规 baseY 是运动战纵深，前锋已在对方半场；开球时压缩回己方半场。
-      a.y = a.team === "home" ? 50 + a.baseY * 0.48 : a.baseY * 0.48;
+      // ⚠ 这里必须按**该队此刻的进攻方向**判断压在哪一侧，不能写 `team === "home"`：
+      // 换边后主队守上半场、客队守下半场，用队名判断会把两队都压到错误的半场。
+      // `attackingUp` = 朝 y 小进攻 ⇒ 己方半场在 y 大那一侧。
+      const attackingUp = this.attackDir(a.team) < 0;
+      a.y = attackingUp ? 50 + a.baseY * 0.48 : a.baseY * 0.48;
       // 非开球队必须在球开出前退出中圈（半径约 9.15m）。
+      // 同样按进攻方向退向**自己的**半场，而不是按队名。
       if (a.team !== team) {
-        if (a.team === "home") a.y = Math.max(a.y, 59.5);
+        if (attackingUp) a.y = Math.max(a.y, 59.5);
         else a.y = Math.min(a.y, 40.5);
       }
       a.tx = a.x;

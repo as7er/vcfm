@@ -4,7 +4,7 @@
 // ⚠ 改 js/sim/engine.js 等预缓存资源后必须升这个版本号，否则回访用户会一直用旧引擎。
 // v255：中卫线随球前压 + 按防线高度缩放 + 远侧边卫随球前压（e6567a8 / 0692c6a / 2bd9fa5）。
 // v263：高光段入场加显式剪辑（修「球员/球/裁判整队瞬移」观感，matchview.js + style.css）。
-const CACHE = "vcfm-v268";
+const CACHE = "vcfm-v269";
 const isVcfmCache = (name) => /^vcfm-v\d+$/.test(name);
 const ASSETS = [
   "./",

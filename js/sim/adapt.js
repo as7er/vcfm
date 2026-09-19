@@ -149,7 +149,13 @@ export function resyncSimAfterHalfTime(state) {
       };
       let bx = slot.x;
       let by = slot.y;
-      if (!isHome) {
+      // 阵型槽坐标是「以本队进攻方向为基准」的：槽 y 小 = 靠己方后场。
+      // 主队原始朝向是 +y（主队门在 y=100），因此不换边时主队**不镜像**、
+      // 客队镜像；一旦 endsSwapped 打开，两队朝向互换，镜像关系也必须
+      // 整体取反，否则换边后阵型仍摆回原来那半场。
+      // 用引擎自己的 endsSwapped 作准，避免调用层传参与引擎状态脱节。
+      const mirrored = isHome ? !!eng.endsSwapped : !eng.endsSwapped;
+      if (mirrored) {
         bx = 100 - bx;
         by = 100 - by;
       }
