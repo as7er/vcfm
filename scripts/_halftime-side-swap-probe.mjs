@@ -11,6 +11,18 @@
 
 import { SimEngine } from "../js/sim/engine.js";
 
+/** mulberry32：小而快的 32 位 PRNG，同 seed 完全可复现 */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 const MATCHES = Math.max(1, Number(process.argv[2]) || 2);
 const START_SEED = Math.max(1, Number(process.argv[3]) || 391000);
 const DT = 0.1;
@@ -79,7 +91,11 @@ const EVENTS = [];
 
 for (let m = 0; m < MATCHES; m++) {
   const seed = START_SEED + m;
-  const engine = new SimEngine(makeClub(`home-${seed}`), makeClub(`away-${seed}`), { seed });
+  const engine = new SimEngine(makeClub(`home-${seed}`), makeClub(`away-${seed}`), {
+    // ⚠ 引擎只认 `opts.random`，**不认 `opts.seed`**（`this.random = opts.random
+    // ?? Math.random`，全仓 `opts.seed` 零引用）。传 `{ seed }` 会被静默忽略。
+    random: mulberry32(seed),
+  });
 
   // 包装 _kickoff：记录每次开球后的两队 y 中位数
   const origKickoff = engine._kickoff.bind(engine);

@@ -38,6 +38,21 @@
 
 import { SimEngine, SIM } from "../js/sim/engine.js";
 
+/**
+ * mulberry32：小而快的 32 位 PRNG，同 seed 完全可复现。
+ * 必须走 `opts.random` 注入 —— 引擎**不认** `opts.seed`（见 `runMatch` 注释）。
+ */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 const MATCHES = Math.max(1, Number(process.argv[2]) || 6);
 const START_SEED = Math.max(1, Number(process.argv[3]) || 381000);
 
@@ -364,8 +379,13 @@ function runMatch(seed) {
   const home = makeClub(`home-${seed}`, 15);
   const away = makeClub(`away-${seed}`, 15);
   // ⚠ 构造签名是 (home, away, opts)，与 `_beat-noise-calibration-probe.mjs` 一致。
-  // 这里**不传任何可选开关** —— 测的就是默认档。
-  const engine = new SimEngine(home, away, { seed });
+  // 这里**不传任何可选的战术开关** —— 测的就是默认档。
+  //
+  // ⚠⚠ 随机源必须走 `opts.random`：引擎 `:510` 只认 `opts.random`，
+  //     **不认 `seed`**（`this.random = opts.random ?? Math.random`，
+  //     全仓 `opts.seed` 零引用）。曾误传 `{ seed }` 被静默忽略 ⇒ 每次跑都是
+  //     新随机流 ⇒ 「同一探头跑两次不一致」，逐位对比与「同种子重跑」全部失效。
+  const engine = new SimEngine(home, away, { random: mulberry32(seed) });
   engine._probeSeed = seed;
   // 只跑一半时长即可拿到足够样本，且不同种子仍互不重叠
   const steps = Math.floor(SIM_SECONDS / DT / 2);

@@ -1,0 +1,1300 @@
+{
+  "config": {
+    "matches": 6,
+    "seeds": "381000..381005",
+    "tickSeconds": 0.1,
+    "matchSecondsSimulated": "2700"
+  },
+  "perMatch": [
+    {
+      "seed": 381000,
+      "recomputes": 26978,
+      "steps": 27000
+    },
+    {
+      "seed": 381001,
+      "recomputes": 26371,
+      "steps": 27000
+    },
+    {
+      "seed": 381002,
+      "recomputes": 26804,
+      "steps": 27000
+    },
+    {
+      "seed": 381003,
+      "recomputes": 26766,
+      "steps": 27000
+    },
+    {
+      "seed": 381004,
+      "recomputes": 26880,
+      "steps": 27000
+    },
+    {
+      "seed": 381005,
+      "recomputes": 26708,
+      "steps": 27000
+    }
+  ],
+  "totals": {
+    "recomputes": 160507,
+    "recomputesPerMatch": 26751.166666666668,
+    "heldByLease": 1503,
+    "heldShare": 0.009364077579171001,
+    "commitsWithoutThink": 0
+  },
+  "layer1_tactics_metres": {
+    "n": 160507,
+    "median": 0,
+    "p90": 0,
+    "max": 9.545985911788845,
+    "mean": 0.0008843050634265497
+  },
+  "layer2_commit_metres": {
+    "n": 160507,
+    "median": 0,
+    "p90": 0,
+    "max": 69.7627516155768,
+    "mean": 0.2657420184586881
+  },
+  "layer3_lateral_metres": {
+    "n": 274,
+    "median": 0.4388477428216217,
+    "p90": 0.7764458332626595,
+    "max": 1.293752163761138,
+    "mean": 0.4487076084090311
+  },
+  "net_metres": {
+    "n": 160507,
+    "median": 0,
+    "p90": 0,
+    "max": 69.7627516155768,
+    "mean": 0.2666263235221149
+  },
+  "layer_cancellation": {
+    "pairsWhereLayer2OpposesLayer1": 0,
+    "ofThoseNetUnder35pct": 0,
+    "share": 0
+  },
+  "layer3_separate": {
+    "calls": 161427,
+    "callsThatMovedAnyone": 133,
+    "totalPlayerPushes": 277,
+    "maxShoveMetres": 0.8682470164216215,
+    "shoveMetres": {
+      "n": 277,
+      "median": 0.4270546259810502,
+      "p90": 0.7762276807132507,
+      "max": 0.8682470164216215,
+      "mean": 0.44384795922048564
+    }
+  },
+  "fsmDistribution": {
+    "support": 89753,
+    "home": 70754
+  },
+  "netHistogram": [
+    {
+      "label": "<0.05m (未动)",
+      "count": 153470
+    },
+    {
+      "label": "0.05~0.5m",
+      "count": 145
+    },
+    {
+      "label": "0.5~2m",
+      "count": 4927
+    },
+    {
+      "label": "2~8m",
+      "count": 662
+    },
+    {
+      "label": ">=8m",
+      "count": 1303
+    }
+  ],
+  "leaseDiagnosis": {
+    "heldCount": 1503,
+    "heldShare": 0.009364077579171001,
+    "heldPreviousAgeSec": {
+      "n": 1503,
+      "median": 0.9000000000000128,
+      "p90": 1.1000000000002501,
+      "max": 1.4999999999999147,
+      "mean": 0.9282102461738697
+    },
+    "heldHoldGapMetres": {
+      "n": 1503,
+      "median": 19.585428261515023,
+      "p90": 37.75990520267069,
+      "max": 69.7627516155768,
+      "mean": 21.387603342422086
+    },
+    "heldHeldGapOver8m": 1302,
+    "nonHeldNetMetres": {
+      "n": 159004,
+      "median": 0,
+      "p90": 0,
+      "max": 9.545985911788845,
+      "mean": 0.06697833693430741
+    },
+    "heldByBallDisplacement": [
+      {
+        "label": "球相对旧点 <5m（世界没变）",
+        "count": 29,
+        "shareOfHeld": 0.01929474384564205,
+        "holdGapMedian": 10.792668530967306,
+        "holdGapMax": 26.50518782099279,
+        "gapOver8m": 17
+      },
+      {
+        "label": "5~15m",
+        "count": 349,
+        "shareOfHeld": 0.2322022621423819,
+        "holdGapMedian": 20.477276906351676,
+        "holdGapMax": 66.2689687334882,
+        "gapOver8m": 304
+      },
+      {
+        "label": "15~30m",
+        "count": 733,
+        "shareOfHeld": 0.48769128409846974,
+        "holdGapMedian": 17.898040016104755,
+        "holdGapMax": 69.517483258089,
+        "gapOver8m": 624
+      },
+      {
+        "label": ">=30m（世界已跑远）",
+        "count": 392,
+        "shareOfHeld": 0.26081170991350633,
+        "holdGapMedian": 23.304341550965212,
+        "holdGapMax": 69.7627516155768,
+        "gapOver8m": 357
+      }
+    ],
+    "heldBandsTotal": 1503,
+    "heldWhereCandidateWasCloserToBall": 685,
+    "ofThoseHoldingOver8m": 557
+  },
+  "thresholdCalibration": {
+    "ballTravelMetresAllCommits": {
+      "n": 150296,
+      "median": 3.022561748941222,
+      "p90": 7.418157025725963,
+      "max": 30.812431635308535,
+      "mean": 3.8707568698545654
+    },
+    "ballTravelQuantiles": [
+      {
+        "q": 0.1,
+        "metres": 0.9646136972038254
+      },
+      {
+        "q": 0.25,
+        "metres": 1.676153924826184
+      },
+      {
+        "q": 0.5,
+        "metres": 3.022561748941222
+      },
+      {
+        "q": 0.75,
+        "metres": 4.856899276504266
+      },
+      {
+        "q": 0.9,
+        "metres": 7.418157025725963
+      },
+      {
+        "q": 0.95,
+        "metres": 10.248525876333844
+      },
+      {
+        "q": 0.99,
+        "metres": 18.378816233505912
+      }
+    ],
+    "candidates": [
+      {
+        "thresholdMetres": 2,
+        "heldKept": 444,
+        "heldKeptShare": 0.2954091816367265,
+        "heldKilled": 1059,
+        "bigHoldsKilled": 956,
+        "keptHoldGapMedian": 20.302258239192238,
+        "keptHoldGapMax": 69.7627516155768,
+        "shareOfAllCommitsKeptEligible": 0.29463512494782157
+      },
+      {
+        "thresholdMetres": 3,
+        "heldKept": 652,
+        "heldKeptShare": 0.4337990685296075,
+        "heldKilled": 851,
+        "bigHoldsKilled": 779,
+        "keptHoldGapMedian": 20.302258239192238,
+        "keptHoldGapMax": 69.7627516155768,
+        "shareOfAllCommitsKeptEligible": 0.46469624377752994
+      },
+      {
+        "thresholdMetres": 5,
+        "heldKept": 982,
+        "heldKeptShare": 0.6533599467731205,
+        "heldKilled": 521,
+        "bigHoldsKilled": 484,
+        "keptHoldGapMedian": 19.621625554556307,
+        "keptHoldGapMax": 69.7627516155768,
+        "shareOfAllCommitsKeptEligible": 0.7140062427183861
+      },
+      {
+        "thresholdMetres": 8,
+        "heldKept": 1152,
+        "heldKeptShare": 0.7664670658682635,
+        "heldKilled": 351,
+        "bigHoldsKilled": 338,
+        "keptHoldGapMedian": 19.537433962471745,
+        "keptHoldGapMax": 69.7627516155768,
+        "shareOfAllCommitsKeptEligible": 0.8573707065735451
+      },
+      {
+        "thresholdMetres": 12,
+        "heldKept": 1295,
+        "heldKeptShare": 0.8616101131071191,
+        "heldKilled": 208,
+        "bigHoldsKilled": 206,
+        "keptHoldGapMedian": 19.063226722431722,
+        "keptHoldGapMax": 69.7627516155768,
+        "shareOfAllCommitsKeptEligible": 0.9051069423763449
+      },
+      {
+        "thresholdMetres": 20,
+        "heldKept": 1426,
+        "heldKeptShare": 0.948769128409847,
+        "heldKilled": 77,
+        "bigHoldsKilled": 77,
+        "keptHoldGapMedian": 19.063226722431722,
+        "keptHoldGapMax": 69.7627516155768,
+        "shareOfAllCommitsKeptEligible": 0.9290809746615413
+      },
+      {
+        "thresholdMetres": 30,
+        "heldKept": 1502,
+        "heldKeptShare": 0.9993346640053227,
+        "heldKilled": 1,
+        "bigHoldsKilled": 1,
+        "keptHoldGapMedian": 19.621625554556307,
+        "keptHoldGapMax": 69.7627516155768,
+        "shareOfAllCommitsKeptEligible": 0.9362893830175631
+      }
+    ]
+  },
+  "residualAttribution": {
+    "crossoverBallThresholdMetres": 3,
+    "totalBigHolds": 1302,
+    "fixedByBallThreshold": 779,
+    "unfixableByBallThresholdAlone": 523,
+    "unfixableShareOfBigHolds": 0.40168970814132104,
+    "byPlayerRemaining": [
+      {
+        "label": "球员距旧目标 <5m",
+        "total": 554,
+        "ballSmallCount": 242,
+        "ballLargeCount": 312,
+        "gapMedian": 11.026819804598679,
+        "unfixableBigHolds": 127,
+        "unfixableGapMax": 56.476152586838225
+      },
+      {
+        "label": "5~15m",
+        "total": 656,
+        "ballSmallCount": 254,
+        "ballLargeCount": 402,
+        "gapMedian": 19.66190119519338,
+        "unfixableBigHolds": 240,
+        "unfixableGapMax": 69.40263682829837
+      },
+      {
+        "label": "15~30m",
+        "total": 221,
+        "ballSmallCount": 112,
+        "ballLargeCount": 109,
+        "gapMedian": 28.403804578268964,
+        "unfixableBigHolds": 112,
+        "unfixableGapMax": 69.7627516155768
+      },
+      {
+        "label": ">=30m",
+        "total": 72,
+        "ballSmallCount": 44,
+        "ballLargeCount": 28,
+        "gapMedian": 53.55973405676165,
+        "unfixableBigHolds": 44,
+        "unfixableGapMax": 69.517483258089
+      }
+    ]
+  },
+  "closureDiagnosis": {
+    "closingRateMpsAllHeld": {
+      "n": 1503,
+      "median": 4.765955735049748,
+      "p90": 5.539269729627378,
+      "max": 6.005847088739295,
+      "mean": 4.355884115685026
+    },
+    "sanity": {
+      "physicallyPossible": 1503,
+      "impossibleAbove12mps": 0,
+      "playerStepMetresInInterval": {
+        "n": 1503,
+        "median": 4.116440908148693,
+        "p90": 5.557685229800739,
+        "max": 6.884196283205974,
+        "mean": 4.0804655361354305
+      }
+    },
+    "breakdowns": [
+      {
+        "label": "全部 held",
+        "n": 1503,
+        "buckets": [
+          {
+            "label": "正在远离 (<= -0.15 m/s)",
+            "count": 21
+          },
+          {
+            "label": "基本静止 (-0.15~0.15)",
+            "count": 6
+          },
+          {
+            "label": "正在接近 (>= 0.15 m/s)",
+            "count": 1476
+          }
+        ]
+      },
+      {
+        "label": "按住 >=8m 的 held",
+        "n": 1302,
+        "buckets": [
+          {
+            "label": "正在远离 (<= -0.15 m/s)",
+            "count": 18
+          },
+          {
+            "label": "基本静止 (-0.15~0.15)",
+            "count": 4
+          },
+          {
+            "label": "正在接近 (>= 0.15 m/s)",
+            "count": 1280
+          }
+        ]
+      },
+      {
+        "label": "按住 <8m 的 held（疑似真防抖）",
+        "n": 201,
+        "buckets": [
+          {
+            "label": "正在远离 (<= -0.15 m/s)",
+            "count": 3
+          },
+          {
+            "label": "基本静止 (-0.15~0.15)",
+            "count": 2
+          },
+          {
+            "label": "正在接近 (>= 0.15 m/s)",
+            "count": 196
+          }
+        ]
+      },
+      {
+        "label": "球没动却按住 >=8m（阈值救不了的那批）",
+        "n": 523,
+        "buckets": [
+          {
+            "label": "正在远离 (<= -0.15 m/s)",
+            "count": 3
+          },
+          {
+            "label": "基本静止 (-0.15~0.15)",
+            "count": 0
+          },
+          {
+            "label": "正在接近 (>= 0.15 m/s)",
+            "count": 520
+          }
+        ]
+      }
+    ],
+    "ifPredicateBecameClosing": [
+      {
+        "epsilonMps": 0.15,
+        "bigHoldsKilled": 22,
+        "bigHoldsKilledShare": 0.016897081413210446,
+        "realDampingKilled": 5,
+        "realDampingKilledShare": 0.024875621890547265
+      },
+      {
+        "epsilonMps": 0.3,
+        "bigHoldsKilled": 24,
+        "bigHoldsKilledShare": 0.018433179723502304,
+        "realDampingKilled": 7,
+        "realDampingKilledShare": 0.03482587064676617
+      },
+      {
+        "epsilonMps": 0.5,
+        "bigHoldsKilled": 26,
+        "bigHoldsKilledShare": 0.019969278033794162,
+        "realDampingKilled": 9,
+        "realDampingKilledShare": 0.04477611940298507
+      },
+      {
+        "epsilonMps": 1,
+        "bigHoldsKilled": 30,
+        "bigHoldsKilledShare": 0.02304147465437788,
+        "realDampingKilled": 10,
+        "realDampingKilledShare": 0.04975124378109453
+      }
+    ]
+  },
+  "unfixableResidual": {
+    "count": 523,
+    "newCandidateCloserToBall": 268,
+    "oldTargetAtLeast15mFromBall": 426,
+    "newCandidateWithin10mOfBall": 55,
+    "newCandidateDistanceToBall": {
+      "n": 523,
+      "median": 25.411386206149945,
+      "p90": 56.67017630575131,
+      "max": 86.42205869900192,
+      "mean": 28.980819018616288
+    },
+    "oldTargetDistanceToBall": {
+      "n": 523,
+      "median": 25.941519795719884,
+      "p90": 51.12720507618214,
+      "max": 84.75711607681848,
+      "mean": 27.733477366661795
+    },
+    "topSamples": [
+      {
+        "holdGapM": 69.76,
+        "ballTravelM": 1.48,
+        "oldRemainM": 28.03,
+        "closingMps": 2.56,
+        "ballToOldTargetM": 81.96,
+        "ballToNewCandM": 20.87,
+        "fsm": "home",
+        "held": {
+          "x": 24.1,
+          "y": 19.9
+        },
+        "newCand": {
+          "x": 21.4,
+          "y": 86.3
+        },
+        "player": {
+          "x": 43.7,
+          "y": 48.1
+        }
+      },
+      {
+        "holdGapM": 69.52,
+        "ballTravelM": 2.35,
+        "oldRemainM": 31.08,
+        "closingMps": 5.49,
+        "ballToOldTargetM": 23.74,
+        "ballToNewCandM": 80.29,
+        "fsm": "support",
+        "held": {
+          "x": 82.4,
+          "y": 16.2
+        },
+        "newCand": {
+          "x": 55.8,
+          "y": 80.2
+        },
+        "player": {
+          "x": 50.4,
+          "y": 91.4
+        }
+      },
+      {
+        "holdGapM": 69.49,
+        "ballTravelM": 2.19,
+        "oldRemainM": 60.41,
+        "closingMps": 5.28,
+        "ballToOldTargetM": 25.64,
+        "ballToNewCandM": 82.91,
+        "fsm": "support",
+        "held": {
+          "x": 21.6,
+          "y": 12.7
+        },
+        "newCand": {
+          "x": 25.3,
+          "y": 78.9
+        },
+        "player": {
+          "x": 26.7,
+          "y": 91.3
+        }
+      },
+      {
+        "holdGapM": 69.4,
+        "ballTravelM": 1.36,
+        "oldRemainM": 6.07,
+        "closingMps": 5.19,
+        "ballToOldTargetM": 33.84,
+        "ballToNewCandM": 86.42,
+        "fsm": "support",
+        "held": {
+          "x": 29.4,
+          "y": 12.1
+        },
+        "newCand": {
+          "x": 27.8,
+          "y": 78.2
+        },
+        "player": {
+          "x": 42.7,
+          "y": 47.1
+        }
+      },
+      {
+        "holdGapM": 69.07,
+        "ballTravelM": 2.1,
+        "oldRemainM": 58.21,
+        "closingMps": 5.5,
+        "ballToOldTargetM": 25.4,
+        "ballToNewCandM": 84.72,
+        "fsm": "support",
+        "held": {
+          "x": 23.2,
+          "y": 86.4
+        },
+        "newCand": {
+          "x": 25.2,
+          "y": 20.7
+        },
+        "player": {
+          "x": 43.7,
+          "y": 48.1
+        }
+      },
+      {
+        "holdGapM": 68.78,
+        "ballTravelM": 0.55,
+        "oldRemainM": 30.83,
+        "closingMps": 5.47,
+        "ballToOldTargetM": 21.46,
+        "ballToNewCandM": 81.66,
+        "fsm": "support",
+        "held": {
+          "x": 23.6,
+          "y": 85.3
+        },
+        "newCand": {
+          "x": 24.7,
+          "y": 19.8
+        },
+        "player": {
+          "x": 43.7,
+          "y": 48.1
+        }
+      },
+      {
+        "holdGapM": 68.61,
+        "ballTravelM": 1.69,
+        "oldRemainM": 24.57,
+        "closingMps": 5.33,
+        "ballToOldTargetM": 21.35,
+        "ballToNewCandM": 80.58,
+        "fsm": "support",
+        "held": {
+          "x": 20.8,
+          "y": 14
+        },
+        "newCand": {
+          "x": 24.4,
+          "y": 79.3
+        },
+        "player": {
+          "x": 26.7,
+          "y": 91.3
+        }
+      },
+      {
+        "holdGapM": 68.05,
+        "ballTravelM": 0.46,
+        "oldRemainM": 30.94,
+        "closingMps": 2.45,
+        "ballToOldTargetM": 79.82,
+        "ballToNewCandM": 23.69,
+        "fsm": "home",
+        "held": {
+          "x": 55,
+          "y": 80.1
+        },
+        "newCand": {
+          "x": 77.7,
+          "y": 17
+        },
+        "player": {
+          "x": 77.4,
+          "y": 32.7
+        }
+      },
+      {
+        "holdGapM": 67.49,
+        "ballTravelM": 2.57,
+        "oldRemainM": 54.23,
+        "closingMps": 5.46,
+        "ballToOldTargetM": 20.01,
+        "ballToNewCandM": 80.53,
+        "fsm": "support",
+        "held": {
+          "x": 74.8,
+          "y": 16.9
+        },
+        "newCand": {
+          "x": 55.9,
+          "y": 80
+        },
+        "player": {
+          "x": 69,
+          "y": 47.1
+        }
+      },
+      {
+        "holdGapM": 67.48,
+        "ballTravelM": 0.77,
+        "oldRemainM": 16.91,
+        "closingMps": 4.21,
+        "ballToOldTargetM": 21.76,
+        "ballToNewCandM": 80.77,
+        "fsm": "support",
+        "held": {
+          "x": 21.9,
+          "y": 15.2
+        },
+        "newCand": {
+          "x": 24.5,
+          "y": 79.5
+        },
+        "player": {
+          "x": 42.7,
+          "y": 47.1
+        }
+      },
+      {
+        "holdGapM": 66.77,
+        "ballTravelM": 1.36,
+        "oldRemainM": 51.26,
+        "closingMps": 5.41,
+        "ballToOldTargetM": 23.31,
+        "ballToNewCandM": 81.28,
+        "fsm": "support",
+        "held": {
+          "x": 81.6,
+          "y": 82.1
+        },
+        "newCand": {
+          "x": 56.3,
+          "y": 20.6
+        },
+        "player": {
+          "x": 70.7,
+          "y": 45
+        }
+      },
+      {
+        "holdGapM": 66.54,
+        "ballTravelM": 1.99,
+        "oldRemainM": 17.76,
+        "closingMps": 5.3,
+        "ballToOldTargetM": 22.45,
+        "ballToNewCandM": 80.94,
+        "fsm": "support",
+        "held": {
+          "x": 21.1,
+          "y": 16.1
+        },
+        "newCand": {
+          "x": 24.4,
+          "y": 79.4
+        },
+        "player": {
+          "x": 26.7,
+          "y": 91.3
+        }
+      },
+      {
+        "holdGapM": 66.04,
+        "ballTravelM": 1.49,
+        "oldRemainM": 11.35,
+        "closingMps": 3.62,
+        "ballToOldTargetM": 84.76,
+        "ballToNewCandM": 27.56,
+        "fsm": "home",
+        "held": {
+          "x": 25.3,
+          "y": 20.2
+        },
+        "newCand": {
+          "x": 24.6,
+          "y": 83.1
+        },
+        "player": {
+          "x": 43.7,
+          "y": 48.1
+        }
+      },
+      {
+        "holdGapM": 65.6,
+        "ballTravelM": 2.3,
+        "oldRemainM": 35.72,
+        "closingMps": 3.42,
+        "ballToOldTargetM": 81.05,
+        "ballToNewCandM": 23.78,
+        "fsm": "home",
+        "held": {
+          "x": 23.9,
+          "y": 20.5
+        },
+        "newCand": {
+          "x": 19.1,
+          "y": 82.9
+        },
+        "player": {
+          "x": 43.7,
+          "y": 48.1
+        }
+      },
+      {
+        "holdGapM": 65.08,
+        "ballTravelM": 1.97,
+        "oldRemainM": 30.63,
+        "closingMps": 3.89,
+        "ballToOldTargetM": 79.1,
+        "ballToNewCandM": 25.95,
+        "fsm": "home",
+        "held": {
+          "x": 54.7,
+          "y": 79
+        },
+        "newCand": {
+          "x": 77.7,
+          "y": 18.8
+        },
+        "player": {
+          "x": 65.4,
+          "y": 97.7
+        }
+      }
+    ]
+  },
+  "contextLeakDiagnosis": {
+    "unfixableCount": 523,
+    "heldAndCandidateOnOppositeHalves": 277,
+    "flippedOver30m": 142,
+    "allHeldCrossHalfCount": 622,
+    "allHeldCrossHalfShare": 0.4138389886892881,
+    "unfixableCrossHalfShare": 0.5296367112810707,
+    "ownerShapeDuringUnfixable": {
+      "sameOwnerId": 520,
+      "ownerBecameNull": 0,
+      "ownerChanged": 0,
+      "phaseChanged": 0,
+      "unknown": 3
+    }
+  },
+  "sideSwitchDiagnosis": {
+    "bigMoveThresholdMetres": 8,
+    "bigMoves": 1303,
+    "longitudinalFlipLike": 153,
+    "longitudinalFlipAndHeldByLease": 153,
+    "crossedHalfwayLine": 611
+  },
+  "bigMoves": {
+    "thresholdMetres": 8,
+    "count": 1303,
+    "share": 0.00811802600509635,
+    "top": [
+      {
+        "netM": 69.76,
+        "layer1M": 0,
+        "layer2M": 69.76,
+        "fsm": "home",
+        "phase": "in-possession",
+        "held": true,
+        "from": {
+          "x": 21.4,
+          "y": 86.3
+        },
+        "to": {
+          "x": 24.1,
+          "y": 19.9
+        }
+      },
+      {
+        "netM": 69.52,
+        "layer1M": 0,
+        "layer2M": 69.52,
+        "fsm": "support",
+        "phase": "in-possession",
+        "held": true,
+        "from": {
+          "x": 55.8,
+          "y": 80.2
+        },
+        "to": {
+          "x": 82.4,
+          "y": 16.2
+        }
+      },
+      {
+        "netM": 69.49,
+        "layer1M": 0,
+        "layer2M": 69.49,
+        "fsm": "support",
+        "phase": "in-possession",
+        "held": true,
+        "from": {
+          "x": 25.3,
+          "y": 78.9
+        },
+        "to": {
+          "x": 21.6,
+          "y": 12.7
+        }
+      },
+      {
+        "netM": 69.4,
+        "layer1M": 0,
+        "layer2M": 69.4,
+        "fsm": "support",
+        "phase": "in-possession",
+        "held": true,
+        "from": {
+          "x": 27.8,
+          "y": 78.2
+        },
+        "to": {
+          "x": 29.4,
+          "y": 12.1
+        }
+      },
+      {
+        "netM": 69.37,
+        "layer1M": 0,
+        "layer2M": 69.37,
+        "fsm": "home",
+        "phase": "in-possession",
+        "held": true,
+        "from": {
+          "x": 77.3,
+          "y": 15.5
+        },
+        "to": {
+          "x": 54.1,
+          "y": 79.8
+        }
+      },
+      {
+        "netM": 69.07,
+        "layer1M": 0,
+        "layer2M": 69.07,
+        "fsm": "support",
+        "phase": "in-possession",
+        "held": true,
+        "from": {
+          "x": 25.2,
+          "y": 20.7
+        },
+        "to": {
+          "x": 23.2,
+          "y": 86.4
+        }
+      },
+      {
+        "netM": 68.78,
+        "layer1M": 0,
+        "layer2M": 68.78,
+        "fsm": "support",
+        "phase": "in-possession",
+        "held": true,
+        "from": {
+          "x": 24.7,
+          "y": 19.8
+        },
+        "to": {
+          "x": 23.6,
+          "y": 85.3
+        }
+      },
+      {
+        "netM": 68.61,
+        "layer1M": 0,
+        "layer2M": 68.61,
+        "fsm": "support",
+        "phase": "in-possession",
+        "held": true,
+        "from": {
+          "x": 24.4,
+          "y": 79.3
+        },
+        "to": {
+          "x": 20.8,
+          "y": 14
+        }
+      },
+      {
+        "netM": 68.05,
+        "layer1M": 0,
+        "layer2M": 68.05,
+        "fsm": "home",
+        "phase": "in-possession",
+        "held": true,
+        "from": {
+          "x": 77.7,
+          "y": 17
+        },
+        "to": {
+          "x": 55,
+          "y": 80.1
+        }
+      },
+      {
+        "netM": 67.54,
+        "layer1M": 0,
+        "layer2M": 67.54,
+        "fsm": "support",
+        "phase": "in-possession",
+        "held": true,
+        "from": {
+          "x": 54.8,
+          "y": 80.2
+        },
+        "to": {
+          "x": 76.4,
+          "y": 17.4
+        }
+      },
+      {
+        "netM": 67.49,
+        "layer1M": 0,
+        "layer2M": 67.49,
+        "fsm": "support",
+        "phase": "attacking-transition",
+        "held": true,
+        "from": {
+          "x": 55.9,
+          "y": 80
+        },
+        "to": {
+          "x": 74.8,
+          "y": 16.9
+        }
+      },
+      {
+        "netM": 67.48,
+        "layer1M": 0,
+        "layer2M": 67.48,
+        "fsm": "support",
+        "phase": "in-possession",
+        "held": true,
+        "from": {
+          "x": 24.5,
+          "y": 79.5
+        },
+        "to": {
+          "x": 21.9,
+          "y": 15.2
+        }
+      }
+    ]
+  },
+  "phasesSeen": [
+    "attacking-transition",
+    "in-possession"
+  ]
+}
+
+【逐层位移归因 · 单位米】
+  层1 战术(宽度/拉拽/纵深/锚点)  中位 0.00  p90 0.00  max 9.55
+  层2 提交(租约/防拥挤/越位投影) 中位 0.00  p90 0.00  max 69.76
+  层3 横向松弛(仅被推开者)       中位 0.44  p90 0.78  max 1.29
+  三层合计净位移(层1起→层2终)    中位 0.00  p90 0.00  max 69.76
+  未经 _thinkAttackOffBall 的提交: 0
+
+【层间抵消（层2 把层1 推回去）】
+  方向相反的样本 0 / 160507
+  其中净位移 < 较大分量的 35%：0  ← 数值上是"来回抵消"
+
+【层3 横向松弛（全体定稿后）】
+  调用 161427 次，其中 133 次真的推开了人
+  累计被推动的球员·次 277，单次最大横移 0.87 m
+
+【租约否决】
+  目标被租约保留(decision=held) 的比例 0.9%  (1503/160507)
+
+【fsm 分布】
+  support: 89753
+  home: 70754
+
+【净位移量级分桶】
+  <0.05m (未动)       153470  95.62%
+  0.05~0.5m            145  0.09%
+  0.5~2m              4927  3.07%
+  2~8m                 662  0.41%
+  >=8m                1303  0.81%
+
+【大位移样本（>= 8m）】 共 1303 例（0.812%），最大的 12 个：
+   69.76m  fsm=home     层1=    0m 层2=69.76m  {"x":21.4,"y":86.3}→{"x":24.1,"y":19.9}  held=true
+   69.52m  fsm=support  层1=    0m 层2=69.52m  {"x":55.8,"y":80.2}→{"x":82.4,"y":16.2}  held=true
+   69.49m  fsm=support  层1=    0m 层2=69.49m  {"x":25.3,"y":78.9}→{"x":21.6,"y":12.7}  held=true
+    69.4m  fsm=support  层1=    0m 层2= 69.4m  {"x":27.8,"y":78.2}→{"x":29.4,"y":12.1}  held=true
+   69.37m  fsm=home     层1=    0m 层2=69.37m  {"x":77.3,"y":15.5}→{"x":54.1,"y":79.8}  held=true
+   69.07m  fsm=support  层1=    0m 层2=69.07m  {"x":25.2,"y":20.7}→{"x":23.2,"y":86.4}  held=true
+   68.78m  fsm=support  层1=    0m 层2=68.78m  {"x":24.7,"y":19.8}→{"x":23.6,"y":85.3}  held=true
+   68.61m  fsm=support  层1=    0m 层2=68.61m  {"x":24.4,"y":79.3}→{"x":20.8,"y":14}  held=true
+   68.05m  fsm=home     层1=    0m 层2=68.05m  {"x":77.7,"y":17}→{"x":55,"y":80.1}  held=true
+   67.54m  fsm=support  层1=    0m 层2=67.54m  {"x":54.8,"y":80.2}→{"x":76.4,"y":17.4}  held=true
+   67.49m  fsm=support  层1=    0m 层2=67.49m  {"x":55.9,"y":80}→{"x":74.8,"y":16.9}  held=true
+   67.48m  fsm=support  层1=    0m 层2=67.48m  {"x":24.5,"y":79.5}→{"x":21.9,"y":15.2}  held=true
+
+【🔑 租约否决诊断 —— 这才是大位移的真正来源】
+  held 样本 1503 个（占 0.94%）
+  被保留的旧点年龄(秒)  中位 0.90  p90 1.10  max 1.50
+  租约把球员按住的距离(米) 中位 19.59  p90 37.76  max 69.76
+  其中按住幅度 >= 8m 的: 1302  ← 这些就是分桶里的"大位移"
+  对照：非 held 样本的净位移 中位 0.00  p90 0.00  max 9.55
+
+【🔑🔑 决定性分层：这次 hold 是对是错？】
+  （holdPrevious 的四个条件全部只引用球员自身，没有一个引用球 ——
+    所以判它合不合理，只能从外部补上球的信息）
+  按「球相对旧目标跑了多远」分层：
+    分档                          计数    占held   按住中位   按住max   其中>=8m
+    球相对旧点 <5m（世界没变）                  29    1.9%     10.79     26.51       17
+    5~15m                           349   23.2%     20.48     66.27      304
+    15~30m                          733   48.8%     17.90     69.52      624
+    >=30m（世界已跑远）                    392   26.1%     23.30     69.76      357
+    （未计入分层的 held: 0）
+  新候选点更靠近球、却仍被旧点取代: 685 例
+    其中按住幅度 >=8m 的: 557 例  ← 这些几乎没有辩护余地
+
+【🔑🔑 阈值标定：leaseMaxBallTravelMetres 该取多少】
+  语义 = 「球从上次定目标到现在跑了多远，就认为上下文已变」
+  全体样本的球位移(米)：中位 3.02  p75 4.86  p90 7.42  p99 18.38  max 30.81
+
+  候选阈值 → 后果：
+    阈值   仍hold  占held   阻止的hold   阻止的>=8m按住   留下的按住中位/max   全体放行率
+      2m     444   29.5%       1059            956       20.3/    69.8    29.5%
+      3m     652   43.4%        851            779       20.3/    69.8    46.5%
+      5m     982   65.3%        521            484       19.6/    69.8    71.4%
+      8m    1152   76.6%        351            338       19.5/    69.8    85.7%
+     12m    1295   86.2%        208            206       19.1/    69.8    90.5%
+     20m    1426   94.9%         77             77       19.1/    69.8    92.9%
+     30m    1502   99.9%          1              1       19.6/    69.8    93.6%
+
+【🔑🔑 残余归因：球位移阈值(3m)能救多少】
+  全部 >=8m 按住: 1302
+  能被球位移阈值阻止: 779
+  救不了的: 523  (40.2%)  ← 球几乎没动，球员却被按住
+
+  按「球员距旧目标剩余」交叉（这是救不了那部分的主导条件）：
+    球员剩余        总数   球动小  球动大   按住中位   球没动却按住>=8m   其最大按住
+    球员距旧目标 <5m          554     242     312       11.0               127        56.5
+    5~15m               656     254     402       19.7               240        69.4
+    15~30m              221     112     109       28.4               112        69.8
+    >=30m                72      44      28       53.6                44        69.5
+
+【🔑🔑🔑 决定性：球员在接近旧目标，还是被它甩开？】
+  （假设：`oldTargetRemaining >= 2.4` 的语义是「还没到达」，
+    而租约的意图是「正在接近」—— 一个被球甩开、正在远离的球员同样满足「还没到达」）
+  全部 held 的接近速率(米/秒，正=接近)：中位 4.77  p10 2.73  p90 5.54
+  ⚠ 物理自检：>12m/s 的读数 0 个（应为 0，球员跑不到这么快）
+             球员在间隔内的实际位移：中位 4.12m  p90 5.56m  max 6.88m
+
+  全部 held  n=1503
+      正在远离 (<= -0.15 m/s): 21 (1.4%)
+      基本静止 (-0.15~0.15): 6 (0.4%)
+      正在接近 (>= 0.15 m/s): 1476 (98.2%)
+  按住 >=8m 的 held  n=1302
+      正在远离 (<= -0.15 m/s): 18 (1.4%)
+      基本静止 (-0.15~0.15): 4 (0.3%)
+      正在接近 (>= 0.15 m/s): 1280 (98.3%)
+  按住 <8m 的 held（疑似真防抖）  n=201
+      正在远离 (<= -0.15 m/s): 3 (1.5%)
+      基本静止 (-0.15~0.15): 2 (1.0%)
+      正在接近 (>= 0.15 m/s): 196 (97.5%)
+  球没动却按住 >=8m（阈值救不了的那批）  n=523
+      正在远离 (<= -0.15 m/s): 3 (0.6%)
+      基本静止 (-0.15~0.15): 0 (0.0%)
+      正在接近 (>= 0.15 m/s): 520 (99.4%)
+
+  若把判据从「还没到达」改成「正在接近」：
+    eps(米/秒)   阻止的>=8m错按   占错按   误伤的真防抖(<8m)   占防抖
+        0.15              22     1.7%                 5     2.5%
+         0.3              24     1.8%                 7     3.5%
+         0.5              26     2.0%                 9     4.5%
+           1              30     2.3%                10     5.0%
+
+【🔑🔑🔑🔑 球位移阈值救不了的那 523 例：原始样本】
+  新候选点更靠近球的: 268  (51.2%)
+  旧目标距球 >=15m 的: 426  (81.5%)
+  新候选点距球 <=10m 的: 55  (10.5%)
+  新候选点距球：中位 25.41m  max 86.42m
+  旧目标距球：  中位 25.94m  max 84.76m
+
+  按按住幅度最大的 15 例：
+    按住m  球位移m  球员距旧点m  接近m/s  旧点→球m  新点→球m   fsm
+     69.76     1.48       28.03     2.56     81.96     20.87   home
+     69.52     2.35       31.08     5.49     23.74     80.29   support
+     69.49     2.19       60.41     5.28     25.64     82.91   support
+      69.4     1.36        6.07     5.19     33.84     86.42   support
+     69.07      2.1       58.21      5.5      25.4     84.72   support
+     68.78     0.55       30.83     5.47     21.46     81.66   support
+     68.61     1.69       24.57     5.33     21.35     80.58   support
+     68.05     0.46       30.94     2.45     79.82     23.69   home
+     67.49     2.57       54.23     5.46     20.01     80.53   support
+     67.48     0.77       16.91     4.21     21.76     80.77   support
+     66.77     1.36       51.26     5.41     23.31     81.28   support
+     66.54     1.99       17.76      5.3     22.45     80.94   support
+     66.04     1.49       11.35     3.62     84.76     27.56   home
+      65.6      2.3       35.72     3.42     81.05     23.78   home
+     65.08     1.97       30.63     3.89      79.1     25.95   home
+
+【🔑🔑🔑🔑🔑 这批是「球权易手但 sameContext 漏判」吗】
+  球权前后 ownerId 变化：不变 520 ／ 变了 0 ／ 未知 3
+  提交时 ball.owner 为 null 的：0
+  phase 在此期间变化：0
+  保留点与新候选点跨中线：277 / 523 (53.0%)
+    其中两点相距 >=30m（目标被整个翻转）：142
+  对照：全部 held 里跨中线 622 / 1503 (41.4%)
+
+【🔑🔑🔑🔑🔑🔑 上游归因：错在目标生成，还是在租约？】
+  假设（本轮最新）：`holdPrevious` 是**拦截者**，不是缺陷。
+  若成立，则「上游产出的候选点」应当在球没动时就已经跳到很远处 ——
+  租约只是把球员按住不让跑（视觉上=不瞬移），被拦住的次数=上游出错的次数。
+  有前后可比样本: 150296
+  上游自身上移幅度(米)：中位 1.40  p90 7.25  p99 28.49  max 69.76
+  球在这期间自己移动(米)：中位 3.02  p90 7.42  max 30.81
+  ⚠ 「球几乎没动(<2m)」的样本: 47291 (31.5%)
+  ⚠⚠ 「球没动(<2m) 但上游产出点离旧点 >=15m」: 972  ← 上游荒谬目标
+      其中被租约拦住(held): 276
+      其中**没被拦住**(会真的跑错=视觉瞬移): 696  ←★ 这数就是用户看到的瞬移量
+      这 696 例的辩护检测（辩护成立=不是bug）：
+        (a) 球权 ownerId 变了: 128 (18.4%)
+        (b) 阶段 phase 变了:   39 (5.6%)
+        (c) 旧点年龄(秒)：中位 1.00  p90 1.90  max 2.60
+            其中旧点年龄 <0.5s（刚定完就翻脸）: 31
+        (d) 这批的球动幅度：中位 1.30m  p90 1.88m
+      ⇒ 三种辩护全都**不成立**的: 532 (76.4%)  ← 真·上游荒谬目标
+      这批的球员净位移：中位 0.00m  p90 0.00m  max 1.80m
+      净位移 >=8m（一眼看出是瞬移）: 0
+      反查这批球员在**下一次提交前**的真实位移（n=696）：
+        实际跑出 >=8m: 612   几乎没动(<0.5m): 0   max 74.09m
+      ⇒ 若 >=8m 仍为 0，则荒谬目标在**执行层**被吸收，球员视觉上不瞬移；
+        那用户的瞬移报告就不是这条链，应转查渲染层（见独立诊断）。
+
+      【渲染层豁免检查（决定这批会不会被缓动兜住）】
+        落在死球/庆祝/点球窗口内（缓动可豁免）: 33 (4.7%)
+        带 restartType 标记: 35 (5.0%)
+        ⇒ 既不豁免、又无 restartType 的: 628  ← 这些帧缓动不武装，硬置
+
+      按住幅度最大的 15 例（球没动、没被拦、上游把点扔到 >=15m 外）：
+        上游上移m  球动m  球员净位移m  旧点年龄s  旧点→球m  新点→球m  owner变  phase变  fsm→kind
+        22.765404408348378 1.4790315209622804           0       0.70      24.4      31.0   false    false  support/—
+        15.557527946968888 0.7168145448986958           0       0.90      27.8      32.3   false     true  support/—
+        23.950059883532678 1.946546968803094           0       0.70      31.3      38.2    true    false  home/—
+        17.093795238130102 1.4743661275384032           0       1.00       3.2      19.6   false    false  support/—
+        15.642367747710956 1.309507472771254           0       0.90      36.5      31.4   false    false  home/—
+        22.86526058518282 1.1803198428763113           0       1.80       5.6      25.5   false    false  home/—
+        15.740399791143336 1.4568255467083324           0       0.80      28.9      26.4   false    false  home/—
+        25.970215366401476 1.9565940111125721           0       0.80      55.3      37.1   false    false  support/—
+        45.078936658039325 1.5241153028982548           0       1.00      32.6      61.6   false    false  home/—
+        20.315719085368542 1.3589442014835569 1.2079226507921704e-15       0.80      28.9      22.3   false    false  home/—
+        16.045879582837962 0.7723021194877645           0       0.80      16.0       8.8   false    false  support/—
+        18.550307631364998 0.47594210569707623           0       0.90      18.8      29.7   false    false  support/—
+        26.634368619253372 0.6758177047989911           0       0.90      25.0      30.0   false    false  support/—
+        22.20585540381539 0.530249749251309           0       1.80       8.5      27.0   false    false  home/—
+        24.580957343063293 0.10222729332459816           0       1.70       9.0      23.5   false    false  home/—
+
+  上游自身上移幅度分桶（全体提交）：
+    幅度档              计数    占比   其中held   held率   球动中位/m
+    <1m（正常微调）             61744   41.1%         0    0.0%       2.23
+    1~5m                  65569   43.6%         0    0.0%       3.36
+    5~15m                 17055   11.3%       522    3.1%       4.69
+    15~30m                 4642    3.1%       697   15.0%       6.50
+    >=30m（跳半场）             1286    0.9%       284   22.1%       5.36
+
+  【离球 >=15m 的产出点按上游 fsm 分（落在哪条分支）】
+    home        18767   57.1%
+    support     14074   42.9%
+  对照中位上移：离球近(<15m) 2.19m  ／  离球远(>=15m) 0.44m
+
+  【那批「球没动却跳 >=15m」的点，落在哪】
+    落在自己固定槽位 <=12m 内（不跟球，设计如此）: 139
+    既离球远、又离槽位 >12m（公式算歪 = 真缺陷）: 643  ←★ 这才是瞬移源
+
+    真缺陷样本（按上移幅度）：
+      上移m  离槽位m  球动m  角色  队  dir  prog  槽位Y  球Y   产出Y  产出X
+        68.0     15.8   0.46  ATT  away     1  0.04     78     4   80.1   55.0
+        63.4     15.8   1.05  ATT  away     1  0.04     78     4   80.1   55.0
+        26.6     18.1   1.28  ATT  away     1  0.40     78    40   76.7   51.5
+        24.0     20.8   1.95  ATT  away     1  0.34     78    34   66.9   52.7
+        22.9     20.3   1.18  DEF  away     1  0.68     25    68   44.3   63.8
+        22.8     39.1   1.48  DEF  home    -1  0.51     72    49   35.2    9.1
+        17.7     20.2   1.54  MID  home    -1  0.59     48    41   36.6   48.2
+        17.1     30.7   1.47  DEF  away     1  0.39     28    39   56.8    9.9
+        16.9     18.1   1.33  ATT  home    -1  0.55     22    45   20.5   51.5
+        15.7     13.0   1.46  MID  away     1  0.72     52    72   64.3   29.9
+        15.6     19.5   1.31  MID  away     1  0.40     52    40   62.4   48.3
+        15.6     28.9   1.17  MID  away     1  0.72     52    72   79.0   36.2
+
+    其中产出点纵向**越过球** >5m 的: 9 / 12
+    其中产出点纵向**远在球后方**(>30m) 的: 0 / 12
+
+  【🔑🔑🔑 锚点翻转 vs 上移幅度 —— 直接验证「分支抖动」假设】
+    上一轮锚点 ≠ 本轮（锚点翻转，含 drop 抖动）: n=10802
+      上移中位 6.96m   >=15m 的 2638 (24.4%)
+    上一轮锚点 = 本轮（锚点不变）:            n=139494
+      上移中位 1.28m   >=15m 的 3290 (2.4%)
+    ⇒ 锚点翻转使「大跳」概率提升 10.4×
+
+  【🔑 方向 C：加「迟滞」能消掉多少翻转与大跳（零成本预估）】
+    进入 drop 的门 prog<0.68；迟滞带宽 bw ⇒ 退出需 prog>0.68+bw
+    带宽     锚点翻转数   被迟滞消除   消除率   大跳(>=15m)数   其中被消除
+      0.00        10802            0     0.0%           2638           0
+      0.03        10802          450     4.2%           2638         114
+      0.06        10802          743     6.9%           2638         161
+      0.10        10802         1079    10.0%           2638         193
+      0.15        10802         2043    18.9%           2638         256
+    ⚠ 这是**上界估计**：迟滞只在「prog 落回中间带」时生效，
+      而很多翻转发生在球位远离边界（prog 深在 0.2 或 0.9）时 —— 那些迟滞救不了。
+      真正的收益要在引擎里实施后用 `verify.mjs` + 进球率复核才能定论。
+
+  【🔑🔑 锚点翻转发生在 prog 的哪个位置（诊断迟滞为何失效）】
+    prog 档                  翻转数   占比   其中大跳(>=15m)   大跳占比
+    0.00~0.20                  2007   14.0%               409    20.4%
+    0.20~0.40                  3350   23.4%               522    15.6%
+    0.40~0.60                  4006   28.0%               771    19.2%
+    0.60~0.68（门附近）             1364    9.5%               491    36.0%
+    0.68~0.80（门附近）             1784   12.5%               227    12.7%
+    0.80~1.00                  1794   12.5%               218    12.2%
+    ⇒ 落在「门附近」（0.60~0.80）的翻转只占 22.0%
+      ⇒ 78.0% 的翻转发生在 prog 深处 —— 
+        prog 门根本没在抖，抖的是 `nearest` / `this.random() < p` / `dropDepth` 的随机项。
+
+【🔑 换边特征诊断（坐标镜像的指纹）】
+  纵向 >=30m 且 横向 <=5m 的样本: 153
+  其中同时 held=true（租约说"保留旧目标"却跳了半场）: 153
+  from/to 跨过中线的样本: 611
+  ⇒ 若此数接近大位移总数，则这些不是跑位，是坐标被整体翻转而未重置租约。
+
+耗时 53.9s
+exit=0
