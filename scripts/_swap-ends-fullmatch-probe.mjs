@@ -71,6 +71,9 @@ function runMatch(seed, swappedAtHalftime) {
     goalsAway: 0,
     homeShotYsum: 0,
     awayShotYsum: 0,
+    // 下半场单算（判射门纵深用）。整场均值会把换边前/后的位置混在一起，
+    // 得出「两队都停在中线」的假象 —— 见文末判据处的说明。
+    h2: { homeShots: 0, awayShots: 0, homeShotYsum: 0, awayShotYsum: 0 },
   };
 
   // 记录事件
@@ -80,6 +83,7 @@ function runMatch(seed, swappedAtHalftime) {
   //   所以射正无法从事件直接读，改用「射门发生位置 y 的分布」来判进攻方向：
   //   换边后主队应该从 **y 小侧** 起脚（原本是从 y 大侧）。
   const seen = new Set();
+  let inSecondHalf = false; // 由下面的循环维护，供 drainEvents 判断是否下半场
   const drainEvents = () => {
     const evs = eng.events || [];
     for (let i = 0; i < evs.length; i++) {
@@ -91,9 +95,17 @@ function runMatch(seed, swappedAtHalftime) {
         if (e.team === "home") {
           stats.homeShots++;
           stats.homeShotYsum += e.y;
+          if (inSecondHalf) {
+            stats.h2.homeShots++;
+            stats.h2.homeShotYsum += e.y;
+          }
         } else {
           stats.awayShots++;
           stats.awayShotYsum += e.y;
+          if (inSecondHalf) {
+            stats.h2.awayShots++;
+            stats.h2.awayShotYsum += e.y;
+          }
         }
       }
       if (e.type === "goal") {
@@ -112,6 +124,8 @@ function runMatch(seed, swappedAtHalftime) {
       eng.endsSwapped = true;
       eng._kickoff("away"); // 下半场由客队开球（与真实一致）
     }
+    // 非换边组也按同一时刻切半场，两组才可比
+    if (i >= swapStep) inSecondHalf = true;
     try {
       eng.step(DT);
     } catch (e) {
@@ -200,12 +214,18 @@ record("换边后总进球数未爆炸（≤12）", maxGoals <= 12, `最高 ${ma
 // 不换边时主队攻 y=0 的门 ⇒ 禁区在 y 小侧 ⇒ 射门点 y 偏小；
 // 换边后主队攻 y=100 的门 ⇒ 射门点 y 应偏大。
 // 这条直接证明「41 处方向性推断」里至少射门相关的那批**跟着换了**。
-const shotYrows = rows.filter((r) => r.swap.homeShots >= 5 && r.base.homeShots >= 5);
+const shotYrows = rows.filter(
+  (r) =>
+    r.swap.homeShots >= 5 &&
+    r.base.homeShots >= 5 &&
+    r.swap.awayShots >= 5 &&
+    r.base.awayShots >= 5
+);
 let shotShift = [];
 for (const r of shotYrows) {
-  const b = r.base.homeShotYsum / r.base.homeShots;
-  const s = r.swap.homeShotYsum / r.swap.homeShots;
-  shotShift.push({ seed: r.seed, base: b, swap: s, delta: s - b });
+  const bh = r.base.homeShotYsum / r.base.homeShots;
+  const sh = r.swap.homeShotYsum / r.swap.homeShots;
+  shotShift.push({ seed: r.seed, base: bh, swap: sh });
 }
 if (shotYrows.length) {
   const allFlipped = shotShift.every((x) => x.swap > x.base);
@@ -214,8 +234,54 @@ if (shotYrows.length) {
     allFlipped,
     shotShift.map((x) => `seed${x.seed}: ${x.base.toFixed(1)}→${x.swap.toFixed(1)}`).join(" │ "),
   );
+
+  // ★★ 强判据（2026-09-19 加，2026-09-19 修正）：换边后**两队**都得真的打上门前。
+  //
+  // ⛔ 这条判据错过两次，都记下来免得重犯：
+  //
+  //   错误 1（量选错）：原来要求「主队射门位均 y > 50 且客队 < 50」。换边会把
+  //     `y` 的含义整个翻过来，拿换边后的绝对 y 跟 50 比，比的是「谁站在场地
+  //     哪一侧」，不是「谁攻上去了」。必须换成 **距己方门的纵深**（0=己方门，
+  //     100=对方门）——这个量与主客/换边无关，换边前后同一条判据都成立。
+  //
+  //   错误 2（样本混了半场）：探针累计的 `homeShotYsum` 是**整场**射门的总和，
+  //     包含上半场（换边前，主队射门 y≈10）。混合后均值 ~49，看着像「主队没
+  //     攻上去」，实际下半场单算是 87~89，完全正常。判据必须**只看下半场**。
+  //     ⚠ 也就是说：这条判据得靠 `runMatch` 分半场累计，不能复用上面的统计。
+  const depthOf = (y, team, swapped) => {
+    const own = team === "home" ? (swapped ? 0 : 100) : swapped ? 100 : 0;
+    return own > 50 ? 100 - y : y;
+  };
+  const depthRows = rows
+    .filter(
+      (r) =>
+        r.swap.h2 && r.swap.h2.homeShots >= 4 && r.swap.h2.awayShots >= 4 &&
+        r.base.h2 && r.base.h2.homeShots >= 4 && r.base.h2.awayShots >= 4
+    )
+    .map((r) => ({
+      seed: r.seed,
+      baseH: depthOf(r.base.h2.homeShotYsum / r.base.h2.homeShots, "home", false),
+      baseA: depthOf(r.base.h2.awayShotYsum / r.base.h2.awayShots, "away", false),
+      swapH: depthOf(r.swap.h2.homeShotYsum / r.swap.h2.homeShots, "home", true),
+      swapA: depthOf(r.swap.h2.awayShotYsum / r.swap.h2.awayShots, "away", true),
+    }));
+  if (depthRows.length) {
+    const bothReach = depthRows.every((x) => x.swapH > 75 && x.swapA > 75);
+    record(
+      "换边后两队下半场射门纵深都在对方门前（>75）",
+      bothReach,
+      depthRows
+        .map(
+          (x) =>
+            `seed${x.seed}: 主${x.swapH.toFixed(1)}/客${x.swapA.toFixed(1)}（不换边 ${x.baseH.toFixed(1)}/${x.baseA.toFixed(1)}）`
+        )
+        .join(" │ "),
+    );
+  } else {
+    console.log("  ⚠ 样本不足（需要两队下半场各 ≥4 次射门的场次），跳过射门纵深判据");
+  }
 } else {
-  console.log("  ⚠ 样本不足（需要有≥5 次射门的场次），跳过射门方向判据");
+  console.log("  ⚠ 样本不足（需要两队各 ≥5 次射门的场次），跳过射门方向判据");
 }
 
 const failed = results.filter((r) => !r.ok);

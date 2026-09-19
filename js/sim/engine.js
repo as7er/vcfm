@@ -845,6 +845,125 @@ export class SimEngine {
     return clamp(Math.abs(ball.y - this.ownGoalY(team)), 0, 100);
   }
 
+  // ─────────────────────────────────────────────────────────────────
+  // 镜像入口（2026-09-19 换边第 3 步新增）
+  //
+  // 背景：`team === "home" ? …` 在引擎里有 51 处。第 1 步收敛了 10 处
+  // 「球门坐标」，第 2 步加了 `endsSwapped` 开关，但**仍有约 30 处
+  // 「场地坐标推断」绕过了任何统一入口**（`yLo/yHi`、`bylineDir`、
+  // `boxY`、`nearBox`、`inOwnBuildZone`、越位线、门将站位、点球/门球
+  // 位置……）。它们换边时会**静默错位** —— 不报错、不 NaN，只是行为
+  // 悄悄退化。实测：换边后主队射门位均 y 从 ~10 翻到 ~67，但客队仍
+  // 停在中线附近，因为它攻不上去。
+  //
+  // 下面三个入口覆盖那 30 处的全部模式。**新增代码一律走这里**，不
+  // 允许再出现 `team === "home" ? <坐标>` 形式。
+  // ─────────────────────────────────────────────────────────────────
+
+  /**
+   * 该队此刻的「方向符号」：-1 = 朝 y 小，+1 = 朝 y 大。
+   * 与 `attackDir` 完全同义 —— 提供这个别名是因为调用点读起来更清楚：
+   * `a.y += _sign(team) * step` 比 `a.y += attackDir(team) * step` 更
+   * 容易看出这是「沿进攻方向的位移」。
+   *
+   * 替代：`home ? 1 : -1`（:6877 outward）、`home ? -1 : 1`（:5848 fieldDir）、
+   * `home ? 1 : -1`（:6036/:6106 bylineDir，己方底线方向）。
+   * ⚠ 注意符号约定不同：`fieldDir`/`bylineDir` 是「朝己方底线」= **-attackDir**，
+   * 而 `outward` 是「离对方球门为正」= **+attackDir**。替换时逐一核对语义。
+   */
+  _sign(team) {
+    return this.attackDir(team);
+  }
+
+  /**
+   * 距**己方**球门 `dist`（场地格）处的 y 坐标。
+   *
+   * 替代所有 `home ? 12 : 88` / `home ? 14 : 86` / `home ? 16 : 84` 一族
+   * 硬编码锚点（:6832/:6857/:7193 spotY、:6876 boxEdgeY、:2486/:2523 boxY）。
+   * 典型用法：
+   *   const spotY = this._ownGoalSideY(team, 12);        // 点球点（距己方门 12 格）
+   *   const boxEdgeY = this._ownGoalSideY(team, 16);     // 对方禁区线
+   *   const nearGoalY = this._ownGoalSideY(team, 6);     // 贴门
+   * 需要「距**对方**门 dist」时用 `100 - _ownGoalSideY(team, dist)`，
+   * 或直接 `_ownGoalSideY(opposite(team), dist)`。
+   */
+  _ownGoalSideY(team, dist) {
+    const own = this.ownGoalY(team);
+    // own 是 0 或 100：朝场地内部走 dist 格
+    return own > 50 ? own - dist : own + dist;
+  }
+
+  /**
+   * 距**对方**球门 `dist`（场地格）处的 y 坐标。
+   *
+   * 与 `_ownGoalSideY` 互为镜像：`_oppGoalSideY(team, d) === _ownGoalSideY(team, 100 - d)`。
+   * 提供它是为了让调用点读起来是它本来想表达的意思 —— 例如点球点、门球位置、
+   * 传中禁区锚点全都是「距**对方**门 N 格」，写成 `100 - _ownGoalSideY(t, 100-N)`
+   * 会让人反复怀疑符号，从而埋下换边漏改的种子。
+   */
+  _oppGoalSideY(team, dist) {
+    const target = this.targetGoalY(team);
+    return target > 50 ? target - dist : target + dist;
+  }
+
+  /**
+   * 从**己方球门线**朝场地内部量到 `y` 的纵深（0 = 己方门线，100 = 对方门线）。
+   *
+   * 这是 D4「差值/进度」一类最自然的入口：这类代码关心的都是「谁比谁更靠前」
+   * 「推进了多远」，用绝对 y 再乘符号既难读又极易把符号写反。
+   * 用它之后，所有比较都可以写成标量大小比较，与主客/换边完全无关：
+   *
+   *   const depthOf = (y) => this._depthFromOwnGoal(y, team);
+   *   const progress = depthOf(a.y) - depthOf(m.y);   // >0 = m 比 a 更靠前
+   *   const beyondHalf = depthOf(m.y) >= 45;
+   *
+   * 替代：`home ? a.y - m.y : m.y - a.y`（:2480 前插进度）、
+   * `home ? m.y <= yHi : m.y >= yLo`（:2484 是否过半场）、
+   * `home ? leadY >= offY - 2 : leadY <= offY + 2`（:3455 越位线）、
+   * `home ? a.baseY < 52 : a.baseY > 48`（:4320 是否已前插）、
+   * `home ? cy > gk.y + 1.6 : cy < gk.y - 1.6`（:6068 球是否越过门将）。
+   */
+  _depthFromOwnGoal(y, team) {
+    const own = this.ownGoalY(team);
+    // own 是 0 或 100。own=100 时纵深 = 100 - y；own=0 时纵深 = y。
+    return own > 50 ? 100 - y : y;
+  }
+
+  /**
+   * 某个 y 是否位于「该队己方球门那一侧」的参考线之外。
+   *
+   * `refDist` = 参考线距己方门的距离（场地格）。语义等价于
+   * 「从己方门往场地内部走 refDist 格画一条线，y 是否还在门那一侧」。
+   *
+   * 替代所有 `home ? y >= 84 : y <= 16` 一族区间判定
+   * （:5322/:5328/:5332 己方禁区、:6691 防守禁区、:3248 inOwnBuildZone、
+   * :2782 nearAttackingByline、:2356 接球点边界、:5929 nearBox、
+   * :5900 GK 站位 clamp）。
+   *
+   * ⚠ 传 `refDist` 时想清楚是「距己方门」还是「距对方门」——这是这批
+   * 硬编码最容易读错的地方（`:2782` 写的是「距对方底线 5.5」，
+   * 而 `:5322` 写的是「距己方门 16」）。
+   * ⚠ 本函数是**闭区间**（`>=`/`<=`）。原代码若用严格不等（`>`/`<`），
+   * 边界点会差，应改用 `_depthFromOwnGoal` 直接比大小。
+   */
+  _onOwnSide(y, team, refDist) {
+    const own = this.ownGoalY(team);
+    const line = own > 50 ? own - refDist : own + refDist;
+    return own > 50 ? y >= line : y <= line;
+  }
+
+  /**
+   * 把「距己方门的带符号纵深」转成绝对 y（`_onOwnSide` 的连续版）。
+   * `depth` > 0 = 朝场地内部；< 0 = 越过己方门线。
+   * 用于 `clamp` 一类需要连续值的场合（如 :5900 GK 站位）。
+   */
+  _ownGoalSideYClamped(y, team, minDist, maxDist) {
+    const own = this.ownGoalY(team);
+    const lo = this._ownGoalSideY(team, minDist);
+    const hi = this._ownGoalSideY(team, maxDist);
+    return own > 50 ? clamp(y, hi, lo) : clamp(y, lo, hi);
+  }
+
   /**
    * 坐标是否位于某队自己的禁区；与自由球门将接管使用同一边界。
    * 纵向边界由 `ownGoalY` 推出，不再硬编码 80/20。
@@ -2172,11 +2291,13 @@ export class SimEngine {
     // scripts/_gody-refactor-bitwise-check.mjs。这里保持与旧式
     // `a.team === "home" ? -1 : 1` 完全等价。
     const facing = this.attackDir(a.team);
-    // 门将活动区：永远贴在球门前（主队 y 大、客队 y 小）
     const sweep = this._roleBehavior(a, "sweep");
     const maxAdvance = 11 + sweep * 4; // 出击职责只扩大真实活动区，不改扑救能力
+    // 门将活动区：永远贴在球门前（主队 y 大、客队 y 小）。
     // 下界 2 格 = 2.1m，意味着门将**永远碰不到自己的门线**。真实门将球到禁区时
     // 就站在线上。收到 1 格（1.05m），下面的兜底分支才可能真的贴线。
+    // `goalY + facing * d` 中 facing = 进攻方向 ⇒ 该式一律表示「离门线 d 格、
+    // 在场地内侧」，主客同式，换边后自动跟着 `ownGoalY` 一起翻。
     const clampGkY = (ty) =>
       a.team === "home"
         ? clamp(ty, goalY - maxAdvance, goalY - 1)
@@ -2242,7 +2363,8 @@ export class SimEngine {
     // 射门飞行时按当前速度投影门线落点。扑救仍由真实轨迹、可达范围和
     // 门将属性结算；这里仅让门将提前朝可见球路移动，不等球到了身边才反应。
     if (b.state === "shot" && b.kickTeam !== a.team && !b.owner) {
-      const towardGoal = a.team === "home" ? b.vy > 1.2 : b.vy < -1.2;
+      // 「朝本方门飞」= vy 的符号与进攻方向相反
+      const towardGoal = facing * b.vy < -1.2;
       if (towardGoal) {
         const lineTime = (goalY - b.y) / (b.vy || 1e-6);
         if (lineTime >= 0 && lineTime <= 2.2) {
@@ -2353,7 +2475,9 @@ export class SimEngine {
       const recv = passTo.agent;
       const recvOk =
         recv &&
-        (a.team === "home" ? recv.y < 82 : recv.y > 18) &&
+        // 接球人不能太靠前：必须在「距己方门 ≥ 18 格」的**门那一侧**之外
+        // ⇒ 取反。原式 `home ? recv.y < 82 : recv.y > 18` 就是这个意思。
+        !this._onOwnSide(recv.y, a.team, 18) &&
         dist(recv.x, recv.y, a.x, a.y) > 8;
       if (recvOk) {
         this._pass(a, passTo);
@@ -2372,20 +2496,30 @@ export class SimEngine {
     // 那一处叠起来多出 +0.66 球（两处单独跑都不破顶，合并 3.33 破顶 3.3）。
     // ⚠ 别再拿这个近端去凑进球：22/30/36 三档实测 3.33/3.08/3.21 **不单调**，
     // 那是固定种子下的混沌重掷，不是响应曲线，拧它等于拟合种子噪声。
-    const yLo = a.team === "home" ? 30 : 45;
-    const yHi = a.team === "home" ? 55 : 70;
+    // 落点纵向区间改成「距己方门」纵深，主客不再需要两套数字：
+    // 原式 `home ? [30,55] : [45,70]` 恰好互为镜像（100-55=45 / 100-30=70）。
+    // ⚠ 注意 `yLo`/`yHi` 是**区间下界/上界**（clamp 用的字面大小顺序），
+    // 不是「近端/远端」。home 下两者同向（y 越小越靠前），away 下反向，
+    // 所以必须取 min/max，不能按「远端在前」写死顺序。
+    const depthOf = (y) => this._depthFromOwnGoal(y, a.team);
+    const yFar = this._ownGoalSideY(a.team, 45); // 纵深 45 = 距己方门更远
+    const yNear = this._ownGoalSideY(a.team, 70); // 纵深 70 = 距己方门更近
+    const yLo = Math.min(yFar, yNear);
+    const yHi = Math.max(yFar, yNear);
+    const DEPTH_NEAR = 70; // 纵深上界（离己方门最远 70 格 = 越过中线 20 格）
+    const DEPTH_FAR = 45; // 纵深下界（必须在己方门 45 格之外 = 过中线）
     let targetX = 50;
     let targetY = clamp(50 + dir * 8, yLo, yHi);
     let receiver = null;
     let bestScore = -Infinity;
     for (const m of this.agents) {
       if (m === a || m.team !== a.team || m.role === "GK" || m.sentOff) continue;
-      // 必须明显离开门区，朝进攻方向推进
-      const progress = a.team === "home" ? a.y - m.y : m.y - a.y;
+      // 必须明显离开门区，朝进攻方向推进（纵深差 > 0 = m 比 a 更靠前）
+      const progress = depthOf(m.y) - depthOf(a.y);
       if (progress < 14) continue;
-      // 还必须已经推到中线附近：只要求「比门将靠前 14 格」时，本方半场里
-      // 最居中的那个中场就能当选，于是落点被 clamp 拉回本方半场。
-      const beyondOwnHalf = a.team === "home" ? m.y <= yHi : m.y >= yLo;
+      // 还必须已经推到中线附近（纵深 ≥ 45）：只要求「比门将靠前 14 格」时，
+      // 本方半场里最居中的那个中场就能当选，于是落点被 clamp 拉回本方半场。
+      const beyondOwnHalf = depthOf(m.y) >= DEPTH_FAR;
       if (!beyondOwnHalf) continue;
       // 偏好半身位更居中的通道，极端贴边会滚出界
       const central = 1 - Math.min(1, Math.abs(m.x - 50) / 42);
@@ -2483,7 +2617,8 @@ export class SimEngine {
       (a.x < 12 || a.x > 88) &&
       (a.y < 14 || a.y > 86)
     ) {
-      const boxY = a.team === "home" ? 14 : 86;
+      // 传中落点锚在**对方**禁区线附近（距对方门 14 格）。
+      const boxY = this._oppGoalSideY(a.team, 14);
       this._cornerAttackUntil[a.team] = this.t + 14;
       const crossTo = this._bestCross(a);
       if (crossTo) {
@@ -2520,7 +2655,8 @@ export class SimEngine {
         this._shoot(a, { freekick: true });
         return;
       }
-      const fkBoxY = a.team === "home" ? 14 : 86;
+      // 任意球吊传同样锚在**对方**禁区线附近（距对方门 14 格）。
+      const fkBoxY = this._oppGoalSideY(a.team, 14);
       // 吊传定位球进入独立威胁窗口，训练/主罚质量会影响后续处理。
       this._cornerAttackUntil[a.team] = this.t + 14;
       const cross = this._bestCross(a);
@@ -2779,7 +2915,9 @@ export class SimEngine {
         a.fsm = "carry";
         return;
       }
-      const nearAttackingByline = a.team === "home" ? a.y < 5.5 : a.y > 94.5;
+      // 贴**对方**底线（距对方门 5.5 格以内）。
+      const nearAttackingByline =
+        Math.abs(a.y - this.targetGoalY(a.team)) < 5.5;
       const trappedAtByline = nearAttackingByline && Math.abs(a.x - goalX) > 8;
       if (trappedAtByline && (pressure > 0.45 || cdBlocked || dGoal > 11)) {
         const cutback = this._bestCutback(a);
@@ -3245,7 +3383,9 @@ export class SimEngine {
       if (m === a || m.team !== a.team || m.sentOff) continue;
       const d = dist(a.x, a.y, m.x, m.y);
       if (m.role === "GK") {
-        const inOwnBuildZone = a.team === "home" ? a.y >= 66 : a.y <= 34;
+        // 己方后场组织区 = 距己方门 ≤ 34 格 ⇒ 等价于「距门 ≥ 66 格」
+        // 的那一侧之外（home 不换边时即 a.y >= 66）。
+        const inOwnBuildZone = this._onOwnSide(a.y, a.team, 34);
         const canRecycleToKeeper =
           inOwnBuildZone &&
           holderPressure >= 0.68 &&
@@ -3347,10 +3487,14 @@ export class SimEngine {
         this.t >= (this._teamThroughUntil[a.team] || 0)
       ) {
         const leadY = clamp(ty + dir * (6 + this.random() * 4), 3, 97);
-        // 落点未越过越位线太多才算可行直塞
+        // 落点未越过越位线太多才算可行直塞。
+        // 越位线是「朝进攻方向不得早于 offY 2 格」⇒ 用纵深表达：
+        // 落点纵深 ≤ 越位线纵深 + 2。原式 home 的 `leadY >= offY - 2`
+        // 展开正是 `100 - leadY <= 100 - offY + 2`。
         const okOffside =
           offY == null ||
-          (a.team === "home" ? leadY >= offY - 2 : leadY <= offY + 2);
+          this._depthFromOwnGoal(leadY, a.team) <=
+            this._depthFromOwnGoal(offY, a.team) + 2;
         if (okOffside) {
           through = true;
           value *= (this._hasHabit(a, "tries_through_balls") ? 0.9 : 0.72) *
@@ -4215,7 +4359,13 @@ export class SimEngine {
 
     // —— 中场：接应 + 前插 ——
     if (a.role === "MID") {
-      const advanced = a.team === "home" ? a.baseY < 52 : a.baseY > 48;
+      // 「已过中线前插」。原式 `home ? baseY < 52 : baseY > 48`：home 折算成
+      // 纵深是 `> 48`，away 折算成纵深是 `> 52`（两侧锚点本身差 4 格，是历史
+      // 错位值，本次只做收敛、不借机纠正）。阈值写成「距己方门」纵深，
+      // 换边后由 `_depthFromOwnGoal` 自动跟随 `ownGoalY` 翻转。
+      const advanced =
+        this._depthFromOwnGoal(a.baseY, a.team) >
+        this._depthFromOwnGoal(a.team === "home" ? 52 : 48, "home");
       const burst = 0.55 * a.attr.pace + 0.45 * a.attr.dribbling;
       const wantRun =
         prog > 0.42 &&
@@ -4431,12 +4581,35 @@ export class SimEngine {
       a.offsideRunBuffer = effectiveBuffer;
       a.offsideBufferUntil = this.t + 0.2;
     }
-    if (a.team === "home") {
-      const legalY = Math.min(offY, this.ball.y);
-      if (a.ty < legalY + effectiveBuffer) a.ty = legalY + effectiveBuffer;
-    } else {
-      const legalY = Math.max(offY, this.ball.y);
-      if (a.ty > legalY - effectiveBuffer) a.ty = legalY - effectiveBuffer;
+    // —— 越位自律，用「纵深」重写 ——
+    // 原式（home）：
+    //   const legalY = Math.min(offY, ball.y);   // 合法 y = 两者中更靠前（y 更小）者的 y
+    //   if (a.ty < legalY + buffer) a.ty = legalY + buffer;
+    //   （away 逐项取反：max / `a.ty > legalY - buffer` / `legalY - buffer`）
+    //
+    // 换成「纵深」后主客两条分支合成一条：纵深越大越靠前，于是
+    //   合法纵深 = max(越位线纵深, 球纵深)   ⇔  home 的 min(offY, ball.y)
+    //   目标     = 合法位置再往后 buffer 格 ⇒ 纵深 = 合法纵深 - buffer
+    //   （buffer 有符号，mistime 为负 ⇒ 自动变成「允许越位失误」，与原式一致）
+    //
+    // ⚠ 三个坑，全是逐位对比抓出来的，勿再重犯：
+    //   1. 目标纵深**不能 clamp 到 [0,100]**。原式允许 `legalY + buffer` 落到
+    //      场外（如 offY=ball=97、buffer=3.2 时得 100.2）。加 clamp 会在边界
+    //      点改变 a.ty（枚举 2626 组合不一致）。
+    //   2. **合法位置必须在 y 空间取 min/max，不要走 `_ownGoalSideY` 往返**。
+    //      `ownSideY(own - offY)` 这类往返在浮点上不精确（实测 45% 的取值
+    //      有 ~7e-15 误差），会被混沌放大到可见量级。
+    //   3. 同理，赋值也不要由纵深反算。下面 `legalY` 就是原式的 min/max，
+    //      `legalTarget` 就是原式的 `legalY ± buffer`，运算顺序完全一致。
+    const depthOf = (y) => this._depthFromOwnGoal(y, a.team);
+    // home 越位线在 y 小侧 ⇒ 取 min；away 反之取 max。（`_sign` = 进攻方向）
+    const legalY =
+      this._sign(a.team) < 0 ? Math.min(offY, this.ball.y) : Math.max(offY, this.ball.y);
+    // 「再往后 buffer 格」= 沿背离进攻方向偏移 ⇒ `-sign * buffer`。
+    const legalTarget = legalY - this._sign(a.team) * effectiveBuffer;
+    // 只在目标比合法线更靠前（纵深更大）时才夹回，与原式的单边夹取一致。
+    if (depthOf(a.ty) > depthOf(legalTarget)) {
+      a.ty = legalTarget;
     }
   }
 
@@ -5319,17 +5492,24 @@ export class SimEngine {
     return (
       x > 22 &&
       x < 78 &&
-      (team === "home" ? y >= 84 : y <= 16)
+      // 己方禁区：距己方门 16 格以内（home 不换边时即 y >= 84）。
+      this._onOwnSide(y, team, 16)
     );
   }
 
   _penaltyBoundaryDistance(team, x, y, inside = this._inOwnFoulBox(team, x, y)) {
+    // 禁区线的绝对 y（距己方门 16 格）。
+    const boxLineY = this._ownGoalSideY(team, 16);
+    // 朝**己方门**方向的 y 增量符号（原式 `y - boxLineY` 在 home 下随 y 增大
+    // 而增大，即 y 越靠门值越大 ⇒ 正方向指向己方门 ⇒ 与进攻方向反号）。
+    const toOwnGoal = -this._sign(team);
     if (inside) {
-      const vertical = team === "home" ? y - 84 : 16 - y;
+      // 禁区内：到最近边界（两侧边线 / 到门线）的距离。
+      const vertical = (y - boxLineY) * toOwnGoal;
       return Math.max(0, Math.min(x - 22, 78 - x, vertical));
     }
     const dx = x < 22 ? 22 - x : x > 78 ? x - 78 : 0;
-    const dy = team === "home" ? Math.max(0, 84 - y) : Math.max(0, y - 16);
+    const dy = Math.max(0, (boxLineY - y) * toOwnGoal);
     return Math.hypot(dx, dy);
   }
 
@@ -5845,7 +6025,8 @@ export class SimEngine {
       0.74
     );
     if (this.random() < pBlock) {
-      const fieldDir = gk.team === "home" ? -1 : 1;
+      // 解围方向：朝**场内**（对方半场）踢 ⇒ 与进攻方向同号。
+      const fieldDir = this._sign(gk.team);
       const side = b.x >= 50 ? 1 : -1;
       b.owner = null;
       b.x = gk.x;
@@ -5897,7 +6078,8 @@ export class SimEngine {
     const passer = b.backpassFrom ? this.agentById(b.backpassFrom) : null;
     const restartTeam = goalkeeper.team === "home" ? "away" : "home";
     const x = clamp(b.x, 6, 94);
-    const y = clamp(b.y, goalkeeper.team === "home" ? 82 : 6, goalkeeper.team === "home" ? 94 : 18);
+    // 站位限制在己方门前 6..18 格的带内（home 不换边时即 y ∈ [82, 94]）。
+    const y = this._ownGoalSideYClamped(b.y, goalkeeper.team, 6, 18);
     this._emit("backpass", goalkeeper, {
       from: passer?.id || b.lastKicker || null,
       restart: EDGE_RESTART_TYPES.INDIRECT_FREE_KICK,
@@ -5923,10 +6105,15 @@ export class SimEngine {
         if (gk.id === b.lastKicker) continue;
         const goalY = this.ownGoalY(gk.team);
         // 球正朝己方球门飞（门将出击/接球的前提）
-        const towardGoal = gk.team === "home" ? b.vy > 1.2 : b.vy < -1.2;
+        // 球正朝己方球门飞（门将出击/接球的前提）。朝己方门 = vy 与原
+        // 主客式的符号约定相反：home 攻 y↓（sign=-1）时要 vy>+1.2，
+        // away 攻 y↑（sign=+1）时要 vy<-1.2 ⇒ 统一为 `sign * vy < -1.2`。
+        const towardGoal = this._sign(gk.team) * b.vy < -1.2;
         if (!towardGoal) continue;
-        // 只在球靠近禁区/门前时介入
-        const nearBox = gk.team === "home" ? b.y > 68 : b.y < 32;
+        // 只在球靠近己方禁区/门前时介入（球距己方门 < 32 格）。
+        // 这里用「距门的绝对距离」而不是 `_onOwnSide`：原式是**严格**不等
+        // （`b.y > 68` / `b.y < 32`），而 `_onOwnSide` 是闭区间，边界点会差。
+        const nearBox = Math.abs(b.y - this.ownGoalY(gk.team)) < 32;
         if (!nearBox) continue;
 
         // Use the recorded start: friction has already changed the velocity.
@@ -5950,9 +6137,12 @@ export class SimEngine {
         const reach = 2.2 + 1.6 * ref + Math.min(0.8, speedMps * 0.016);
         if (dPath > reach) continue;
 
-        // 球已越过门将朝球门线 → 无法回头捞（防「离谱反应」）
+        // 球已越过门将朝球门线 → 无法回头捞（防「离谱反应」）。
+        // 用纵深表达：纵深自**己方门线**起算（0=门线，100=对方门线），
+        // 所以「越过门将、更靠近自己球门」= 球的纵深**更小**（不是更大）。
         const pastGk =
-          gk.team === "home" ? cy > gk.y + 1.6 : cy < gk.y - 1.6;
+          this._depthFromOwnGoal(cy, gk.team) <
+          this._depthFromOwnGoal(gk.y, gk.team) - 1.6;
         if (pastGk) continue;
         // 球已明显更靠近门线、门将还在外线 → 追不上
         const ballCloserToLine =
@@ -6033,7 +6223,8 @@ export class SimEngine {
             // 托出：约 40% 托过底线得角球（现实中门将扑救最主要的角球来源），
             // 其余弹向边路/角区、不落到前锋脚下。
             const side = diveDir || (this.random() < 0.5 ? 1 : -1);
-            const bylineDir = gk.team === "home" ? 1 : -1; // 己方底线方向：home 朝 +y(≈100)
+            // 己方底线方向 = 朝自己守的那个门 ⇒ 与进攻方向**反号**。
+            const bylineDir = -this._sign(gk.team);
             const tipOverP = clamp(0.8 + Math.max(0, dt - SIM.DT) * 0.4, 0.8, 0.95);
             const tipOver = this.random() < tipOverP;
             b.owner = null;
@@ -6103,7 +6294,8 @@ export class SimEngine {
         if (this.random() >= pBlock) continue;
         const side = o.x <= b.x ? 1 : -1;
         // 约半数封堵挡过自己的底线得角球；否则弹回场内。
-        const bylineDir = o.team === "home" ? 1 : -1; // 己方底线：home 在 +y
+        // 己方底线方向 = 朝自己守的那个门 ⇒ 与进攻方向**反号**。
+        const bylineDir = -this._sign(o.team);
         const blockOutP = clamp(0.52 + Math.max(0, dt - SIM.DT) * 0.35, 0.52, 0.9);
         const blockOut = this.random() < blockOutP;
         b.vx = side * (6 + this.random() * 7) + b.vx * 0.12;
@@ -6311,12 +6503,12 @@ export class SimEngine {
       if (oppBlocked && a.team !== b.kickTeam && ((b.z || 0) > 1.1 || pitchDistanceBetween(a.x, a.y, b.x, b.y) > 1.1)) continue;
       // 高弧线传中够不着就不能控（外场 2.2 / 门将 3.0）
       if (b.z > (a.role === "GK" ? 3.0 : 2.2)) continue;
-      // 门将只能在本方禁区附近拿自由球（防中场门将"参与传球"）
+      // 门将只能在本方禁区附近拿自由球（防中场门将"参与传球"）。
+      // 原式严格不等（`b.y > 80` / `b.y < 20`），用「距己方门 < 20 格」
+      // 保持严格语义（`_onOwnSide` 是闭区间，边界点会差）。
       if (a.role === "GK") {
         const inBox =
-          a.team === "home"
-            ? b.y > 80 && b.x > 18 && b.x < 82
-            : b.y < 20 && b.x > 18 && b.x < 82;
+          Math.abs(b.y - this.ownGoalY(a.team)) < 20 && b.x > 18 && b.x < 82;
         if (!inBox) continue;
       }
       const d = pitchDistanceBetween(a.x, a.y, b.x, b.y);
@@ -6330,10 +6522,9 @@ export class SimEngine {
     if (best && best.role !== "GK" && speedMps < 8) {
       const nearGk = this.agents.find((g) => {
         if (g.role !== "GK" || g.team === best.team) return false;
+        // 门区：严格不等（原式 `b.y > 86` / `b.y < 14`）⇒ 用绝对距离。
         const inSix =
-          g.team === "home"
-            ? b.y > 86 && b.x > 28 && b.x < 72
-            : b.y < 14 && b.x > 28 && b.x < 72;
+          Math.abs(b.y - this.ownGoalY(g.team)) < 14 && b.x > 28 && b.x < 72;
         return inSix &&
           pitchDistanceBetween(g.x, g.y, b.x, b.y) < SIM.CONTROL_RADIUS_METRES + 2.2;
       });
@@ -6347,10 +6538,10 @@ export class SimEngine {
         const flown = b.kickX != null
           ? pitchDistanceBetween(b.x, b.y, b.kickX, b.kickY)
           : 999;
+        // 门区（6 码）：严格不等（原式 `b.y > 84` / `b.y < 16`），
+        // 同样用绝对距离保持严格语义。
         const inSix =
-          last.team === "home"
-            ? b.y > 84 && b.x > 26 && b.x < 74
-            : b.y < 16 && b.x > 26 && b.x < 74;
+          Math.abs(b.y - this.ownGoalY(last.team)) < 16 && b.x > 26 && b.x < 74;
         // 保护只在球仍在运动时有效：解围软弱球停在门区内时 flown 永远 <14，
         // 若继续禁止拾取会让对方站在死球旁边干瞪眼（无主球僵持来源之一）。
         if (inSix && flown < 14 && speedMps > 1) {
@@ -6549,7 +6740,8 @@ export class SimEngine {
     a.controlFoot = a.preferredFoot === "left" ? "left" : "right";
     a.controlPhase = "settled";
     a.controlUntil = 0;
-    a.bodyTargetHeading = a.team === "home" ? -Math.PI / 2 : Math.PI / 2;
+    // 面向进攻方向：朝 y 小 ⇒ atan2(负, 0) = -π/2，即 attackDir * π/2。
+    a.bodyTargetHeading = this._sign(a.team) * (Math.PI / 2);
     a.pendingBallAction = null;
     a.actionPreparationActive = false;
     a.decisionUntil = this.t + 0.8;
@@ -6684,11 +6876,10 @@ export class SimEngine {
   _commitFoul(defender, victim, context = null) {
     const b = this.ball;
     // 禁区判定：犯规发生在防守方(defender)自己的禁区内 → 点球
-    // 防守方球门：home 守 y≈100，away 守 y≈0；禁区约 x∈[22,78]、纵深 16
+    // 禁区横向 x∈[22,78]、纵深 16 格；`_onOwnSide` 正是「距己方门 ≤ 16 格」，
+    // 主客/换边一体适用。
     const inBox =
-      b.x > 22 &&
-      b.x < 78 &&
-      (defender.team === "home" ? b.y >= 84 : b.y <= 16);
+      b.x > 22 && b.x < 78 && this._onOwnSide(b.y, defender.team, 16);
 
     // 凶狠度：压迫越高越易犯规；tackling 越好越不易“铲不到还犯规”。
     // 抢断节奏已降低到真实量级，因此单次失败对抗更可能构成可吹罚接触。
@@ -6829,7 +7020,8 @@ export class SimEngine {
     this._restartStepEpoch = (this._restartStepEpoch || 0) + 1;
     const b = this.ball;
     const dir = this.attackDir(team); // 主罚方进攻方向
-    const spotY = team === "home" ? 12 : 88; // 罚球点（对方禁区内）
+    // 罚球点在**对方**禁区内（距对方门 12 格）。
+    const spotY = this._oppGoalSideY(team, 12);
     // 主罚者：战术职责优先，否则按点球相关属性排序
     const assignedTaker = this._setPieceTaker(team, "penalty");
     const takers = this.agents
@@ -6853,8 +7045,10 @@ export class SimEngine {
     const gk = this._teamGk(oppTeam);
 
     if (!taker) {
-      // 兜底：没人可罚，直接门球给对方
-      this._restart("goalkick", oppTeam, 50, team === "home" ? 12 : 88);
+      // 兜底：没人可罚，直接门球给对方。
+      // ⚠ 门球坐标是「距**接球方自己**门 12 格」——与 :7390/:7411 一致，
+      //   不是「距主罚方对方门」。这里发球方已换成 oppTeam，别用 team。
+      this._restart("goalkick", oppTeam, 50, this._ownGoalSideY(oppTeam, 12));
       return;
     }
 
@@ -6873,8 +7067,12 @@ export class SimEngine {
     // 改变本场之后所有随机数，破坏 seed 决定性。改用 id 哈希。
     const ARC_RX = 9.15 / 0.68;   // 9.15m 换成横向坐标单位（68m = 100）
     const ARC_RY = 9.15 / 1.05;   // 纵向坐标单位（105m = 100）
-    const boxEdgeY = team === "home" ? 16 : 84;   // 对方禁区线
-    const outward = team === "home" ? 1 : -1;     // 离球门为正方向
+    // 对方禁区线：距**对方**门 16 格（home 主罚时即 y=16）。
+    const boxEdgeY = this._oppGoalSideY(team, 16);
+    // 「离对方球门为正」= 场地上背离对方门的方向 ⇒ 与进攻方向**反号**。
+    // home 主罚时球门在 y=0、罚球点 y=12，frontierY 要把球员推到
+    // `spotY + outward*1.2 = 13.2`（球的后方），所以这里必须是 +1。
+    const outward = -this._sign(team);
 
     /** id 派生的 [0,1) 确定性伪随机，不消耗 this.random() 流 */
     const idNoise = (id, salt) => {
@@ -6995,7 +7193,8 @@ export class SimEngine {
       gk.y = gk.baseY;
       gk.tx = gk.x;
       gk.ty = gk.y;
-      gk.heading = team === "home" ? Math.PI / 2 : -Math.PI / 2;
+      // 门将面向**自己**的球门（背对进攻方向）⇒ 与进攻方向反号的 π/2。
+      gk.heading = -this._sign(team) * (Math.PI / 2);
       gk.decisionUntil = this.t + SIM.PENALTY_RESOLVE_SEC + 1.5;
     }
     taker.x = 50;
@@ -7140,7 +7339,8 @@ export class SimEngine {
       0,
       1
     );
-    const goalY = pen.team === "home" ? 0.8 : 99.2;
+    // 终点在**对方**门线内侧 0.8 格（不是球门常量 0/100，避免与门线重合）
+    const goalY = this._oppGoalSideY(pen.team, 0.8);
     b.x = 50 + (pen.targetX - 50) * flight;
     b.y = pen.spotY + (goalY - pen.spotY) * flight;
     b.z = Math.sin(Math.PI * flight) * 0.45;
@@ -7190,7 +7390,8 @@ export class SimEngine {
       this.deadBallUntil = this.t + 0.5;
       return;
     }
-    this._restart("goalkick", pen.oppTeam, 50, pen.team === "home" ? 12 : 88);
+    // 门球坐标同 :7390/:7411：距**接球方自己**门 12 格（pen.oppTeam 是发球方）。
+    this._restart("goalkick", pen.oppTeam, 50, this._ownGoalSideY(pen.oppTeam, 12));
   }
 
   /**
@@ -7742,7 +7943,10 @@ export class SimEngine {
     });
     if (review.finalDecision === "no-goal") {
       b._penaltyGoal = false;
-      this._restart("goalkick", scoringTeam === "home" ? "away" : "home", 50, scoringTeam === "home" ? 12 : 88);
+      // 取消进球后改判门球给非得分方。门球坐标同 :7390/:7411：
+      // 距**发球方自己**门 12 格。
+      const kickTeam = scoringTeam === "home" ? "away" : "home";
+      this._restart("goalkick", kickTeam, 50, this._ownGoalSideY(kickTeam, 12));
       return;
     }
     this.score[scoringTeam]++;

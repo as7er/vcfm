@@ -5,7 +5,7 @@
 > 仓库：https://github.com/as7er/vcfm.git · `master`（**2026-09-14 起规范地址为小写 `vcfm`**；
 > 大写 `VCFM` 仍可用但会走重定向，`origin` 已更新为小写）  
 > 预览：`python -m http.server 8765 --bind 127.0.0.1`  
-> 缓存：**vcfm-v269**（**有球跑位/无球跑位归因续查 + 换边前置重构 + 进场动画 + 一处方法论级坑**）：
+> 缓存：**vcfm-v271**（**战术板 ⭐「设为核心球员」点击无反应已修复；pointer capture 改写 click target**）：
 > ① **「下半场换边」查证结论：引擎从未实现** —— 不是「没处理好」，而是完全不存在。
 >    `attackDir(team)` 是纯函数无半场参数；`grep swapEnds|secondHalf` 实现 0 处；
 >    `grep MATCH_SECONDS js/` = 0 处（半场划分只在解说文案层 `js/match.js:1410/1655`）；
@@ -91,23 +91,81 @@
 >    `_swap-ends-resync-check` 8+1 / `_swap-ends-wiring-check` 16 /
 >    `_swap-ends-fullmatch-probe` 5）；`endsSwapped=false` 下 3 场 × 16200 帧
 >    **bit-for-bit 相同**（`cmp` 退出码 0）。
->    🔴🔴 **但发现换边范围是设计文档预估的 4 倍，本轮就此打住**：
+>    🔴🔴 **换边范围是设计文档预估的 4 倍**（已在第 3 步全部收敛，见 ⑦）：
 >    `grep -cE 'team === "home" \?' js/sim/engine.js` = **51 处**，剔除「球队标识
->    互换」类后**仍有约 30 处「场地坐标推断」未收敛**（`yLo/yHi`、`bylineDir`、
+>    互换」类后**约 30 处是「场地坐标推断」**（`yLo/yHi`、`bylineDir`、
 >    `boxY`、`nearBox`、`inOwnBuildZone`、越位线、门将站位、点球/门球位置……），
->    换边时会**静默错位**。实证退化：`endsSwapped=true` 跑整场，主队射门位均 y
->    从 ~10 翻到 ~67（射门链路换了），但**客队射门位均 y ≈ 49~55 仍在中线**
->    （推进链路只换了一半，客队攻不上去）。
->    ⇒ **判据不是「有没有异常」，而是「两队射门位均 y 是否各自翻到对面半场」。**
->    下一步工作已分类成 4 类 / 3 个新入口（`_sign` / `_ownGoalSideY` / `_onOwnSide`），
->    见设计文档 §7.5。⚠ 例外：`:2022` 的 `tx = 1 : 99` 是 **x 轴**，与换边无关。
->    **在客队射门位均 y 翻到 y<50 侧之前，不要把换边暴露给用户。**
+>    换边时会**静默错位**。
+>    ⚠ 例外：`:2022` 的 `tx = 1 : 99` 是 **x 轴**，与换边无关。
 >    **铁律**：换边改动每步都必须过「`endsSwapped=false` 逐位相同」这道门槛。
 > **换边第 2 步**（加 `endsSwapped` 开关 + `_kickoff` 按方向选式子 +
 > `adapt.js` 阵型位镜像感知 + 调用层接线）**已实施并通过 42 例验证 + 逐位等价**，
 > 状态见下方 ⑥。设计见 `docs/halftime-side-swap-implementation-design-2026-09-19.md`
-> （§7 是实施记录）。🔴 **但换边尚不可对用户开放** —— 详见 ⑥ 的范围发现。
-> v266 是总览·赛季快照排版修复 + 两处用户报告的缺陷修复 + 主动突破原语仍在：
+> （§7 是第 2 步记录，§8 是第 3 步记录）。
+> ⑦ **换边第 3 步已实施：统一镜像工具 + 26 处方向性坐标收敛** —— 新增 6 个入口
+> （`_sign` / `_ownGoalSideY` / `_oppGoalSideY` / `_depthFromOwnGoal` / `_onOwnSide`
+> / `_ownGoalSideYClamped`，`engine.js:848-965`），把 D1 方向 6 处、D2 门位锚点
+> 5 处、D3 区间阈值 6 处、D4 差值/进度 9 处全部收敛。**`endsSwapped=false` 下
+> 16200 帧逐位相同**（`cmp` 退出码 0）。
+> 🔴 **两个必须记住的坑**：
+>   ⓐ **「方向」变量的符号约定在同一文件里有两种** —— 朝进攻方向（`attackDir`）
+>      与**背**进攻方向（`bylineDir`/`fieldDir`/`outward`）。替换时**必须读使用点**，
+>      注释会骗人：`_penaltyKick` 的 `outward` 注释写「离对方球门为正」，实际是
+>      「**背离**对方门」＝ `-attackDir`；同处 `boxEdgeY` 被自己的注释带错成
+>      `100 - _ownGoalSideY(team, 84)`（home 得 84，应为 16）。
+>   ⓑ **纵深往返不做 clamp、赋值别绕回入口** —— `_clampOffside` 曾加
+>      `clamp(depth, 0, 100)`（原式允许 `legalY+buffer` 越出场地，枚举 2626 组合不一致）；
+>      且 `_ownGoalSideY(team, depth(y))` 往返**浮点不精确**（实测 45% 取值有 ~7e-15 误差）。
+>      ⇒ 判据若要求逐位，**比较可以用纵深，赋值必须在原空间按原运算顺序**。
+>   ⓒ `pastGk`：纵深**越大越靠前**，「越过门将回自己门」是纵深**更小** —— 第一次写反了。
+> 🔴🔴 **§7.3 的完成判据本身是错的，已修正**：不能再拿「换边后绝对 y 与 50 比」
+>   —— 换边把 `y` 的含义翻过来，那比的是「谁站哪侧」。正确量是**距己方门的纵深**
+>   （swap-invariant）。且探针的射门统计**必须只看下半场**（整场均值混了换边前的
+>   位置，会得出「两队都停在中线」的假象）。修正后实测换边后**两队射门纵深都是
+>   87~92**（对方门前），与不换边组同量级 ⇒ **§7.3 的「客队攻不上去」是测量错误，
+>   不是引擎缺陷**。全队平均纵深也从「主 55/客 32」变成「主 44/客 43」，
+>   结构性不对称消失，正是换边应有的效果。
+> 🔴 **换边仍不可对用户开放** —— 还差 `matchview.js` 的 `slotToPitch` 副本同步
+>   （否则「引擎换了、画面没换」），且尚无任何 UI 入口。
+> ⑧ **战术板 ⭐「设为核心球员」点击无反应 —— 已修复（`v271`）** ——
+>   根因不在 ⭐ 自己的监听器（它绑得好好的），而在**事件 target 被上游改写**：
+>   `js/main.js` 触屏拖拽增强在 **`pointerdown`** 阶段就对 `.tac-slot` 调用了
+>   `setPointerCapture()`。指针一旦被捕获，浏览器会把后续 **`pointerup` 的 target
+>   强制改成捕获元素**，而 **`click` 的 target 又由 `pointerup` 的 target 决定** ⇒
+>   `click` 落在 `.tac-slot` 上，⭐ 的监听器**根本不在事件路径上**。
+>   冒泡到 `#pitch` 的委托 click 后又被解释成「选中该槽位」，所以是「点了没反应」而非报错。
+>   🔴 **可迁移的判据**：**`stopPropagation` 不改 target，pointer capture 会改**。
+>   「按捕获/冒泡顺序，我的 handler 先跑」这种推理在这里**恰好给出错的答案**。
+>   症状特征是 `pointerdown` 的 target 正确，`pointerup` 处 target **跳变到祖先节点**。
+>   排查手法：在 `pointerdown`/`pointerup`/`click` 三处各打一次 `e.target`，看它在哪一步跳变。
+>   **修法（两处，`js/main.js:6525-6565` 与 `:6595-6601`）**：
+>   ① 指针捕获**推迟到首次真实位移之后**（`pointermove` 里超过 8px 才捕获），
+>      原地点击永不捕获 ⇒ target 保持为真实子元素；
+>   ② 委托 click 显式放行 `[data-core-id]` / `[data-role-edit]`（顺带修掉
+>      「点 ⭐ 会连带选中槽位」的次生 bug）。
+>   **为什么安全**：拖拽落点用 `document.elementFromPoint(x,y)` —— **坐标查询**，
+>   不受捕获影响 ⇒ 拖拽换位行为不变。
+>   🔴 **两层验证（第二层不可省）**：
+>   ① `scripts/tactics-core-click-audit.mjs`（事件路径**模拟器**，3 用例）——
+>      证明「捕获改写 target」这条**模型**成立，并断言源码里确实是这两处修复；
+>   ② `scripts/tactics-core-click-browser-check.mjs`（**真实 Chromium**，5 用例 10/10）——
+>      用真实鼠标事件读浏览器实际行为。**只有这一层能证实「浏览器的行为」**，
+>      模拟器证实的只是「我的模型」。实测日志：旧实现 `pointerdown→star p1` 但
+>      `pointerup→slot0`（target 被改写，与模型预测一致）；修复后 `pointerup→star p1`。
+>   🔴🔴 **两个被实测推翻/新发现的点（都写进了代码注释）**：
+>   ⓐ **角色徽章【不是】同源受害者** —— 我一度在文档里断言「徽章也坏了」，实测证伪：
+>      `bindTacticsRoleEditor`（`:7003`）在徽章上绑了 `pointerdown → stopPropagation`，
+>      pointerdown 根本不冒泡到 `#pitch` 委托 ⇒ 从不捕获 ⇒ 徽章本来就能点。
+>      **教训：「两个控件看起来一样所以都坏了」是推断，不是证据。**
+>   ⓑ **`draggable="true"` 与 pointer 事件是竞争关系** —— `.tac-slot` 带 `draggable`，
+>      所以**鼠标**拖拽会启动**原生 HTML5 DnD**，浏览器随即用 **`pointercancel`
+>      终结 pointer 序列**（实测 `pointerdown→move×6→capture@move→pointercancel×6`），
+>      `pointerup` 根本不到达。⇒ **桌面拖拽走 `dragstart/dragover/drop`，
+>      pointer 那条路是给触屏用的**（触屏无原生 DnD），两条路缺一不可。
+>      据此 `endDrag` 已加挂 `pointercancel` + `window` 兜底。
+>      **测这类元素时，用 `mouse.down/move/up` 测 pointer 路是「测错了对象」。**
+>   详录 `docs/tactics-core-star-click-defect-2026-09-19.md`（含真实事件日志 + 两层验证表）。
+> v270 是**换边第 3 步**；v266 是总览·赛季快照排版修复 + 两处用户报告的缺陷修复 + 主动突破原语仍在：
 > ① **赛季快照「联赛排名」摘要不再"字体太大换行违和"** —— `css/style.css` 的
 > `.rank-box` 原用 `--fs-4xl`（22px，**页面标题**级字号）渲染一行密集信息
 > （「联赛 第 N 名 · 积分 · 战绩 · 升降级」），实测 1440px 折 **3 行**、1024px 折 **5 行**。

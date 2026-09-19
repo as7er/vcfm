@@ -112,6 +112,10 @@ const checks = [
   "scripts/match-balance-audit.mjs",
   "scripts/long-term-reality-audit.mjs",
   "scripts/ui-layout-audit.mjs",
+  // 战术板 ⭐「设为核心球员」点击回归：pointerdown 阶段 setPointerCapture 会把
+  // pointerup/click 的 target 改写成 .tac-slot，导致槽位内子按钮收不到点击。
+  // 三组断言：点击恢复 / 拖拽换位未坏 / 模拟逻辑与 js/main.js 源码对齐。
+  "scripts/tactics-core-click-audit.mjs",
   "scripts/manager-onboarding-audit.mjs",
   "scripts/ecosystem-audit.mjs",
   "scripts/world-invariants-audit.mjs",

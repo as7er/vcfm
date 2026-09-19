@@ -57,8 +57,8 @@ import {
   habitLabel,
   startHabitTraining,
 } from "./player-habits.js";
-import { nationFlagHtml } from "./flags.js?v=269";
-import { clubCrestHtml } from "./club-crest.js?v=269";
+import { nationFlagHtml } from "./flags.js?v=271";
+import { clubCrestHtml } from "./club-crest.js?v=271";
 import { applyWorldClubBranding, localizedClubName } from "./branding.js";
 import { recordFinanceEntry } from "./finance-ledger.js";
 import { renderFinance as renderFinanceView } from "./ui/finance.js";
@@ -323,7 +323,7 @@ import {
   selectPlannedSaleCandidate,
   squadPlayerPlan,
   squadPositionPlan,
-} from "./squad-planning.js?v=269";
+} from "./squad-planning.js?v=271";
 import {
   TRAINING_MODES,
   ensureTrainingBoost,
@@ -390,7 +390,7 @@ import {
   staffAvatarHtml,
   avatarHtml,
   hydrateAvatarKitRecolor,
-} from "./avatar.js?v=269";
+} from "./avatar.js?v=271";
 import { attributeArchetypeLabel } from "./player-attributes.js";
 import {
   MANAGER_ONBOARDING_TAB_STEPS,
@@ -490,7 +490,7 @@ let matchViewModulePromise = null;
 
 function loadMatchViewModule() {
   if (!matchViewModulePromise) {
-    matchViewModulePromise = import("./matchview.js?v=269").then((module) => {
+    matchViewModulePromise = import("./matchview.js?v=271").then((module) => {
       matchViewApi = module;
       return module;
     });
@@ -6523,6 +6523,19 @@ function bindTacticsDragDrop() {
   });
 
   // 触屏 pointer：长按拖动换位（补强 HTML5 DnD）
+  // 🔴 注意：这里**不能**在 pointerdown 时立刻 setPointerCapture。
+  // 捕获会把后续 pointerup / click 的 target 强制改成 .tac-slot 本身，
+  // 导致槽位内部的子按钮（⭐ 设为核心球员）永远收不到 click。
+  // ⇒ 只在真正发生位移（判定为拖拽）之后才捕获。
+  //
+  // 📌 另一个实测事实（浏览器验证得出，勿凭直觉推翻）：
+  // `.tac-slot` 带 `draggable="true"`，所以**鼠标**拖拽会启动**原生 HTML5 DnD**，
+  // 浏览器随即用 `pointercancel` 终结 pointer 序列 ⇒ 鼠标下的拖拽换位实际走的是
+  // 下方 `dragstart/dragover/drop` 那条路（`bindTacticsDragDrop` 上半段），
+  // **本段 pointer 逻辑是给触屏用的**（触屏没有原生 DnD）。
+  // 两条路都保留是有意的：缺一条就会在某类设备上无法换位。
+  // 因此 `endPointerDrag` 同时挂在 `pointerup` 与 `pointercancel` 上，且额外挂到 `window`
+  // 兜底（指针拖出球场容器时不漏收尾）—— 靠 `ptr.id` 守卫去重。
   let ptr = { id: null, fromSlot: null, fromBench: null, el: null };
   pitch.addEventListener(
     "pointerdown",
@@ -6539,9 +6552,6 @@ function bindTacticsDragDrop() {
         y: e.clientY,
         moved: false,
       };
-      try {
-        slotEl.setPointerCapture(e.pointerId);
-      } catch (_) {}
     },
     { passive: true }
   );
@@ -6550,14 +6560,25 @@ function bindTacticsDragDrop() {
     const dx = e.clientX - ptr.x;
     const dy = e.clientY - ptr.y;
     if (!ptr.moved && dx * dx + dy * dy < 64) return;
+    if (!ptr.moved) {
+      // 正式进入拖拽：此时才捕获指针，之后的事件都归本槽位
+      try {
+        ptr.el?.setPointerCapture?.(e.pointerId);
+      } catch (_) {}
+    }
     ptr.moved = true;
     tacPick.dragging = true;
     pitch.querySelectorAll(".drag-over").forEach((el) => el.classList.remove("drag-over"));
     const over = document.elementFromPoint(e.clientX, e.clientY)?.closest?.(".tac-slot");
     if (over) over.classList.add("drag-over");
   });
-  pitch.addEventListener("pointerup", (e) => {
-    if (ptr.id !== e.pointerId) return;
+  // 拖拽收尾：pitch 与 window 双挂（window 兜底，防止指针在拖拽中途离开球场容器）。
+  // 靠 `ptr.id !== e.pointerId` 守卫去重：收尾一次后 ptr.id 置 null，第二次进来直接返回。
+  // ⚠ 注意：本函数**不能**改成在 pointerdown 时就 setPointerCapture —— 见上方注释。
+  const endPointerDrag = (e) => {
+    // 双重守卫：ptr.id 必须是一个真实的 pointerId（非 null），且与本次事件匹配。
+    // 因为本函数也挂在 window 上，页面任意点击都会进来 —— 靠这道守卫立即返回。
+    if (ptr.id == null || ptr.id !== e.pointerId) return;
     const from = ptr.fromSlot;
     const moved = ptr.moved;
     pitch.querySelectorAll(".drag-over").forEach((el) => el.classList.remove("drag-over"));
@@ -6582,13 +6603,19 @@ function bindTacticsDragDrop() {
     setTimeout(() => {
       tacPick.dragging = false;
     }, 30);
-  });
+  };
+  pitch.addEventListener("pointerup", endPointerDrag);
+  pitch.addEventListener("pointercancel", endPointerDrag);
+  window.addEventListener("pointerup", endPointerDrag);
+  window.addEventListener("pointercancel", endPointerDrag);
 
   // 点击：点选互换 / 替补上场（触屏友好）
   pitch.addEventListener("click", (e) => {
     if (tacPick.dragging) return;
     // 点名牌链接且未在点选流程 → 放行打开资料
     if (e.target.closest("[data-player-link]") && !tacPick.mode) return;
+    // 槽位内的独立按钮（⭐ 设为核心 / 角色徽章）各自处理，不进入点选流程
+    if (e.target.closest("[data-core-id]") || e.target.closest("[data-role-edit]")) return;
     const slotEl = e.target.closest(".tac-slot");
     if (!slotEl || !pitch.contains(slotEl)) return;
     e.preventDefault();
