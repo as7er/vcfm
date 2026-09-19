@@ -23,6 +23,7 @@ import {
   visualCuePolicy,
 } from "./match-broadcast.js";
 import { coordSystem } from "./matchview-coords.js";
+import { planIntro, planSkip, staggerDelay } from "./matchview-intro.js";
 import { GOAL_NARRATIVE, DirectorScript } from "./matchview-director.js";
 import {
   ensureKit,
@@ -2214,6 +2215,206 @@ export class MatchView {
     this.fieldEl?.classList.toggle("mp-ui-paused", this.frozen);
   }
 
+  /**
+   * 进场动画：两队从各自一侧场边跑入阵型位（用户 2026-09-19 提出）。
+   *
+   * ⚠️ 为什么必须画在 canvas 而不是用 DOM/CSS（第一版返工的原因）
+   * ------------------------------------------------------------
+   * 第一版是纯 CSS 动画：给 `.mp-field` 挂 class，用 `transform` 推
+   * `.mp-player`。**单测全绿但画面上毫无变化** —— 真因是本项目的球员
+   * 不是 DOM 画的：`_initCanvas()` 无条件加 `mp-canvas-mode`，该模式下
+   * `.mp-actors .mp-player` 的 `mp-dot`/`mp-name`/`mp-shadow` 全被
+   * `opacity: 0 !important; visibility: hidden !important` 隐藏，DOM
+   * 球员只是**点击热区**。而且那条选择器（0,3,1）优先级高于
+   * `.mp-intro .mp-player`（0,2,1），我的 `opacity: 0.35` 被直接压回 1。
+   *
+   * 所以入场位移做在这里：`_introOffsetY()` 给 `_drawCanvas` 里每名球员
+   * 的**屏幕 y 像素**叠加一个按错峰衰减的偏移。玩家看到的才是真位移。
+   *
+   * 为什么不动引擎
+   * --------------
+   * 「球员走进球场」是纯观看体验。引擎的 `_kickoff` 已把 22 人摆在合法
+   * 开球位，**不该为了动画再动他们**（那会改随机流、让全部基线失效）。
+   * 这里只改 canvas 的绘制坐标，引擎与模拟状态一个字节都不改。
+   *
+   * 时长与跳过
+   * ----------
+   * 默认 2s，可被「点击球场 / 按任意键」立即结束。立即结束不是硬切，
+   * 而是把剩余偏移按 0.16s 快速收拢（`planSkip`）。
+   *
+   * @param {number} ms 总时长；≤0 ⇒ 跳过（直接到位）
+   * @returns {Promise<void>} 动画结束（或被打断）后 resolve
+   */
+  playPlayerIntro(ms = 2000) {
+    // 「进行中」用独立标志守卫：跳过时 `_introCleanup` 会同步置空，但真正
+    // 的收拢还要 200ms。若用后者做守卫，这 200ms 窗口内再次调用会重入。
+    if (this._introPlaying) return Promise.resolve();
+    const players = this.players || [];
+    if (!players.length) return Promise.resolve();
+
+    // 「无动画」偏好：系统设置了减少动态效果就直接跳过。
+    // 这既是无障碍要求，也顺手给了自动化测试一个确定性的旁路。
+    let reduceMotion = false;
+    try {
+      reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+    } catch (_) {
+      reduceMotion = false;
+    }
+    const plan = planIntro(ms);
+    if (reduceMotion || plan.skip) {
+      this._introStartAt = null;
+      this._introPlan = null;
+      return Promise.resolve();
+    }
+
+    // 时序规划交给纯函数模块 `matchview-intro.js`（可单测，见
+    // `js/matchview-intro.test.js`）。这里只负责照着计划推进时间轴
+    // 与渲染偏移。
+    this._introPlan = plan;
+    this._introStartAt = performance.now();
+    // 错峰基准：按「本队第几名」排，而不是全局索引 —— 全局索引会把主队
+    // 与客队的错峰混在一起（`players` 是先主后客的连续数组）。
+    this._introIndex = new Map();
+    {
+      const counter = { home: 0, away: 0 };
+      for (const pl of players) {
+        const key = pl.team === "home" ? "home" : "away";
+        this._introIndex.set(pl, counter[key]++);
+      }
+    }
+
+    const timers = [];
+    let onSkip = () => {};
+    return new Promise((resolve) => {
+      let settled = false;
+      /** 结束：fast=true 由用户跳过（快速收拢），false 为正常跑完 */
+      const finish = (fast) => {
+        if (settled) return;
+        settled = true;
+        const skipPlan = planSkip();
+        // 快速收拢：以「当前这一刻」为新起点，用 0.16s 把剩余偏移归零。
+        // 不能硬切（直接 `_introStartAt = null`）——22 人瞬间闪现到阵型位
+        // 比动画本身更突兀。
+        if (fast) {
+          const remainY = this._introOffsetRatio
+            ? this._introOffsetRatio(performance.now())
+            : 0;
+          this._introFast = { t0: performance.now(), ratio: remainY, dur: skipPlan.runSeconds * 1000 };
+        }
+        const tail = fast ? skipPlan.tailMs : plan.tailMs;
+        timers.push(
+          window.setTimeout(() => {
+            this._introStartAt = null;
+            this._introPlan = null;
+            this._introFast = null;
+            this._introIndex = null;
+            this._introCleanup = null;
+            this._introPlaying = false;
+            window.removeEventListener("keydown", onSkip);
+            this.fieldEl?.removeEventListener("pointerdown", onSkip);
+            for (const t of timers) window.clearTimeout(t);
+            resolve();
+          }, tail),
+        );
+      };
+      onSkip = () => finish(true);
+      this._introCleanup = onSkip;
+      this._introPlaying = true;
+      this.fieldEl?.addEventListener("pointerdown", onSkip);
+      window.addEventListener("keydown", onSkip);
+      // 正常结束：从 t0 起算。
+      // `plan.totalMs` = 位移占用与目标时长取大者（已含起止，不含 tail 收尾）。
+      // ⚠️ 这里容易写错：曾经把 `plan.holdMs`（语义是「位移跑完后**还要**
+      // 保持多久」）当总时长用，导致 ms=700 这种「位移刚好占满、holdMs=0」
+      // 的场景在 0ms 就收尾（实测 153ms 结束，而位移需要 697ms ⇒ 球员跑到
+      // 一半被掐断）。用 totalMs 则始终覆盖位移本身。
+      const t0 = performance.now();
+      const advance = (now) => {
+        if (settled) return;
+        const remain = Math.max(0, plan.totalMs - (now - t0));
+        timers.push(
+          window.setTimeout(() => {
+            if (!settled) finish(false);
+          }, remain),
+        );
+      };
+      const raf = window.requestAnimationFrame?.bind(window);
+      if (raf) raf(advance);
+      else timers.push(window.setTimeout(() => advance(performance.now()), 16));
+    });
+  }
+
+  /**
+   * 计算某名球员当前的**纵向入场偏移**（屏幕像素，正 = 向下）。
+   *
+   * 在 `_drawCanvas` 里被逐帧调用（只在动画进行中）。返回 0 表示已到位。
+   *
+   * 观感设计：
+   * - 主队守下方 ⇒ 从下往上跑入，偏移为正（画在真实位置下方）；客队相反。
+   * - 幅度取球场高度的 6%：最远的是门将（y≈97），至少要 3% 才在场外，
+   *   6% 留出余量，看起来是「从边线外跨进来」而不是「贴着线冒出来」。
+   * - 错峰：每名球员有自己的延迟（`staggerDelay`），22 人依次跑出，
+   *   而不是一坨人同时弹进来。
+   *
+   * @param {object} pl 球员记录（`this.players` 里的元素，用于查错峰序号）
+   * @param {number} drawIndex 在绘制列表里的下标（仅作 `_introIndex` 缺失时的兜底）
+   * @param {number} h 球场画布高度（像素）
+   * @returns {number} 像素偏移
+   */
+  _introOffsetY(pl, drawIndex, h) {
+    const plan = this._introPlan;
+    if (!plan || this._introStartAt == null) return 0;
+    const isHome = pl.team === "home";
+
+    // 快速收拢阶段：把「跳过那一刻的剩余比例」在 0.16s 内线性归零。
+    if (this._introFast) {
+      const f = this._introFast;
+      const p = Math.min(1, (performance.now() - f.t0) / f.dur);
+      const ratio = f.ratio * (1 - p);
+      return (isHome ? 1 : -1) * ratio * h * 0.06;
+    }
+
+    const elapsed = performance.now() - this._introStartAt;
+    // 错峰：用「本队第几名」算延迟，再按 plan 的缩放系数压缩。
+    // ⚠️ 必须按**球员对象**查 `_introIndex`，不能拿 drawIndex 去索引
+    // `this.players` —— 绘制列表过滤掉了被罚下的球员，两者下标会错位，
+    // 一旦有人 red card，后面所有人的错峰序号就整体偏了。
+    const within = this._introIndex?.get(pl) ?? drawIndex;
+    const delayMs = staggerDelay(within, isHome) * plan.staggerScale * 1000;
+    // 位移时长（毫秒）：plan.runSeconds 是本队位移补间时长。
+    const runMs = plan.runSeconds * 1000;
+    if (elapsed <= delayMs) return (isHome ? 1 : -1) * h * 0.06;
+    const t = Math.min(1, (elapsed - delayMs) / runMs);
+    // 缓出（ease-out cubic）：起步快、收尾稳，像真的「跑到位站住」。
+    const eased = 1 - Math.pow(1 - t, 3);
+    return (isHome ? 1 : -1) * (1 - eased) * h * 0.06;
+  }
+
+  /** 当前剩余偏移比例（0..1），供 skip 时衔接快速收拢 */
+  _introOffsetRatio(now) {
+    const plan = this._introPlan;
+    if (!plan || this._introStartAt == null) return 0;
+    const elapsed = now - this._introStartAt;
+    const runMs = plan.runSeconds * 1000;
+    // 取「位移进度最慢的那名球员」作为剩余比例上限（保证收拢不突变）。
+    let remain = 0;
+    for (const pl of this.players || []) {
+      const within = this._introIndex?.get(pl) ?? 0;
+      const isHome = pl.team === "home";
+      const delayMs = staggerDelay(within, isHome) * plan.staggerScale * 1000;
+      const t = Math.min(1, Math.max(0, (elapsed - delayMs) / runMs));
+      const eased = 1 - Math.pow(1 - t, 3);
+      remain = Math.max(remain, 1 - eased);
+    }
+    return remain;
+  }
+
+  /** 立即结束进场动画（供外部：比赛被推进 / 切换视图 / 卸载时调用） */
+  skipPlayerIntro() {
+    const fn = this._introCleanup || this._introFinish;
+    if (typeof fn === "function") fn();
+  }
+
   /** 音效开关 */
   setSfxMuted(v) {
     this._sfxMuted = !!v;
@@ -3556,9 +3757,14 @@ export class MatchView {
 
     // 球员：先阴影再本体，持球者最后画一层环
     const drawList = this.players.filter((p) => !p.el.classList.contains("sent-off"));
-    for (const pl of drawList) {
+    // 进场动画的纵向偏移（像素）。没在播时返回 0，零开销。
+    const introActive = this._introStartAt != null;
+    for (let di = 0; di < drawList.length; di++) {
+      const pl = drawList[di];
       const x = px(pl.x);
-      const y = py(pl.y);
+      // 入场位移叠加在**屏幕 y** 上（不是引擎坐标）：球场高度 h 已换算成
+      // 像素，按 h 取比例才能让「从场边进来」在不同屏幕上都成立。
+      const y = py(pl.y) + (introActive ? this._introOffsetY(pl, di, h) : 0);
       // 与模拟层 2.85~3.35 的中心间距匹配；旧半径 9px 会让直径大于碰撞距离。
       // 2026-09-05（A1）：上限 10→12——列放宽到 640px 后 minDim 变大，12px 半径
       // 与纵向分离距离的比例和旧 10px/480px 列一致（≈0.65），大屏上球员更可读。

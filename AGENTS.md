@@ -5,7 +5,78 @@
 > 仓库：https://github.com/as7er/vcfm.git · `master`（**2026-09-14 起规范地址为小写 `vcfm`**；
 > 大写 `VCFM` 仍可用但会走重定向，`origin` 已更新为小写）  
 > 预览：`python -m http.server 8765 --bind 127.0.0.1`  
-> 缓存：**vcfm-v266**（**总览·赛季快照排版修复 + 两处用户报告的缺陷修复 + 主动突破原语仍在**）：
+> 缓存：**vcfm-v268**（**有球跑位/无球跑位归因续查 + 换边前置重构 + 进场动画 + 一处方法论级坑**）：
+> ① **「下半场换边」查证结论：引擎从未实现** —— 不是「没处理好」，而是完全不存在。
+>    `attackDir(team)` 是纯函数无半场参数；`grep swapEnds|secondHalf` 实现 0 处；
+>    `grep MATCH_SECONDS js/` = 0 处（半场划分只在解说文案层 `js/match.js:1410/1655`）；
+>    `_kickoff` 摆位式子不含半场序号，实测下半场 51.1' 与开场 1.2' **逐位相同**
+>    （`homeY=73.0/awayY=25.0/homeX=59.0/awayX=50.0`）；引擎全场**从不发 `ht` 事件**。
+>    用户「看到换边」的真实机制：运动战中两队被球吸引挤到同侧（18 个采样点里 11 个的
+>    `homeY+awayY` 偏离 100 超过 30），进球后 `_kickoff` 把两队**瞬间按回各自固定半场**
+>    ⇒ 从「挤在一侧」变「分居两侧」，视觉上极像换边。
+>    详见 `docs/halftime-side-swap-verification-2026-09-16.md`。
+> ② **换边第 1 步（纯重构）已完成**：10+ 处硬编码球门坐标收敛到统一入口。
+>    关键认识：这些硬编码其实是**两种不同语义** —— 「自己**防守**的球门」6 处 + 1 处坐标
+>    运算（新增 `ownGoalY(team)`）、「自己**进攻**的球门」4 处（已有 `targetGoalY(team)`）、
+>    禁区纵向边界 1 处（`_inOwnPenaltyArea`，**第 11 处**）、球到己方门距离 1 处
+>    （新增 `_ballDistanceToOwnGoal`）。两组写法在 home/away 下**恰好互为反义**，
+>    所以此前「看起来像同一个东西」—— 换边时漏改一处就是**不报错的静默错位**。
+>    验收用**逐位对比**（不是「指标没退化」）：2 场 × 16200 帧 bit-for-bit 相同。
+>    顺带修正 `_thinkGK` 的 `facing` 真实符号错误（曾按注释推成 `-attackDir`，
+>    实测应为 `attackDir`；误改后 GK 的 `ty` 93.05 → 99.0 贴到门线上）。
+> ③ **进场动画**（用户提议）：两队从各自一侧场边跑入阵型位，直播 2s、快速 700ms，
+>    可点击/按键立即结束（跳过不是硬切，而是把剩余偏移按 0.16s 快速收拢，
+>    收尾留 0.24s 调度余量以免最后一帧跳回 0）。**引擎零改动** —— 只改 canvas 绘制坐标。
+>    🔴 **本功能返工过一次，是一堂「单测全绿 ≠ 功能可用」的课，务必读完**：
+>    第一版做成 **纯 CSS `transform` 位移**（给 `.mp-field` 挂 `.mp-intro`，
+>    推 `.mp-player`）。单元测试 17/17、`node --check`、缓存审计**全部通过**，
+>    但浏览器里**画面上什么都没发生**。
+>    真因：本项目的球员**不是 DOM 画的**。`_initCanvas()` 无条件加 `mp-canvas-mode`，
+>    该模式下 `.mp-actors .mp-player` 及其 `mp-dot`/`mp-name`/`mp-shadow` 被
+>    `opacity: 0 !important` + `visibility: hidden !important` 全隐藏 ——
+>    DOM 球员只是**点击热区**，玩家看到的 22 人是 `<canvas>` 画出来的。
+>    而且 `.mp-canvas-mode .mp-actors .mp-player`（0,3,1）优先级高于
+>    `.mp-intro .mp-player`（0,2,1），我写的 `opacity: 0.35` 被直接压回 1。
+>    实测三条铁证：起始位移 `fy` 恒为 `-13px`（那只是热区自身的
+>    `translate(-50%,-50%)`）、`opacity` 恒为 1、且 `ms=0`（动画根本没跑）
+>    时读数**一模一样**。
+>    修法：位移做在 **canvas 绘制层** —— `matchview.js` 的 `_introOffsetY()`
+>    在 `_drawCanvas` 里给每名球员的屏幕 y 叠加按错峰衰减的偏移（幅度 6% 球场高）。
+>    CSS 侧只留一段「为什么这里不放视觉规则」的返工注释。
+>    ① 时序算术抽成纯函数模块 `js/matchview-intro.js`（`planIntro`/`planSkip`/
+>    `staggerDelay`），配 `js/matchview-intro.test.js`（20 例）；
+>    ② 真实渲染由 `scripts/intro-animation-browser-check.mjs`（Playwright +
+>    canvas 2D context 插桩抓 `arc()` 坐标）验收 —— **这条才是有效的验证**，
+>    24/24 通过（起步偏移 30.2px 恰好 = 球场高 6%，750ms 收敛到 0.3px）。
+>    过程中还抓到两个真 bug：`holdMs` 被误当总时长（`ms=700` 时 153ms 就收尾，
+>    球员跑到一半被掐断）、`totalMs` 用 `Math.round` 后的值导致边界上比位移还短。
+>    两者都补了回归单测。
+> ④ 🔴 **方法论级坑：引擎不认 `opts.seed`，随机源必须传 `opts.random`** ——
+>    `engine.js:510` 是 `this.random = opts.random ?? Math.random`，**全仓 `opts.seed`
+>    零引用**。传 `{ seed }` 被**静默忽略** ⇒ 走 `Math.random` ⇒ **每次跑都是新随机流**。
+>    后果：一轮 16200 帧「逐位对比」全部分叉，据此**误判**为重构引入 bug，
+>    二分定位近 10 次调用，甚至把无辜的 `_inOwnPenaltyArea` 当成分叉源（假阳性）。
+>    真凶是**同 clean 版本连跑三次、三次 md5 都不同**。审计：全仓 87 个探针正确传
+>    `opts.random`，只有 3 个新脚本写错（已修）。
+>    **用正确随机源重跑原归因探针（6 场），核心结论全部复现**：租约拦下/漏掉
+>    265/726 → 276/696；**锚点翻转使大跳概率提升 11.2× → 10.4×**；渲染层「既不豁免
+>    又无标记」81.4% → 90.2%；迟滞 bw=0.15 消除翻转 18.8% → 18.9%。
+>    ⇒ 方向与量级全部一致，原结论不是随机噪声的产物。
+>    **铁律：做任何测量实验前，先证明模拟可复现（同输入跑两次对比 md5）。**
+> ⑤ **瞬移根因（未修）**：`_chooseAttackOffBallTarget` 的 `drop` 分支纵向锚是**球位**
+>    （`b.y + dir*dropDepth`），`else` 分支是**固定阵型位**（`baseY + dir*(...)`），
+>    两锚相距最坏 74m，由 `this.random() < p` 每 0.42~1.32s 重掷。
+>    渲染层 `relocate()` 的缓动与告警豁免**共用一个只剩死球语义的开关**
+>    （`motionContext.discontinuity` 只在死球/庆祝/点球为真）⇒ 81~90% 的跳变是硬置。
+>    用户猜的「淡化没普及」方向对，准确说法是「缓动与豁免共用开关」。
+>    迟滞修法**已证伪**（带宽 0.15 只消 18.9% 翻转；78% 的翻转发生在 `prog` 深处）。
+>    候选：A2（`drop` 锚改 `lerp(baseY, b.y+dir*dropDepth, 0.65)`，推荐）/ A3（去骰子，
+>    根治）/ B（渲染层解耦开关，治标）；建议 A2→B 组合。**待用户拍板，未实施。**
+>    详见 `docs/offball-upstream-target-flip-2026-09-16.md`。
+> **换边第 2 步的设计**（加 `endsSwapped` 开关 + `_kickoff` 按方向选式子 +
+> `adapt.js` 阵型位镜像感知）见 `docs/halftime-side-swap-implementation-design-2026-09-19.md`，
+> **未实施**：会改随机流 ⇒ 进球率/强弱分离/beat 带宽/队形审计基线全需重标定。
+> v266 是总览·赛季快照排版修复 + 两处用户报告的缺陷修复 + 主动突破原语仍在：
 > ① **赛季快照「联赛排名」摘要不再"字体太大换行违和"** —— `css/style.css` 的
 > `.rank-box` 原用 `--fs-4xl`（22px，**页面标题**级字号）渲染一行密集信息
 > （「联赛 第 N 名 · 积分 · 战绩 · 升降级」），实测 1440px 折 **3 行**、1024px 折 **5 行**。

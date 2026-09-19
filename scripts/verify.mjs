@@ -6,6 +6,7 @@ const repo = resolve(import.meta.dirname, "..");
 const checks = [
   "js/matchview-fsm.test.js",
   "js/matchview-coords.test.js",
+  "js/matchview-intro.test.js",
   "js/matchview-director.test.js",
   "scripts/cache-audit.mjs",
   "scripts/save-durability-audit.mjs",

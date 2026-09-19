@@ -4169,6 +4169,36 @@ html[data-theme="dark"] .mp-fmm-dock {
 .mp-player.highlight .mp-dot {
   box-shadow: 0 0 0 2px #fff, 0 0 12px 3px rgba(61, 139, 253, 0.85);
 }
+
+/* ────────────────────────────────────────────────────────────────
+   进场动画（用户 2026-09-19 提出「加一个进场的动画吧」）
+
+   ⚠️ 这里**不放任何入场视觉规则**。这是一次重要返工的记录，别删这段注释。
+
+   第一版把入场做成了 DOM/CSS 动画：给 `.mp-field` 挂 `.mp-intro`，
+   用 `transform: translateY(var(--intro-dy))` 把 `.mp-player` 从场边
+   推进来。单测 17/17 全绿、缓存审计全过、`node --check` 通过 ——
+   **但浏览器实测里画面上什么都没发生**。
+
+   真因（由 `scripts/intro-animation-browser-check.mjs` 逮到）：
+   本项目的球员**不是用 DOM 画的**。`_initCanvas()` 无条件给球场加
+   `mp-canvas-mode`，该模式下 CSS 把 `.mp-actors .mp-player` 及其
+   `mp-dot`/`mp-name`/`mp-shadow` 全部 `opacity: 0 !important` +
+   `visibility: hidden !important`（见下方 `.mp-canvas-mode` 规则）——
+   DOM 球员只是**点击热区**，玩家看到的 22 个人是 `<canvas>` 画出来的。
+   所以对 DOM 做 transform 只会移动「看不见的热区」。
+
+   更糟的是优先级：`.mp-canvas-mode .mp-actors .mp-player`（0,3,1）高于
+   `.mp-intro .mp-player`（0,2,1），我写的 `opacity: 0.35` 直接被
+   `opacity: 1` 压回去，连「半透明着跑进来」都做不到。
+   实测读数：起始位移 fy 恒为 -13px（那只是热区自身的
+   `translate(-50%,-50%)`），opacity 恒为 1，且 `ms=0`（动画根本没跑）
+   时读数一模一样 —— 三条一起证明了「CSS 完全没生效」。
+
+   结论：入场位移必须做在 **canvas 绘制层** —— 见
+   `js/matchview.js` 的 `_introOffsetY()`，它在 `_drawCanvas` 给每名
+   球员的屏幕 y 坐标叠加一个按错峰衰减的偏移。CSS 这里不再承担视觉。
+   ──────────────────────────────────────────────────────────────── */
 .mp-player.scorer .mp-dot {
   box-shadow: 0 0 0 2px #fff, 0 0 14px 4px rgba(61, 214, 140, 0.95);
   animation: mp-score-pulse 0.5s ease-in-out 3;

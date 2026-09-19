@@ -57,8 +57,8 @@ import {
   habitLabel,
   startHabitTraining,
 } from "./player-habits.js";
-import { nationFlagHtml } from "./flags.js?v=266";
-import { clubCrestHtml } from "./club-crest.js?v=266";
+import { nationFlagHtml } from "./flags.js?v=268";
+import { clubCrestHtml } from "./club-crest.js?v=268";
 import { applyWorldClubBranding, localizedClubName } from "./branding.js";
 import { recordFinanceEntry } from "./finance-ledger.js";
 import { renderFinance as renderFinanceView } from "./ui/finance.js";
@@ -323,7 +323,7 @@ import {
   selectPlannedSaleCandidate,
   squadPlayerPlan,
   squadPositionPlan,
-} from "./squad-planning.js?v=266";
+} from "./squad-planning.js?v=268";
 import {
   TRAINING_MODES,
   ensureTrainingBoost,
@@ -390,7 +390,7 @@ import {
   staffAvatarHtml,
   avatarHtml,
   hydrateAvatarKitRecolor,
-} from "./avatar.js?v=266";
+} from "./avatar.js?v=268";
 import { attributeArchetypeLabel } from "./player-attributes.js";
 import {
   MANAGER_ONBOARDING_TAB_STEPS,
@@ -490,7 +490,7 @@ let matchViewModulePromise = null;
 
 function loadMatchViewModule() {
   if (!matchViewModulePromise) {
-    matchViewModulePromise = import("./matchview.js?v=266").then((module) => {
+    matchViewModulePromise = import("./matchview.js?v=268").then((module) => {
       matchViewApi = module;
       return module;
     });
@@ -10354,6 +10354,24 @@ async function runMatch(mode) {
       if (snap?.home && ev?.type !== "sim_frame") updateLiveStats(snap);
       await driveMatchEvent(ev, snap, { live });
     };
+
+    // 进场动画：两队从各自一侧场边跑入阵型位（约 2s，可点击/按键跳过）。
+    // 位置在 `playFirstHalf` **之前** —— 时序必须是「入场 → 开球 → 上半场」。
+    // 只做表现层位移（画在 canvas 上，见 `matchview.js` 的 `_introOffsetY`），
+    // 不碰引擎：`_kickoff` 已经把 22 人摆在合法开球位了。
+    // 每场比赛只播一次（`matchState._introPlayed`），避免快速模式下反复重播。
+    //
+    // 时长按模式区分：直播（用户要看的场次）给足 2s 的仪式感；「快速」
+    // 模式是用户明确要「赶紧出结果」的路径，被 2s 动画挡住会很烦 ——
+    // 给 700ms 的短促入场（`planIntro` 会自动压缩位移时长）。
+    if (!matchState._introPlayed && matchView?.playPlayerIntro) {
+      matchState._introPlayed = true;
+      try {
+        await matchView.playPlayerIntro(live ? 2000 : 700);
+      } catch (_) {
+        /* 动画失败绝不能挡住比赛开球 */
+      }
+    }
 
     await playFirstHalf(matchState, {
       onEvent,
