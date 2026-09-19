@@ -26,7 +26,9 @@ dist/
 /rec/
 
 # local scratch: video-comparison probes, baseline/calibration dumps (do not upload)
-/.tmp-*/
+# ⚠ 用 `/.tmp-*` 而非 `/.tmp-*/`：探针产物九成是**文件**（`.tmp-verify.txt`），
+#   目录形式带尾斜杠只匹配目录，这些文件因此一直显示为未跟踪的 `??`。
+/.tmp-*
 
 # local health-check dumps & one-off fix scripts
 /artifacts/
