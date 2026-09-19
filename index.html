@@ -11,7 +11,7 @@
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icons/icon.svg" />
   <title>VCFM</title>
-  <link rel="stylesheet" href="css/style.css?v=263" />
+  <link rel="stylesheet" href="css/style.css?v=266" />
   <script>
     /* 尽早应用主题/语言，避免闪白 */
     (function () {
@@ -825,7 +825,7 @@
                 </section>
                 <section class="competition-leader-block">
                   <h3 data-i18n="stats.ratings">评分榜</h3>
-                  <p class="hint" data-i18n="clubIntl.ratingsHint">至少 2 场出场 · 本赛事场均评分</p>
+                  <p class="hint" data-i18n="clubIntl.ratingsHint">至少 4 场出场 · 本赛事场均评分</p>
                   <div class="table-wrap">
                     <table id="club-competition-ratings">
                       <thead><tr>
@@ -1036,7 +1036,7 @@
             </div>
             <div class="card">
               <h2 data-i18n="stats.ratings">评分榜</h2>
-              <p class="hint" style="margin:0.25rem 0 0.5rem" data-i18n="stats.ratingsHint">至少 3 场出场 · 场均评分</p>
+              <p class="hint" style="margin:0.25rem 0 0.5rem" data-i18n="stats.ratingsHint">至少 10 场出场 · 场均评分</p>
               <div class="table-wrap">
                 <table id="stats-ratings">
                   <thead>
@@ -1507,12 +1507,12 @@
       });
     })();
   </script>
-  <script type="module" src="js/main.js?v=263"></script>
+  <script type="module" src="js/main.js?v=266"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {
         // 清理历史版本缓存，范围与 sw.js 保持一致。
-        var CURRENT_CACHE = "vcfm-v263";
+        var CURRENT_CACHE = "vcfm-v266";
         if (window.caches && caches.keys) {
           caches.keys().then(function (keys) {
             return Promise.all(
@@ -1523,7 +1523,7 @@
           }).catch(function () {});
         }
         // 本地开发：若 SW 异常可导致旧坏缓存；注册失败不阻断游戏
-        navigator.serviceWorker.register("./sw.js?v=263").then(function (reg) {
+        navigator.serviceWorker.register("./sw.js?v=266").then(function (reg) {
           try { reg.update(); } catch (e) {}
           if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
         }).catch(function () {});
@@ -1532,8 +1532,8 @@
           if (refreshing) return;
           refreshing = true;
           try {
-            if (!sessionStorage.getItem("vcfm-sw-reloaded-v263")) {
-              sessionStorage.setItem("vcfm-sw-reloaded-v263", "1");
+            if (!sessionStorage.getItem("vcfm-sw-reloaded-v266")) {
+              sessionStorage.setItem("vcfm-sw-reloaded-v266", "1");
               location.reload();
             }
           } catch (e) {

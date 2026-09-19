@@ -13,6 +13,10 @@ const checks = [
   "scripts/replay-ui-audit.mjs",
   "scripts/match-presentation-audit.mjs",
   "scripts/match-continuity-audit.mjs",
+  // 评分榜口径：门槛（联赛 ≥10 / 赛事 ≥4）+ 6 处文案一致性 + 用真实评分公式
+  // 做蒙特卡洛复现「低出场高均分占榜」（用户 2026-09-19 报告）。
+  // 同时断言「旧门槛确实复现」与「新门槛确实清零」，两边都测才防得住回退。
+  "scripts/ratings-leaderboard-audit.mjs",
   // 官员跑位：import 真正的 `MatchView.prototype._updateOfficials`，用替身 `this` 驱动，
   // 球的轨迹来自真 `SimEngine`（2 场约 17s）。verify 此前完全没覆盖 officials，
   // 用户三次报「主裁和球同步瞬移 / 比追球球员还快 / 距离被锁死」全靠肉眼发现。

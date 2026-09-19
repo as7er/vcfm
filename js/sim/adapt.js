@@ -888,6 +888,15 @@ export function defaultFlavorText(state, item) {
         : `VAR ${minute}' 复核完成，点球判罚成立`;
     case "card":
       return `🟨 ${minute}' ${who} 吃到黄牌`;
+    // 犯规携带的红牌（`foul` 事件的 `card` 字段，见 `match.js` 的 `pushSimFlavor`）。
+    // 引擎在 `_rollFoulCard` 里直接罚下，但**只把红牌挂在 `foul` 事件上**，
+    // 不另发 `red` 事件 ⇒ 这里必须给 `foul` 补文案，否则红牌卡片会显示
+    // `default` 分支的「45' 球队名」这种无意义文字。
+    case "foul":
+      if (item.card === "red2") return `🟥 ${minute}' ${who} 两黄变一红被罚下！`;
+      if (item.card === "red") return `🟥 ${minute}' ${who} 犯规被红牌罚下！`;
+      if (item.card === "yellow") return `🟨 ${minute}' ${who} 犯规吃到黄牌`;
+      return `⚠️ ${minute}' ${who} 犯规`;
     case "red":
       return item.secondYellow
         ? `🟥 ${minute}' ${who} 两黄变一红被罚下！`

@@ -1,0 +1,66 @@
+# 主动突破原语 · 零回归自检（[A] 默认口径无影响）
+
+探针：`scripts/_beat-zero-regression-probe.mjs --emit 3 372000`
+提交：本文件所在提交（引擎补丁），对照 = 补丁前（`git stash push js/sim/engine.js`）
+
+判据：**默认口径**（不传 `beatPrimitive`）的行为必须与打补丁前**逐字节相同**。
+注意：断言**不是**"开关开/关相同"—— 打开开关后 `beat` 选项入池、消费随机数顺序改变，
+行为本来就该不同（见设计稿 §4.1.1）。
+
+方法：
+  git stash push js/sim/engine.js
+  node scripts/_beat-zero-regression-probe.mjs --emit 3 372000 > before.txt
+  git stash pop
+  node scripts/_beat-zero-regression-probe.mjs --emit 3 372000 > after.txt
+  diff before.txt after.txt    # 必须无输出
+
+结果：**diff 无输出（exit 0）⇒ 逐字节相同。**
+
+签名含：54000 步采样轨迹的 FNV-1a 摘要 + 事件流摘要 + 终局汇总量
+（score/goals/shots/passes/tackles/pressures/beats/offsides/fouls/events）。
+覆盖 22 名球员的 x/y/vx、球位、全部事件计数。
+
+--- before.txt（补丁前）与 after.txt（补丁后，逐字节相同）---
+# beat-zero-regression --emit  baseline3 seeds 372000..372002
+# 判据：与打补丁前（git stash）的同命令输出**逐字节相同**。
+seed=372000 steps=54000 events=2503 hash=10583708 final={"score":"0-0","goals":0,"shots":27,"passes":1101,"tackles":55,"pressures":173,"beats":0,"offsides":5,"fouls":29,"events":2503}
+seed=372001 steps=54000 events=2143 hash=08bba51b final={"score":"4-1","goals":5,"shots":22,"passes":944,"tackles":37,"pressures":156,"beats":0,"offsides":2,"fouls":23,"events":2143}
+seed=372002 steps=54000 events=2180 hash=919bc022 final={"score":"1-5","goals":6,"shots":27,"passes":939,"tackles":42,"pressures":164,"beats":0,"offsides":5,"fouls":25,"events":2180}
+
+--- [B] 开关生效性（6 场，关闭 vs 打开）---
+
+=== 主动突破原语·零回归自检 —— 6 场，种子 372000..372005 ===
+判据 [A] 默认口径无影响（见 --emit）  [B] 开关确实生效且打开后有差异
+
+[B] 开关生效性（关闭 vs 打开）：
+  seed     行为有差异  beat(off/on)
+  372000   是             0/2
+            ↳ 首处差异 agent#1 field#2: 0.03689718484283841 vs 0.036897184842838625
+  372001   是             0/4
+            ↳ 首处差异 agent#1 field#0: 13.419090302184099 vs 13.494307179874236
+  372002   是             0/3
+            ↳ 首处差异 agent#5 field#0: 27.440141917175996 vs 27.383630712755647
+  372003   是             0/5
+            ↳ 首处差异 agent#4 field#0: 87.36577891559 vs 87.36577891559001
+  372004   是             0/4
+            ↳ 首处差异 agent#6 field#0: 54.188110704753925 vs 54.13577558919997
+  372005   是             0/6
+            ↳ 首处差异 agent#1 field#2: -0.5134021627238363 vs -0.5134021627238368
+
+  汇总：
+    关闭时 beat 总数 0（必须 = 0）
+    打开时 beat 总数 24（必须 > 0），场均 4.00
+
+判定：
+  [B1] 关闭时 beat = 0        ✅
+  [B2] 打开时 beat > 0        ✅
+  [B3] 打开后行为确有差异      ✅
+
+✅ [B] 通过：开关接上了，且有真实行为影响。
+   ⇒ [A]（默认口径无影响）请用 --emit 在补丁前后各跑一次并 diff：
+       git stash push js/sim/engine.js
+       node scripts/_beat-zero-regression-probe.mjs --emit 3 372000 > /tmp/before.txt
+       git stash pop
+       node scripts/_beat-zero-regression-probe.mjs --emit 3 372000 > /tmp/after.txt
+       diff /tmp/before.txt /tmp/after.txt   # 必须无输出
+

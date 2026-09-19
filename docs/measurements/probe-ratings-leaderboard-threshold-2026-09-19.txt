@@ -1,0 +1,3 @@
+Ratings leaderboard audit passed
+  league threshold 10 apps / competition threshold 4 apps
+  top-20 low-appearance players: 7.92 at the old threshold (3) → 0.00 at 10

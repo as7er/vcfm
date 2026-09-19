@@ -224,7 +224,7 @@ export function renderStats(world, state, onRerender) {
           </tr>`;
           })
           .join("")
-      : `<tr><td colspan="7" class="muted">${en ? "The ratings table appears after at least three appearances in this scope." : "当前范围至少 3 场出场后显示评分榜"}</td></tr>`;
+      : `<tr><td colspan="7" class="muted">${en ? "The ratings table appears after at least ten appearances in this scope." : "当前范围至少 10 场出场后显示评分榜"}</td></tr>`;
   }
 
   const keepersBody = $("#stats-keepers tbody");

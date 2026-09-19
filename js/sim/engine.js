@@ -155,6 +155,47 @@ export const SIM = {
   PENALTY_RESOLVE_SEC, // 判罚 → 进球/扑救结算
 };
 
+/**
+ * 主动突破原语的参数（`opts.beatPrimitive === true` 时才使用）。
+ *
+ * 取值来自**探针侧标定**（引擎零改动、离线算 p 的 6 组参数扫描 +
+ * 24 场复核，五项指标全部落在真实足球带内）：
+ *   · 单队尝试 18.4/场（真实 ~17）
+ *   · 成功率 52.2%（真实 47~52%）
+ *   · 核心 71.2% vs 普通 47.6%，差 +23.6pp（顶级 66~78% vs 顶均 47~52%，真实差 +20~30pp）
+ * 来源：`scripts/_beat-param-sweep.mjs` / `_beat-counterfactual-probe.mjs`，
+ * 归档 `docs/measurements/probe-beat-counterfactual-24-tiered-2026-09-18.txt`。
+ * 设计与全部取舍：`docs/one-on-one-beat-primitive-design-2026-09-18.md`。
+ */
+const BEAT = {
+  /** 可尝试突破的距离上限（米）。控制在 `CONTROL_RADIUS_METRES` 的"贴身"尺度。 */
+  MAX_DUEL_DIST_M: 3.0,
+  /** 一次尝试的动作时长：期间不再发起新的突破（避免把采样频率当动作频率）。 */
+  ACTION_SEC: 1.2,
+  /** 个人冷却：与 `ACTION_SEC` 共同把频次压到真实量级。 */
+  COOLDOWN_SEC: 3.0,
+  /** 第一层意图门槛：`INTENT_BASE + INTENT_PER_DRIBBLING × dribbling`。 */
+  INTENT_BASE: 0.005,
+  INTENT_PER_DRIBBLING: 0.03,
+  /** 第二层结算：`BASE + (atk − def) × ATTR_WEIGHT + 角奖励 − 协防惩罚`。 */
+  BASE: 0.3,
+  ATTR_WEIGHT: 1.7,
+  ANGLE_WEIGHT: 0.2,
+  HELP_WEIGHT: 0.05,
+  P_MIN: 0.08,
+  P_MAX: 0.8,
+  /** 越过成功后防守者的失位时长（秒）。
+   *  不引入外部数字（公开文献无此量化基准，见设计稿 §5.3.1），
+   *  改为复用引擎既有失位词汇：被抢断者 8s 追抢冷却 + 后撤 4 单位
+   *  （`:6012`/`:6016`），下脚抢断者 36~50s（`:5966`）。取两者之间。 */
+  STAGGER_SEC: 10,
+  /** 越过成功后防守者的后撤距离（**场单位**），与 `:6016` 同形。 */
+  STAGGER_RETREAT_UNITS: 5,
+  /** 入池权重的整体缩放。默认 1（**不改变任何行为**）。
+   *  仅为标定探针 `_beat-engine-side-sweep.mjs` 保留的旋钮。 */
+  WEIGHT_SCALE: 1,
+};
+
 function clamp(n, a, b) {
   return Math.max(a, Math.min(b, n));
 }
@@ -479,6 +520,22 @@ export class SimEngine {
       0.5,
       5
     );
+    // 主动突破原语（"过掉眼前这个人"），见
+    // `docs/one-on-one-beat-primitive-design-2026-09-18.md`。
+    // **默认关闭**：关闭时 `beat` 选项根本不入池 ⇒ 决策分布逐位不变 ⇒
+    // 标准档基线（`STANDARD_PROFILE_REFERENCE_24`）无需重标定。
+    // 参数化只为让标定探针能扫它，**默认值不要在别处改**（同 `separationMinDistanceUnits`）。
+    this.beatPrimitive = opts.beatPrimitive === true;
+    // 标定参数覆盖（**仅当显式传入对象时生效**）。
+    // 目的与 `separationMinDistanceUnits` 完全同型：让 `_beat-engine-side-sweep.mjs`
+    // 能在**不改引擎常量**的前提下扫 `intentP` 等参数。
+    // ⚠ 默认 `null` ⇒ `_beatTuning()` 返回模块级 `BEAT` ⇒ **默认口径逐位不变**。
+    //   传入时按 `{...BEAT, ...opts.beatTuning}` **合并**，未指定的键自动用默认值
+    //   （否则 `T.MAX_DUEL_DIST_M` 会是 `undefined`，`_beatDuelCandidate` 直接失效）。
+    this.beatTuning =
+      opts.beatTuning && typeof opts.beatTuning === "object"
+        ? { ...BEAT, ...opts.beatTuning }
+        : null;
     this.integrationStats = {
       outerSteps: 0,
       coarseSteps: 0,
@@ -1110,6 +1167,104 @@ export class SimEngine {
       }
     }
     return nearest ? { opponent: nearest, distance: nearestDistance } : null;
+  }
+
+  /**
+   * 主动突破的生效参数：默认是模块级 `BEAT` 常量。
+   * 仅当构造时显式传入 `opts.beatTuning` 才用覆盖值（标定探针专用）。
+   * ⚠ 默认路径**不分配对象、不做合并**，直接返回常量 ⇒ 无性能/行为影响。
+   */
+  _beatTuning() {
+    return this.beatTuning || BEAT;
+  }
+
+  /**
+   * 主动突破：找一个**值得对抗**的最近对手。
+   *
+   * 与 `_nearestOpponent` 的区别：这里只看"贴身"范围内的对手（`BEAT.MAX_DUEL_DIST_M`），
+   * 且要求该对手不在越位豁免/门将特殊状态里（门将复用 `_goalkeeperCanPressure` 的判据）。
+   * 返回 `{ opponent, distance, angleRad, helpers }` 或 `null`。
+   *
+   * ⚠ 为什么必须配合"意图门槛"（见 `_attemptBeat`）：**引擎里贴身是常态**
+   * （实测 53.5% 的持球样本最近对手 ≤3m），任何"贴身即触发"的方案都会
+   * 给出比真实高 1~2 个数量级的频次（探针实测 42×）。
+   */
+  _beatDuelCandidate(a) {
+    const T = this._beatTuning();
+    const near = this._nearestOpponent(a);
+    if (!near) return null;
+    const { opponent: opp, distance } = near;
+    if (distance > T.MAX_DUEL_DIST_M) return null;
+    if (opp.sentOff) return null;
+
+    // 侧向角：防守者相对"持球者 → 对方球门"方向的角偏差。越大越好过。
+    const dir = this.attackDir(a.team);
+    const goalY = a.team === "home" ? SIM.AWAY_GOAL_Y : SIM.HOME_GOAL_Y;
+    const toGoal = Math.atan2(goalY - a.y, 50 - a.x);
+    const toDef = Math.atan2(opp.y - a.y, opp.x - a.x);
+    let angleRad = Math.abs(toDef - toGoal);
+    if (angleRad > Math.PI) angleRad = 2 * Math.PI - angleRad;
+
+    // 协防人数：突破路径 8m 内的其他对手
+    let helpers = 0;
+    for (const o of this.agents) {
+      if (o.team === a.team || o === opp || o.sentOff) continue;
+      if (o.role === "GK" && !this._goalkeeperCanPressure(o, a)) continue;
+      if (pitchDistanceBetween(a.x, a.y, o.x, o.y) <= 8) helpers++;
+    }
+    return { opponent: opp, distance, angleRad, helpers, dir };
+  }
+
+  /**
+   * 主动突破的结果结算（两层结构）。
+   *
+   * 第一层**意图门槛**：贴身 ≠ 想过人。真实足球在 ~1000 次持球接触里只挑出
+   *   ~17 次 take-on，所以"我这次要不要过他"必须独立于冷却单独掷一次。
+   *   门槛随 `dribbling` 上升 —— 这本身就是球员差异的第一层体现。
+   * 第二层**越过结算**：对齐抢断公式的形状（`:5996`），但表达"进攻方赢"。
+   *
+   * 赢 ⇒ 防守者进入 `beatenUntil` 失位窗口（真实后果，也是 `dribbling`
+   *   传导到终局指标的唯一通道）；输 ⇒ **不换手**，只是这次没过去
+   *   （直接换手等于把抢断系统重做一遍，见设计稿 §2.4 的取舍）。
+   */
+  _attemptBeat(a, opp) {
+    if (!opp || opp.sentOff) return;
+    const T = this._beatTuning();
+
+    const intentP = T.INTENT_BASE + T.INTENT_PER_DRIBBLING * a.attr.dribbling;
+    if (this.random() >= intentP) {
+      // 本次不尝试，但仍进冷却：否则每个决策点都会重掷，退化成"高频重试"
+      a.beatCdUntil = this.t + T.COOLDOWN_SEC;
+      return;
+    }
+    a.beatCdUntil = this.t + T.COOLDOWN_SEC;
+
+    const duel = this._beatDuelCandidate(a);
+    if (!duel || duel.opponent !== opp) return;
+
+    const atk = 0.55 * a.attr.dribbling + 0.25 * a.attr.balance + 0.2 * a.attr.pace;
+    const def = 0.6 * opp.attr.tackling + 0.2 * opp.attr.marking;
+    const angleBonus = (duel.angleRad / Math.PI) * T.ANGLE_WEIGHT;
+    const p = clamp(
+      T.BASE + (atk - def) * T.ATTR_WEIGHT + angleBonus - duel.helpers * T.HELP_WEIGHT,
+      T.P_MIN,
+      T.P_MAX
+    );
+
+    if (this.random() < p) {
+      // 越过成功：防守者失位 + 朝己方后撤（与 `:6016` 被抢断者同形）
+      opp.beatenUntil = this.t + T.STAGGER_SEC;
+      const back = this.attackDir(opp.team);
+      opp.tx = clamp(opp.x - back * T.STAGGER_RETREAT_UNITS, 3, 97);
+      opp.ty = clamp(opp.y + back * T.STAGGER_RETREAT_UNITS, 3, 97);
+      opp.intent = null;
+      this._emit("beat", a, {
+        from: opp.id,
+        distance: Number(duel.distance.toFixed(2)),
+        angle: Number(duel.angleRad.toFixed(3)),
+        helpers: duel.helpers,
+      });
+    }
   }
 
   _beginBallControl(a, {
@@ -2748,6 +2903,29 @@ export class SimEngine {
         w: (0.12 + 0.9 * burst) * spaceW * (1 - pressure * 0.55) * midBoost,
       });
     }
+    // 主动突破（"过掉眼前这个人"）：仅在开关打开、冷却已过、且有贴身对手时入池。
+    // **关闭时这一段整体不执行** ⇒ 决策分布与旧版逐位相同（这是默认关闭路线的根基）。
+    if (
+      this.beatPrimitive &&
+      this.t >= (a.beatCdUntil || 0) &&
+      this.t >= (a.beatActionUntil || 0)
+    ) {
+      const duel = this._beatDuelCandidate(a);
+      if (duel) {
+        // 权重与 `dribble` 同族，但**随压力上升**（这正是本原语与 `dribble` 的分工：
+        // `dribble` 是"前方有空当就走"，权重随压力下降；`beat` 是"我要过他"）。
+        // 核心/边锋更愿意尝试，与技术习惯同向。
+        const burst = 0.6 * a.attr.dribbling + 0.4 * a.attr.balance;
+        let w = (0.08 + 0.55 * burst) * (0.45 + 0.55 * pressure);
+        if (core) w *= 1.5;
+        if (isWing) w *= 1.25;
+        if (isMid) w *= 1.1;
+        if (this._hasHabit(a, "runs_with_ball")) w *= 1.2;
+        // 标定用整体缩放（默认 1；仅 `opts.beatTuning.WEIGHT_SCALE` 覆盖时非 1）
+        w *= this._beatTuning().WEIGHT_SCALE ?? 1;
+        options.push({ key: { act: "beat", opp: duel.opponent }, w });
+      }
+    }
     const LONG_MIN = shootsFromDistance ? (isWing ? 18 : 20) : core ? 20 : isWing ? 18 : 24;
     const LONG_MAX = shootsFromDistance ? 40 : core ? 40 : isWing ? 34 : 36;
     const canLong =
@@ -2827,6 +3005,20 @@ export class SimEngine {
         };
       }
       a.fsm = "carry";
+    } else if (choice.act === "beat") {
+      // 主动突破：把球带向该对手（"我要过他"），并立刻结算一次对抗。
+      // 动作时长用于抑制频次（期间 `beatActionUntil` 挡住新的尝试）。
+      a.beatActionUntil = this.t + this._beatTuning().ACTION_SEC;
+      const opp = choice.opp;
+      if (opp && !opp.sentOff) {
+        a.intent = {
+          type: "dribble",
+          tx: clamp(a.x + (opp.x - a.x) * 0.85, 3, 97),
+          ty: clamp(a.y + (opp.y - a.y) * 0.85, 3, 97),
+        };
+        a.fsm = "carry";
+      }
+      this._attemptBeat(a, opp);
     } else {
       a.intent = { type: "hold", tx: a.x, ty: clamp(a.y - dir * 3, 3, 97) };
       a.fsm = "carry";
@@ -6310,6 +6502,10 @@ export class SimEngine {
     a.decisionUntil = this.t + 0.8;
     a.protectUntil = 0;
     a.tackleCdUntil = 0;
+    // 主动突破原语（`opts.beatPrimitive`）的三个时间戳。默认关闭时不读不写。
+    a.beatCdUntil = 0;
+    a.beatActionUntil = 0;
+    a.beatenUntil = 0;
     return true;
   }
 
@@ -8092,3 +8288,14 @@ export class SimEngine {
     };
   }
 }
+
+/**
+ * 仅用于**标定探针**读取突破原语的默认参数（`scripts/_beat-engine-side-sweep.mjs` 等）。
+ *
+ * ⚠ 这是**只读出口**，不是可调开关：引擎内部一律走模块级 `BEAT` 常量，
+ *   或经 `opts.beatTuning` 合并出的实例副本（`this.beatTuning`）。
+ *   导出它只为让探针能把「当前默认值」打进标题，便于存档比对。
+ *   导出 `undefined` 也安全：引擎侧 `_beatTuning()` 只在该实例自己持有
+ *   `beatTuning` 时才用传入值，从不读这个导出。
+ */
+export { BEAT };

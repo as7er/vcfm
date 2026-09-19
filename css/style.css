@@ -805,9 +805,17 @@ tr:hover td { background: var(--row-hover); }
   border: 1px solid var(--border);
 }
 #btn-play-match, #btn-advance { margin-right: 0.5rem; margin-top: 0.25rem; }
+/* 联赛排名摘要（「联赛 第 N 名 · 积分 · 战绩 · 升降级」）以及青年队信息条。
+   ⚠ 这里原本是 `--fs-4xl`（22px）——那是「页面标题」级字号，用在一行密集信息上
+   会让它在窄栏里折成 3~5 行（实测 1440px 下 3 行、1024px 下 5 行），视觉上像坏了。
+   降到 `--fs-base`（14px）＝本文件的「正文」级，并给 1.5 行高与 `text-wrap: pretty`
+   （避免最后一行只剩一两个字）。`font-weight` 仍保持 700，数字依旧醒目。
+   青年队那条（`#youth-info`）仍可用行内 `--fs-lg` 覆盖。 */
 .rank-box {
-  font-size: var(--fs-4xl);
+  font-size: var(--fs-base);
+  line-height: 1.5;
   font-weight: 700;
+  text-wrap: pretty;
   padding: 0.75rem;
   background: var(--bg2);
   border-radius: 8px;

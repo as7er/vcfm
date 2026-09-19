@@ -142,6 +142,38 @@ assert.ok(
   "ball trails must reset between possession and flight phases"
 );
 
+// —— 离场者（红牌/伤退）必须由**每帧快照**同步到 DOM class，而非只靠一次性事件 ——
+//
+// 背景（用户报告：「有个球员比赛开始没多久后就一直站在场边不动」）：
+// 引擎 `_think` 的 sentOff 分支会让该球员走向本方底线并停住——这是设计行为。
+// 表现层有两条路把它表达成「离场」：
+//   (a) `case "red"` 事件分支里的 `classList.add("sent-off")` —— **一次性**；
+//   (b) `applySimSnapshot` 每帧按 compact frame 的 `sentOff` 同步 class —— **自愈**。
+// 画布绘制（`drawList`）与几十处选人逻辑全读 `el.classList`。只留 (a) 时，
+// 任何一个没被这一层消费到的红牌事件（跳段/快进/事件重放/players 刚重建过）
+// 都会让 class 永远补不上，该球员此后**一直画在场上**并参与选人。
+//
+// 这条断言锁死 (b) 的存在，避免它被当成冗余代码删掉而回归。
+assert.ok(
+  viewSource.includes('pl.el.classList.toggle("sent-off", off)'),
+  "applySimSnapshot must sync the sent-off class from every snapshot frame"
+);
+assert.ok(
+  /if \(off !== pl\.el\.classList\.contains\("sent-off"\)\)/.test(viewSource),
+  "the sent-off sync must be edge-triggered (write DOM only on state change)"
+);
+assert.ok(
+  engineSource.includes("sentOff: !!a.sentOff"),
+  "compact frames must carry sentOff for the snapshot sync to read"
+);
+// 换人是**身份替换 + 复用同一个 DOM 元素**（`applySubOnPitch` 只改 `pl.id` 等字段，
+// 不新建元素）。被换下的若是罚下/伤退者，他的离场标记会被新上场的球员**继承** ——
+// 表现为「刚换上来的人一登场就是淡出的、不可点、还不被画到画布上」。
+assert.ok(
+  /pl\.el\.classList\.remove\("sent-off",\s*"injured"\)/.test(viewSource),
+  "applySubOnPitch must clear the off-pitch markers off the reused DOM element"
+);
+
 // —— 事件文案必须持续到下一个因果事件，不能在球还没踢出时就被顶掉 ——
 assert.equal(
   PENALTY_SETUP_SEC,

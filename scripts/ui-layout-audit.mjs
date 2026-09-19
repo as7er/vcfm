@@ -47,6 +47,29 @@ assert.ok(css.includes("min-height: 100dvh"), "mobile modals should use the view
 assert.match(css, /html\[data-theme="light"\] \.staff-diff-tag\.elite \{[^}]*color: #9a3412;/s, "elite-club staff tags need high-contrast light-theme text");
 assert.match(css, /html\[data-theme="light"\] \.staff-diff-tag\.star \{[^}]*color: #166534;/s, "top-rated staff tags must remain distinct and readable in the light theme");
 
+// 赛季快照「联赛排名」摘要（#my-rank）是一行**密集信息**
+// （「联赛 第 N 名 · 积分 · 战绩 · 升降级」），不是标题。
+// 它曾经用 `--fs-4xl`（22px，页面标题级）⇒ 窄栏里折成 3~5 行，看起来像坏了。
+// 这里锁死它是正文级字号 + 有行高：任何人再把它调回 `--fs-4xl` 都会红。
+{
+  const rankBlock = css.match(/\.rank-box \{[^}]*\}/s);
+  assert.ok(rankBlock, ".rank-box must be defined");
+  assert.match(rankBlock[0], /font-size: var\(--fs-base\)/, "#my-rank summary must use body-scale type, not a page-title size");
+  assert.doesNotMatch(rankBlock[0], /font-size: var\(--fs-4xl\)/, "#my-rank must not regress to the 22px page-title size");
+  assert.match(rankBlock[0], /line-height:\s*1\.5/, "#my-rank needs an explicit line-height so wrapping stays even");
+  assert.ok(html.includes('id="my-rank"'), "#my-rank must stay in the snapshot card");
+}
+
+// 赛季快照「近期战绩」标题下的容器一直是空的（自 f1bbd46 起无人写入，
+// 详见 docs/overview-snapshot-typography-2026-09-19.md）。要么补渲染，要么删元素；
+// 不允许留一个「有标题、无内容」的空白块而不被注意到。
+// ⚠ 若将来补回了渲染逻辑（会写 `$("#form-strip").innerHTML`），把这条换成
+//   「必须有写入点」的正向断言即可。
+assert.ok(
+  html.includes('id="form-strip"') && !main.includes('#form-strip'),
+  "if #form-strip has no renderer in js/main.js it is dead content; either wire it up or remove the block"
+);
+
 for (const key of [
   "nav.overview", "nav.team", "nav.matches", "nav.transfer", "nav.world",
   "squad.compact", "squad.full", "dash.workbenchEyebrow", "dash.todayPriorities",

@@ -488,8 +488,34 @@ export class MatchView {
     const byId = new Map(sim.players.map((s) => [s.id, s]));
     let carrier = null;
     for (const pl of this.players) {
-      if (pl.el.classList.contains("sent-off")) continue;
       const s = byId.get(pl.id);
+      // 罚下/伤退的人：引擎已让他走向本方底线并停住（`_think` 的 sentOff 分支），
+      // 这里只负责把「已离场」这个事实**落到 DOM class** 上。
+      //
+      // ⚠ 为什么要在这里同步，而不是继续依赖 `red` 事件分支
+      //   （`case "red"` 里的 `classList.add("sent-off")`）：
+      //   画布绘制（`drawList`）与几十处选人逻辑全都读 `el.classList`，
+      //   而事件通道是**一次性**的——只要那一个事件因为任何原因没被这一层
+      //   消费到（跳段、快进、事件重放、`players` 在这一帧之前刚重建过），
+      //   class 就永远不会被补上，该球员此后**一直画在场上**、还一直参与
+      //   「最近的队友/对手」这类选人，表现为「卡在场边不动」（用户报告）。
+      //   而 compact frame **每帧都带 `sentOff`**（`engine.js` 的导出），
+      //   用它可以自愈：状态错了下一帧就纠回来。
+      //
+      // 只在**状态变化**时写 DOM，避免每帧 22 次 `classList.toggle` 的开销。
+      if (s) {
+        const off = !!s.sentOff;
+        if (off !== pl.el.classList.contains("sent-off")) {
+          pl.el.classList.toggle("sent-off", off);
+          // ⚠ 这里**不**额外设落点。引擎 `_think` 的 sentOff 分支已经把
+          //   `a.tx` 定到本方底线外（主队 1 / 客队 99）并每帧保持，
+          //   而这个循环末尾对 sent-off 的人是 `continue`（不再写坐标），
+          //   于是引擎给的那条「走向边线」的轨迹会被原样保留。
+          //   事件分支（`case "red"`）另设的 `pl.ty = ±2/102` 是边线落点，
+          //   与引擎的底线落点不同；在快照路径里以引擎为准，不自作主张。
+        }
+      }
+      if (pl.el.classList.contains("sent-off")) continue;
       if (!s) continue;
       const tx = clamp(s.x, 0, 100);
       const ty = clamp(s.y, 0, 100);
@@ -2022,6 +2048,14 @@ export class MatchView {
     if (!inn) return null;
     const outName = pl.player?.name || pl.name || "";
     const wasCarrier = this.carrier === pl;
+    // ⚠ 离场标记必须清掉：这里是**身份替换 + 复用同一个 DOM 元素**，
+    //   不是新建元素。被换下的若是罚下/伤退者（引擎的 `sentOff` / `injuredOff`），
+    //   他的 `.sent-off` / `.injured` 会**被新上场的球员继承** ——
+    //   表现为「刚换上来的人一登场就是淡出的、不可点、还不被画到画布上」。
+    //   （`.sent-off` 还有第二道保险：`applySimSnapshot` 每帧按新 id 查到
+    //   `sentOff === false` 会自动 toggle 掉；但 `.injured` 是纯表现层标记，
+    //   引擎不导出，只能在这里清。）
+    pl.el.classList.remove("sent-off", "injured");
     // 身份替换，坐标保留
     pl.id = inn.id;
     pl.player = inn;

@@ -478,8 +478,14 @@ export function continentalPlayerLeaders(world, competitionId, limit = 15) {
         (b.avgRating || 0) - (a.avgRating || 0)
     )
     .slice(0, limit);
+  // 赛事（洲际）场均评分：至少 4 场。
+  //
+  // ⚠ 门槛比联赛榜低（联赛取 10），因为洲际赛事单队总场次远少于 34 轮联赛 ——
+  //   用同一把尺子会把榜清空。取值同样有量化依据：见 `engine.js` 评分榜处的注释，
+  //   核心结论是「评分由进球驱动 ⇒ 出场少的场均方差大 ⇒ 低门槛必然被替补占榜」。
+  //   4 场是在「不误伤」与「挡住 ≤2 场的刷分」之间按赛事规模折中的结果。
   const ratings = entries
-    .filter((entry) => entry.stats.apps >= 2 && entry.avgRating != null)
+    .filter((entry) => entry.stats.apps >= 4 && entry.avgRating != null)
     .sort(
       (a, b) =>
         b.avgRating - a.avgRating ||

@@ -174,6 +174,11 @@ export function nationalCallupScore(world, player, club = null, latestIds = null
   // 顶级联赛的日常对抗强度本身就是选拔依据。只影响入选顺位，不改能力。
   const tier = Number(DIVISIONS[resolvedClub?.division]?.tier) || 2;
   score += tier === 1 ? 0.35 : tier === 2 ? -0.55 : -1.4;
+  // ⚠ 这里的 3 场**故意不同于**评分榜的门槛（联赛榜取 10，见 `engine.js`）。
+  //   用途不同：评分榜是**对外展示**，样本不足会把替补顶到榜首（已被量化证实），
+  //   故门槛要严；而这里是**国家队征召的内部评分**，场均分只是 score 的一个
+  //   限幅加成项（`bounded` 到 ±0.9），样本少只会让它影响小，不会造成
+  //   「谁该入选」的错判。门槛低一点反而能让年轻球员的亮眼表现更早进入视野。
   if (avgRating != null && apps >= 3) score += bounded((avgRating - 6.6) * 0.55, -0.8, 0.9);
   if (form != null && formRatings.length >= 2) score += bounded((form - 6.5) * 0.22, -0.4, 0.5);
   else if (lastRating != null) score += bounded((lastRating - 6.5) * 0.18, -0.35, 0.45);

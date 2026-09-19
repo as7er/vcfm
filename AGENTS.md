@@ -5,7 +5,30 @@
 > 仓库：https://github.com/as7er/vcfm.git · `master`（**2026-09-14 起规范地址为小写 `vcfm`**；
 > 大写 `VCFM` 仍可用但会走重定向，`origin` 已更新为小写）  
 > 预览：`python -m http.server 8765 --bind 127.0.0.1`  
-> 缓存：**vcfm-v263**（高光段入场加显式剪辑，修「球员/球/裁判整队瞬移」观感；
+> 缓存：**vcfm-v266**（**总览·赛季快照排版修复 + 两处用户报告的缺陷修复 + 主动突破原语仍在**）：
+> ① **赛季快照「联赛排名」摘要不再"字体太大换行违和"** —— `css/style.css` 的
+> `.rank-box` 原用 `--fs-4xl`（22px，**页面标题**级字号）渲染一行密集信息
+> （「联赛 第 N 名 · 积分 · 战绩 · 升降级」），实测 1440px 折 **3 行**、1024px 折 **5 行**。
+> 已降到 `--fs-base`（14px）＋ `line-height: 1.5` ＋ `text-wrap: pretty`；
+> 复测两种视口均 **2 行**（1024px 从 116px 高 → 68px）。`#youth-info` 仍走行内
+> `--fs-lg` 覆盖，不受影响。新增 `scripts/ui-layout-audit.mjs` 的 4 条断言锁死字号。
+> 附带确认：`#form-strip`（近期战绩正文容器）自 `f1bbd46` 起就**无人写入**，
+> 是「有标题、无内容」的死元素（已加审计提示；本版未动，见
+> `docs/overview-snapshot-typography-2026-09-19.md`）。
+> ② **罚下/伤退球员不再"卡在场边"** —— `js/matchview.js` 的 `applySimSnapshot`
+> 改为**每帧按 compact frame 的 `sentOff` 同步 `.sent-off` class**（原来只由一次性
+> 红牌事件设置，漏一次就永久画在场上）。引擎行为未改。
+> 顺带修掉同一根因的第二个症状：`applySubOnPitch` 换人时**复用 DOM 元素却不清
+> 离场标记**，导致新上场的球员继承 `.sent-off` / `.injured`（一登场就淡出、不可点）。
+> ③ **评分榜门槛**：联赛 `apps >= 3` → **10**、赛事 `apps >= 2` → **4**（`js/engine.js`
+> /`js/cup.js`）+ 6 处文案同步；并新增 `scripts/ratings-leaderboard-audit.mjs`
+> （前 20 名里 ≤5 场的人数：旧门槛 **7.92** → 新门槛 **0.00**）。
+> ④ 主动突破原语仍为 `opts.beatPrimitive` 默认 `false`，标准档行为**逐位不变**
+> （`scripts/_beat-zero-regression-probe.mjs` 双向验证）。
+> **完整定位过程、量化与两条通用教训（判据选错 / 一次性事件不可靠）见
+> `docs/two-reported-defects-fix-2026-09-19.md`。**
+> v264 是主动突破原语落地（默认关闭，引擎 `+191` 行）；
+> v263 是高光段入场加显式剪辑，修「球员/球/裁判整队瞬移」观感；
 > 根因是 `playSimTimeline` 每段开场 `applySimSnapshot(frames[0],{soft:false})` 硬切
 > + `sceneCut` 显式关掉 relocate 缓动。实测段间跨 129.5~956.8 比赛秒、位移中位 44.9 m。
 > 详见 `docs/matchview-teleport-investigation-2026-09-16.md`。
