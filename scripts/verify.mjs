@@ -116,6 +116,16 @@ const checks = [
   // pointerup/click 的 target 改写成 .tac-slot，导致槽位内子按钮收不到点击。
   // 三组断言：点击恢复 / 拖拽换位未坏 / 模拟逻辑与 js/main.js 源码对齐。
   "scripts/tactics-core-click-audit.mjs",
+  // 表现层「画面侧 AI 在真实比赛路径下是否执行」的静态断言。
+  // 换边第 3 步复查发现：js/matchview.js 自带的 _attackDir 一族位于 update() 的
+  // simDrive 早返回之后，真实比赛里根本不跑（唯一权威是 applySimSnapshot 写入的
+  // 引擎坐标）。这决定「表现层要不要为换边改」——结论是不必改，故需长期看住：
+  // 若将来有人删掉那个早返回、让画面侧 AI 复活，本审计必须失败。
+  //
+  // 该脚本默认只跑**段 A（纯静态，不启动浏览器）**，所以 verify 无 Playwright
+  // 硬依赖；段 B（真实 Chromium 逐帧计数）需显式加 `--browser`，
+  // 走独立入口 `npm run test:matchview-browser`。
+  "scripts/matchview-audit-in-simdrive.mjs",
   "scripts/manager-onboarding-audit.mjs",
   "scripts/ecosystem-audit.mjs",
   "scripts/world-invariants-audit.mjs",

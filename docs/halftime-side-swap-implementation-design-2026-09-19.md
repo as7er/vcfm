@@ -137,8 +137,14 @@ if (mirrored) {
 ### 2.4 表现层（可选，建议同期做）
 
 `js/matchview.js` 的 `slotToPitch(slot, isHome)` 有同样的镜像逻辑，
-`_spawnTeam` 时用一次。换边后若球员重建，需同步。另外可用现成的
-`SEGMENT_CUT_MS`（260ms 淡场）表现「下半场开始」。
+`_spawnTeam` 时用一次。换边后若球员重建，需同步。
+
+> ⚠ **2026-09-19 晚修正**：本条曾被视为换边开放的前置条件，复查后推翻。
+> 画面侧自带的整套坐标推断（含 `_attackDir` 一族）在**真实比赛路径上
+> 因 `update()` 的 `simDrive` 早返回而根本不执行**，唯一权威是
+> `applySimSnapshot` 写入的引擎坐标。详见 **§8.7**（含两处独立验证）。
+> `slotToPitch` 只影响「赛前阵型」那一次摆位，**不阻塞换边**。
+> 另可用现成的 `SEGMENT_CUT_MS`（260ms 淡场）表现「下半场开始」。
 
 ## 3. 会改随机流的风险点（必须重标定）
 
@@ -399,9 +405,87 @@ const depthOf = (y, team, swapped) => {
 
 ### 8.6 仍未处理（后续）
 
-- **`js/matchview.js` 的 `slotToPitch(slot, isHome)`** 有同一套镜像逻辑的
-  副本（§2.4），引擎侧收敛后需同步，否则「引擎换了、画面没换」。
 - **`endsSwapped` 尚未接到 UI**：目前只有引擎开关 + 调用层接线，
   还没有任何用户可见的入口。**这是下一步的前置条件。**
+
+### 8.7 表现层复查（2026-09-19 晚修正 §8.6 的判断）
+
+§8.6 曾把 **`js/matchview.js` 的 `slotToPitch(slot, isHome)`** 列为
+「需要同步」的遗留项。复查后**推翻这个判断**：它的优先级远低于原估，
+而且「同步 `slotToPitch`」这个动作本身是**治标**。理由如下。
+
+#### 8.7.1 画面侧自带的 AI 在真实比赛里根本不执行
+
+`matchview.js` 确实自带了整套坐标推断（`_attackDir` 15 处调用、
+硬编码球门 y、`_nudgeAttackShape` / `_shapeDriftSoft` / `_roleLineY` 一族），
+单看代码像是「每帧参与」。**但 `update()` 的门控把它整块短路了**：
+
+```js
+if (this.simDrive && (livePlay || staged) && !this.frozen) {
+  for (const pl of this.players) { …this._applyPlayer(pl); }
+  this._applyBall();
+  this._updateSimCamera(d);
+  this._drawCanvas();
+  this._updateTouchClasses(ts);
+  return;                    // ← 画面侧 AI 全部在这行之后，永远到不了
+}
+```
+
+三条外部入口在拿到引擎帧时也都会提前返回，同一效果：
+
+| 入口 | 判据 | 行为 |
+|---|---|---|
+| `onEvent` | `simDrive \|\| snap.sim \|\| ev.fromSim` | 贴引擎帧后走事件 switch |
+| `prepareEvent` | 同上 + `snap.engine === "v2"` | `applySimSnapshot` 后 `return` |
+| `onTick` | `snap.sim` | `applySimSnapshot` 后 `return` |
+
+⇒ **位置唯一的权威是 `applySimSnapshot`**，它把引擎帧的 `s.x / s.y`
+直接写进 `pl.x / pl.y`（`clamp` 后原样）。画面侧 AI 只在没有引擎帧的
+旧「导演编舞」路径下活着。
+
+#### 8.7.2 两处独立验证
+
+1. **静态断言**（`scripts/matchview-audit-in-simdrive.mjs` 段 A）：
+   从 `js/matchview.js` 原文提取 `update()` 完整方法体（82769 字符，
+   ⚠ 不能用固定长度窗口截取——曾用 2600 字符窗口，断言永远看不到后半段的
+   调用点，表现为「`aiAfterReturn` 为空」的**假通过**），断言
+   `_attackDir` / `_roleLineY` / `_assignFsmTargets` 的调用点**全部**在
+   早返回之后。
+2. **真实 Chromium 运行时**（同脚本段 B，10/10 通过）：
+   复刻门控骨架逐帧计数 —— 真实比赛 120 帧 `simDriveCalls=120 / aiCalls=0`；
+   非 simDrive 120 帧 `aiCalls=120`；`simDrive+frozen` 10 帧两者皆 0
+   （走下方冻结分支）。
+
+#### 8.7.3 修正后的结论
+
+| 项 | 原判断（§8.6） | 修正后 |
+|---|---|---|
+| `slotToPitch` 优先级 | 换边开放的前置条件 | **不阻塞换边**：它只在 `_spawnTeam` 建队时算一次，且结果立刻被 `applySimSnapshot` 覆盖 |
+| 画面侧 `_attackDir` 一族 | 「引擎换了、画面没换」的隐患 | **不在真实比赛路径上**，无需为换边改动 |
+| 真正的前置条件 | （未识别） | **`endsSwapped` 的 UI 入口** + 换边后的**画面可见性** |
+
+**画面侧仍需处理的两件事**（与 §8.6 的 `slotToPitch` 无关）：
+
+1. **`slotToPitch` 只需保「赛前阵型」正确**。默认档（`endsSwapped=false`）
+   它已经对；换边开放后它影响的是**开赛前那一次摆位**（引擎帧到来前的
+   几帧），视觉上是「球员先按旧侧站住、再跳过去」。若换边开放，
+   建议让它读引擎的 `ownGoalY`/`attackDir` 而不是自己实现镜像。
+   **不要为此提前改** —— 现在改是给一个 dead path 加分支。
+2. **换边可见性**（这才是用户能看见的部分）：`_updatePossessionChrome`
+   仍写死 `side === "home" ? "up" : "down"`，`mp-end-label` 的
+   `.mp-end-away { top }` / `.mp-end-home { bottom }` 也是 CSS 写死的，
+   而 `side` 是**控球队**不是**守哪侧**。换边后这两处会指错方向。
+
+#### 8.7.4 可迁移教训
+
+> **「某个模块里有一份镜像逻辑」不等于「这份逻辑在跑」。**
+> 判断一份代码是否参与运行，必须看它的**门控可达性**，而不是它的
+> 调用点数量。同一方法内 `return` 之后有 15 处调用也很可能是死路。
+> 验证方式：静态提取方法体（按大括号配对，不按字符数）+ 真实运行时计数。
+
+> ⚠ **固定长度窗口截取源码做断言是假通过的常见来源。**
+> 本次曾用 `slice(idx, idx + 2600)` 取 `update()`，而该方法体是 82769 字符，
+> 于是「调用点是否在 return 之后」永远判为「找不到」→ 断言被跳过 → 全绿。
+> 正确做法是按 `\n  }\n` 之类的方法边界切，并**断言方法体长度符合预期**。
 
 
