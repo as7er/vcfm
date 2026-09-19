@@ -1,0 +1,413 @@
+{
+  "config": {
+    "matches": 6,
+    "seeds": "381000..381005",
+    "tickSeconds": 0.1,
+    "matchSecondsSimulated": "2700"
+  },
+  "perMatch": [
+    {
+      "seed": 381000,
+      "recomputes": 26816,
+      "steps": 27000
+    },
+    {
+      "seed": 381001,
+      "recomputes": 26795,
+      "steps": 27000
+    },
+    {
+      "seed": 381002,
+      "recomputes": 26853,
+      "steps": 27000
+    },
+    {
+      "seed": 381003,
+      "recomputes": 26773,
+      "steps": 27000
+    },
+    {
+      "seed": 381004,
+      "recomputes": 26665,
+      "steps": 27000
+    },
+    {
+      "seed": 381005,
+      "recomputes": 26918,
+      "steps": 27000
+    }
+  ],
+  "totals": {
+    "recomputes": 160820,
+    "recomputesPerMatch": 26803.333333333332,
+    "heldByLease": 1561,
+    "heldShare": 0.009706504166148489,
+    "commitsWithoutThink": 0
+  },
+  "layer1_tactics_metres": {
+    "n": 160820,
+    "median": 0,
+    "p90": 0,
+    "max": 5.111390339963019,
+    "mean": 0.0009916474910743873
+  },
+  "layer2_commit_metres": {
+    "n": 160820,
+    "median": 0,
+    "p90": 0,
+    "max": 73.16064378693568,
+    "mean": 0.26683387255652197
+  },
+  "layer3_lateral_metres": {
+    "n": 264,
+    "median": 0.47016796042047193,
+    "p90": 0.758650169037233,
+    "max": 1.2566573029649601,
+    "mean": 0.4629392747968986
+  },
+  "net_metres": {
+    "n": 160820,
+    "median": 0,
+    "p90": 1.2079226507921704e-15,
+    "max": 73.16064378693568,
+    "mean": 0.26781920560014966
+  },
+  "layer_cancellation": {
+    "pairsWhereLayer2OpposesLayer1": 0,
+    "ofThoseNetUnder35pct": 0,
+    "share": 0
+  },
+  "layer3_separate": {
+    "calls": 161695,
+    "callsThatMovedAnyone": 127,
+    "totalPlayerPushes": 265,
+    "maxShoveMetres": 1.2566573029649601,
+    "shoveMetres": {
+      "n": 265,
+      "median": 0.468984911899791,
+      "p90": 0.758650169037233,
+      "max": 1.2566573029649601,
+      "mean": 0.4611923341372877
+    }
+  },
+  "fsmDistribution": {
+    "support": 90176,
+    "home": 70644
+  },
+  "netHistogram": [
+    {
+      "label": "<0.05m (未动)",
+      "count": 153430
+    },
+    {
+      "label": "0.05~0.5m",
+      "count": 174
+    },
+    {
+      "label": "0.5~2m",
+      "count": 5227
+    },
+    {
+      "label": "2~8m",
+      "count": 657
+    },
+    {
+      "label": ">=8m",
+      "count": 1332
+    }
+  ],
+  "leaseDiagnosis": {
+    "heldCount": 1561,
+    "heldShare": 0.009706504166148489,
+    "heldPreviousAgeSec": {
+      "n": 1561,
+      "median": 0.9000000000002046,
+      "p90": 1.1000000000002501,
+      "max": 1.4999999999999147,
+      "mean": 0.9299167200508196
+    },
+    "heldHoldGapMetres": {
+      "n": 1561,
+      "median": 19.180506682460614,
+      "p90": 35.05591635545025,
+      "max": 73.16064378693568,
+      "mean": 20.574869906661664
+    },
+    "heldHeldGapOver8m": 1332,
+    "nonHeldNetMetres": {
+      "n": 159259,
+      "median": 0,
+      "p90": 1.2079226507921704e-15,
+      "max": 5.994140625,
+      "mean": 0.06877672671758288
+    }
+  },
+  "sideSwitchDiagnosis": {
+    "bigMoveThresholdMetres": 8,
+    "bigMoves": 1332,
+    "longitudinalFlipLike": 132,
+    "longitudinalFlipAndHeldByLease": 132,
+    "crossedHalfwayLine": 604
+  },
+  "bigMoves": {
+    "thresholdMetres": 8,
+    "count": 1332,
+    "share": 0.00828255192140281,
+    "top": [
+      {
+        "netM": 73.16,
+        "layer1M": 0,
+        "layer2M": 73.16,
+        "fsm": "support",
+        "phase": "in-possession",
+        "held": true,
+        "from": {
+          "x": 53.5,
+          "y": 86.8
+        },
+        "to": {
+          "x": 77,
+          "y": 18.8
+        }
+      },
+      {
+        "netM": 72.72,
+        "layer1M": 0,
+        "layer2M": 72.72,
+        "fsm": "home",
+        "phase": "attacking-transition",
+        "held": true,
+        "from": {
+          "x": 81.4,
+          "y": 19.2
+        },
+        "to": {
+          "x": 56,
+          "y": 86.5
+        }
+      },
+      {
+        "netM": 71.94,
+        "layer1M": 0,
+        "layer2M": 71.94,
+        "fsm": "support",
+        "phase": "in-possession",
+        "held": true,
+        "from": {
+          "x": 55.5,
+          "y": 80.2
+        },
+        "to": {
+          "x": 80.2,
+          "y": 13.6
+        }
+      },
+      {
+        "netM": 71.93,
+        "layer1M": 0,
+        "layer2M": 71.93,
+        "fsm": "support",
+        "phase": "in-possession",
+        "held": true,
+        "from": {
+          "x": 55.5,
+          "y": 80.2
+        },
+        "to": {
+          "x": 80.2,
+          "y": 13.6
+        }
+      },
+      {
+        "netM": 70.62,
+        "layer1M": 0,
+        "layer2M": 70.62,
+        "fsm": "support",
+        "phase": "attacking-transition",
+        "held": true,
+        "from": {
+          "x": 56,
+          "y": 86.5
+        },
+        "to": {
+          "x": 82.6,
+          "y": 21.5
+        }
+      },
+      {
+        "netM": 69.78,
+        "layer1M": 0,
+        "layer2M": 69.78,
+        "fsm": "support",
+        "phase": "in-possession",
+        "held": true,
+        "from": {
+          "x": 24,
+          "y": 78.4
+        },
+        "to": {
+          "x": 19.9,
+          "y": 12
+        }
+      },
+      {
+        "netM": 68.48,
+        "layer1M": 0,
+        "layer2M": 68.48,
+        "fsm": "support",
+        "phase": "in-possession",
+        "held": true,
+        "from": {
+          "x": 24.7,
+          "y": 19.8
+        },
+        "to": {
+          "x": 20.6,
+          "y": 85
+        }
+      },
+      {
+        "netM": 66.37,
+        "layer1M": 0,
+        "layer2M": 66.37,
+        "fsm": "home",
+        "phase": "attacking-transition",
+        "held": true,
+        "from": {
+          "x": 65.9,
+          "y": 83.3
+        },
+        "to": {
+          "x": 50.8,
+          "y": 20.9
+        }
+      },
+      {
+        "netM": 66.13,
+        "layer1M": 0,
+        "layer2M": 66.13,
+        "fsm": "support",
+        "phase": "attacking-transition",
+        "held": true,
+        "from": {
+          "x": 25.2,
+          "y": 86.4
+        },
+        "to": {
+          "x": 21,
+          "y": 23.5
+        }
+      },
+      {
+        "netM": 65.99,
+        "layer1M": 0,
+        "layer2M": 65.99,
+        "fsm": "support",
+        "phase": "attacking-transition",
+        "held": true,
+        "from": {
+          "x": 24.8,
+          "y": 79.4
+        },
+        "to": {
+          "x": 21.6,
+          "y": 16.6
+        }
+      },
+      {
+        "netM": 65.74,
+        "layer1M": 0,
+        "layer2M": 65.74,
+        "fsm": "support",
+        "phase": "in-possession",
+        "held": true,
+        "from": {
+          "x": 55.2,
+          "y": 20.5
+        },
+        "to": {
+          "x": 77.2,
+          "y": 81.5
+        }
+      },
+      {
+        "netM": 65.31,
+        "layer1M": 0,
+        "layer2M": 65.31,
+        "fsm": "support",
+        "phase": "in-possession",
+        "held": true,
+        "from": {
+          "x": 24.4,
+          "y": 20
+        },
+        "to": {
+          "x": 19.5,
+          "y": 82.1
+        }
+      }
+    ]
+  },
+  "phasesSeen": [
+    "attacking-transition",
+    "in-possession"
+  ]
+}
+
+【逐层位移归因 · 单位米】
+  层1 战术(宽度/拉拽/纵深/锚点)  中位 0.00  p90 0.00  max 5.11
+  层2 提交(租约/防拥挤/越位投影) 中位 0.00  p90 0.00  max 73.16
+  层3 横向松弛(仅被推开者)       中位 0.47  p90 0.76  max 1.26
+  三层合计净位移(层1起→层2终)    中位 0.00  p90 0.00  max 73.16
+  未经 _thinkAttackOffBall 的提交: 0
+
+【层间抵消（层2 把层1 推回去）】
+  方向相反的样本 0 / 160820
+  其中净位移 < 较大分量的 35%：0  ← 数值上是"来回抵消"
+
+【层3 横向松弛（全体定稿后）】
+  调用 161695 次，其中 127 次真的推开了人
+  累计被推动的球员·次 265，单次最大横移 1.26 m
+
+【租约否决】
+  目标被租约保留(decision=held) 的比例 1.0%  (1561/160820)
+
+【fsm 分布】
+  support: 90176
+  home: 70644
+
+【净位移量级分桶】
+  <0.05m (未动)       153430  95.40%
+  0.05~0.5m            174  0.11%
+  0.5~2m              5227  3.25%
+  2~8m                 657  0.41%
+  >=8m                1332  0.83%
+
+【大位移样本（>= 8m）】 共 1332 例（0.828%），最大的 12 个：
+   73.16m  fsm=support  层1=    0m 层2=73.16m  {"x":53.5,"y":86.8}→{"x":77,"y":18.8}  held=true
+   72.72m  fsm=home     层1=    0m 层2=72.72m  {"x":81.4,"y":19.2}→{"x":56,"y":86.5}  held=true
+   71.94m  fsm=support  层1=    0m 层2=71.94m  {"x":55.5,"y":80.2}→{"x":80.2,"y":13.6}  held=true
+   71.93m  fsm=support  层1=    0m 层2=71.93m  {"x":55.5,"y":80.2}→{"x":80.2,"y":13.6}  held=true
+   70.62m  fsm=support  层1=    0m 层2=70.62m  {"x":56,"y":86.5}→{"x":82.6,"y":21.5}  held=true
+   69.78m  fsm=support  层1=    0m 层2=69.78m  {"x":24,"y":78.4}→{"x":19.9,"y":12}  held=true
+   68.48m  fsm=support  层1=    0m 层2=68.48m  {"x":24.7,"y":19.8}→{"x":20.6,"y":85}  held=true
+   66.37m  fsm=home     层1=    0m 层2=66.37m  {"x":65.9,"y":83.3}→{"x":50.8,"y":20.9}  held=true
+   66.13m  fsm=support  层1=    0m 层2=66.13m  {"x":25.2,"y":86.4}→{"x":21,"y":23.5}  held=true
+   65.99m  fsm=support  层1=    0m 层2=65.99m  {"x":24.8,"y":79.4}→{"x":21.6,"y":16.6}  held=true
+   65.74m  fsm=support  层1=    0m 层2=65.74m  {"x":55.2,"y":20.5}→{"x":77.2,"y":81.5}  held=true
+   65.31m  fsm=support  层1=    0m 层2=65.31m  {"x":24.4,"y":20}→{"x":19.5,"y":82.1}  held=true
+
+【🔑 租约否决诊断 —— 这才是大位移的真正来源】
+  held 样本 1561 个（占 0.97%）
+  被保留的旧点年龄(秒)  中位 0.90  p90 1.10  max 1.50
+  租约把球员按住的距离(米) 中位 19.18  p90 35.06  max 73.16
+  其中按住幅度 >= 8m 的: 1332  ← 这些就是分桶里的"大位移"
+  对照：非 held 样本的净位移 中位 0.00  p90 0.00  max 5.99
+
+【🔑 换边特征诊断（坐标镜像的指纹）】
+  纵向 >=30m 且 横向 <=5m 的样本: 132
+  其中同时 held=true（租约说"保留旧目标"却跳了半场）: 132
+  from/to 跨过中线的样本: 604
+  ⇒ 若此数接近大位移总数，则这些不是跑位，是坐标被整体翻转而未重置租约。
+
+耗时 39.3s
