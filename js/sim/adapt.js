@@ -358,6 +358,9 @@ export function compactSimFrame(eng) {
       : null;
   return {
     t: eng.t,
+    // 与 snapshot() 同源：画面侧队名标签 / 边裁半场钳位靠它感知换边。
+    // 直播走 compact 帧，不走 snapshot()；漏掉的话 MatchView 会一直以为没换边。
+    endsSwapped: !!eng.endsSwapped,
     // 与 snapshot() 同源的不连续窗口标记：直播帧流（高光插值播放）靠它区分
     // 「重启单 tick 搬位」与真实瞬移——监视器豁免 + 表现层缓动都认这个字段。
     // 以前只有 snapshot() 带，compactSimFrame 丢掉后一次角球布阵能刷 20+ 条

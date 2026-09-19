@@ -317,7 +317,7 @@ _onOwnSide(y, team, refY, cmp) // 该 y 是否已在己方门那侧的参考线�
 
 **推荐顺序**：先做「统一镜像工具 + 逐处收敛」并保持 `endsSwapped=false`
 逐位不变 ⇒ 再用 `endsSwapped=true` 跑 §7.3 的探针，直到**客队射门位均 y
-翻到 y<50 侧**才算换边真正完整。**在此之前不要把换边暴露给用户**。
+翻到 y<50 侧**才算换边真正完整。这条「绝对 y vs 50」判据后来被 §8.5 推翻；换边已于 2026-09-20 作为正式比赛行为开放。
 
 ---
 
@@ -403,10 +403,11 @@ const depthOf = (y, team, swapped) => {
 - ✅ 全量 `verify.mjs` 通过
 - ✅ 版本号 v269 → v270（10 处，含易漏的 `vcfm-sw-reloaded-v270`）
 
-### 8.6 仍未处理（后续）
+### 8.6 正式比赛行为
 
-- **`endsSwapped` 尚未接到 UI**：目前只有引擎开关 + 调用层接线，
-  还没有任何用户可见的入口。**这是下一步的前置条件。**
+- **下半场易边已是正式比赛行为**（与现实足球一致）：引擎开关 + 调用层接线
+  （`fromMin === 46` 置 `endsSwapped`）在 HEAD 已接通；**换边可见性**见 §8.8；
+  **中场换边提示**见 §8.9。构造默认仍是 `false`（上半场逐位不变）。
 
 ### 8.7 表现层复查（2026-09-19 晚修正 §8.6 的判断）
 
@@ -471,10 +472,10 @@ if (this.simDrive && (livePlay || staged) && !this.frozen) {
    几帧），视觉上是「球员先按旧侧站住、再跳过去」。若换边开放，
    建议让它读引擎的 `ownGoalY`/`attackDir` 而不是自己实现镜像。
    **不要为此提前改** —— 现在改是给一个 dead path 加分支。
-2. **换边可见性**（这才是用户能看见的部分）：`_updatePossessionChrome`
-   仍写死 `side === "home" ? "up" : "down"`，`mp-end-label` 的
-   `.mp-end-away { top }` / `.mp-end-home { bottom }` 也是 CSS 写死的，
-   而 `side` 是**控球队**不是**守哪侧**。换边后这两处会指错方向。
+2. **换边可见性**（这才是用户能看见的部分）：已在 §8.8 落地。
+   FMM 比赛屏把 `.mp-poss-half` / `.mp-attack-arrow` 藏掉了，用户真正
+   能看见的是两端队名标签；边裁半场钳位也在直播路径上。
+   **中场提示**已在 §8.9 落地（上升沿淡场 + ticker）。
 
 #### 8.7.4 可迁移教训
 
@@ -488,4 +489,49 @@ if (this.simDrive && (livePlay || staged) && !this.frozen) {
 > 于是「调用点是否在 return 之后」永远判为「找不到」→ 断言被跳过 → 全绿。
 > 正确做法是按 `\n  }\n` 之类的方法边界切，并**断言方法体长度符合预期**。
 
+### 8.8 换边可见性（v272）
+
+把引擎的 `endsSwapped` 接到用户能看见的层。默认档（`false`）行为与改前相同。
+
+| 层 | 改动 |
+|---|---|
+| 引擎帧 | `snapshot()` / `compactSimFrame()` 各加 `endsSwapped: !!…` |
+| 插值 | `applySimSnapshotLerped` 合成帧带上该字段，否则直播插值会丢 |
+| MatchView | `applySimSnapshot` 读入 `this.endsSwapped`；变化时调 `_applyEndsChrome` |
+| `_attackDir` | 与引擎同形：`base = home ? -1 : 1; return swapped ? -base : base` |
+| 队名标签 | `.mp-field.mp-ends-swapped` 把 home 换到 top、away 换到 bottom |
+| 边裁 | A 仍钳 `y∈[1,50]`、B 仍钳 `y∈[50,99]`（几何半场不移动）；跟哪一队的越位线按 `_attackDir` 选 |
+| 控球 chrome | class 仍跟控球队（颜色）；位置由 `.mp-ends-swapped` 翻转；`dataset.dir` 按 `_attackDir` |
+
+**不要改 `slotToPitch`**（§8.7：不阻塞换边，改了是给 dead path 加分支）。
+
+静态断言在 `scripts/matchview-audit-in-simdrive.mjs` 段 A′。
+
+### 8.9 中场换边提示（v272）
+
+队名标签换位是静默的。用户需要一次明确的「换边了」。
+
+挂在 `applySimSnapshot` 的 **`endsSwapped` 上升沿**（`false→true`），
+因为那是队名真正换位的那一帧。引擎从不发 `ht` 事件，不能等事件。
+
+| 层 | 做法 |
+|---|---|
+| 触发 | `const endsSwapRising = nextEndsSwapped && !this.endsSwapped`，赋值前判 |
+| 淡场 | 复用 `_playSegmentCut()`（`.mp-seg-cut` 260ms）。已有该类则跳过，避免和高光段入场叠两次 |
+| 文案 | `setFmmTicker("下半场 · 换边")`。**不抢** `.mp-banner`：`showSecondHalfKickoff` 已经在播「下半场」，它的 1200ms 超时会把后写的横幅清掉 |
+| 锁 | `_endsSwapAnnounced` 本场一次。高光回放把队名翻回去再翻回来不再闪 |
+| 默认档 | `endsSwapped` 一直 `false` ⇒ 上升沿不成立。`build()` 重置锁，不调提示 |
+
+不要接到 `.mp-poss-half` / `.mp-attack-arrow`（FMM 藏掉了）。
+
+静态断言：段 A′ 新增 3 条（上升沿 / 淡场+ticker 且方法体内无 setBanner / 本场一次）。
+
+### 8.10 对用户开放（2026-09-20）
+
+下半场易边是正式比赛行为，与现实足球一致。不是可选开关。
+
+- 调用层：`fromMin === 46` 置 `state._endsSwappedApplied` 并回灌 `eng.endsSwapped = true`（HEAD `ad43a23`）。
+- 画面：§8.8 队名标签换位 + §8.9 淡场与 ticker。
+- 构造默认仍是 `false`：上半场与改前逐位相同。
+- §7.5 当时写的「客队射门位均 y 翻到 y<50 之前不要开放」是**测量错误**（§8.5 已纠正：纵深须只看下半场）。该冻结已解除。
 

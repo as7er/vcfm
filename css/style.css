@@ -3533,6 +3533,15 @@ html[data-theme="dark"] .mp-fmm-dock {
 }
 .mp-end-label.mp-end-away { top: 4px; }
 .mp-end-label.mp-end-home { bottom: 4px; }
+/* 换边后主队守上、客队守下：标签跟着端走，不改队名文字。 */
+.mp-field.mp-ends-swapped .mp-end-label.mp-end-away {
+  top: auto;
+  bottom: 4px;
+}
+.mp-field.mp-ends-swapped .mp-end-label.mp-end-home {
+  bottom: auto;
+  top: 4px;
+}
 /* 控球半场高亮 */
 .mp-poss-half {
   position: absolute;
@@ -3553,6 +3562,17 @@ html[data-theme="dark"] .mp-fmm-dock {
   top: auto;
   height: 50%;
   background: linear-gradient(0deg, rgba(248, 113, 113, 0.14) 0%, transparent 88%);
+}
+/* 换边后 class 仍跟控球队（颜色），位置翻到对面半场。FMM 屏把这两处藏掉了。 */
+.mp-field.mp-ends-swapped .mp-poss-half.side-home {
+  top: auto;
+  bottom: 0;
+  background: linear-gradient(0deg, rgba(96, 165, 250, 0.14) 0%, transparent 88%);
+}
+.mp-field.mp-ends-swapped .mp-poss-half.side-away {
+  bottom: auto;
+  top: 0;
+  background: linear-gradient(180deg, rgba(248, 113, 113, 0.14) 0%, transparent 88%);
 }
 /* 进攻方向箭头 */
 .mp-attack-arrow {
@@ -3580,6 +3600,18 @@ html[data-theme="dark"] .mp-fmm-dock {
   border-left: 10px solid transparent;
   border-right: 10px solid transparent;
   border-top: 16px solid rgba(252, 165, 165, 0.85);
+}
+.mp-field.mp-ends-swapped .mp-attack-arrow.side-home {
+  top: auto;
+  bottom: 18%;
+  border-bottom: none;
+  border-top: 16px solid rgba(147, 197, 253, 0.85);
+}
+.mp-field.mp-ends-swapped .mp-attack-arrow.side-away {
+  bottom: auto;
+  top: 18%;
+  border-top: none;
+  border-bottom: 16px solid rgba(252, 165, 165, 0.85);
 }
 /* 阵型色块 */
 .mp-form-zones {

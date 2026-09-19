@@ -237,6 +237,10 @@ export class MatchView {
     this.lastTs = 0;
     this.fsm = new MatchViewFSM(); // 状态机替代 phase
     this.possession = "home";
+    /** 与引擎 `endsSwapped` 同步：下半场换边后主队守上、客队守下。默认 false。 */
+    this.endsSwapped = false;
+    /** 本场是否已提示过换边。上升沿只讲一次，高光回放把队名翻回去再翻回来不再闪。 */
+    this._endsSwapAnnounced = false;
     this.passTimer = 0;
     this.highlightId = null;
     this.flashUntil = 0;
@@ -430,6 +434,18 @@ export class MatchView {
     this.scriptLock = false;
     this.flight = null;
     this.ballFlightUntil = 0;
+    // 换边位必须在本帧官员更新之前落地：`_updateOfficials` 按它选半场钳位。
+    const nextEndsSwapped = !!sim.endsSwapped;
+    // 上升沿必须在赋值前判：队名标签换位的那一帧才该提示。
+    // 下降沿（高光回放上半场）只改 chrome，不再闪一次「换边」。
+    const endsSwapRising = nextEndsSwapped && !this.endsSwapped;
+    if (nextEndsSwapped !== !!this.endsSwapped) {
+      this.endsSwapped = nextEndsSwapped;
+      this._applyEndsChrome();
+      if (endsSwapRising) this._announceEndsSwap();
+    } else {
+      this.endsSwapped = nextEndsSwapped;
+    }
     if (!this.fsm.isIn('GOAL_SEQUENCE')) {
       this.fsm.transition('PLAYING', 'SIM_DRIVEN');
     }
@@ -784,6 +800,7 @@ export class MatchView {
         ball,
         players,
         motionContext: t < 0.5 ? fa.motionContext || null : fb.motionContext || null,
+        endsSwapped: !!(t < 0.5 ? fa.endsSwapped : fb.endsSwapped),
       },
       { soft: false, interpolationSource }
     );
@@ -1682,7 +1699,9 @@ export class MatchView {
     this._segCutTimer = null;
     this.setCameraPreset(this.cameraPreset, { persist: false });
     this._applyCamera();
-    this._updatePossessionChrome();
+    this.endsSwapped = false;
+    this._endsSwapAnnounced = false;
+    this._applyEndsChrome();
 
     this._built = true;
     // 赛前站位：静止，等 kickoff 再进入 play（修复未开赛就跑动）
@@ -3280,9 +3299,9 @@ export class MatchView {
     this.officials = {
       // 主裁：对角线体系，跟球但保持距离，不站在球上
       referee: make("referee", "R", 42, 50),
-      // 边裁 A：x≈3 边线，负责 y<50（客队防守半场），跟主队进攻的越位线
+      // 边裁 A：x≈3 边线，负责 y<50（上场，几何半场不随换边移动）
       assistantA: make("assistant", "A", 3, 32),
-      // 边裁 B：x≈97 边线，负责 y>50（主队防守半场），跟客队进攻的越位线
+      // 边裁 B：x≈97 边线，负责 y>50（下场）。换边后改的是跟哪一队的越位线。
       assistantB: make("assistant", "A", 97, 68),
     };
     this._applyOfficials();
@@ -3391,8 +3410,12 @@ export class MatchView {
 
     // —— 边裁：各守一半，跟随该半场的越位线 ——
     // `_offsideLineY(att)` 返回倒数第二名防守者的 y，正是边裁该齐平的位置。
-    const lineForHomeAttack = this._offsideLineY("home"); // 客队防守半场 y<50
-    const lineForAwayAttack = this._offsideLineY("away"); // 主队防守半场 y>50
+    // 几何半场不随换边移动：A 永远盯 y<50（上场），B 永远盯 y>50（下场）。
+    // 换边后改的是「哪一队朝哪头攻」——朝 y=0 攻的那队，其越位线在上场。
+    const topAttacker = this._attackDir("home") < 0 ? "home" : "away";
+    const botAttacker = topAttacker === "home" ? "away" : "home";
+    const lineForHomeAttack = this._offsideLineY(topAttacker);
+    const lineForAwayAttack = this._offsideLineY(botAttacker);
     // 边裁按真实分工必须与倒数第二名防守者齐平，所以允许他们跑到上限——
     // 真实边裁确实沿边线冲刺，而且没人会拿他们跟场内球员比速度。
     // 恒速追击同样保护他们：越位线在攻防转换时跳得比球还狠。
@@ -3499,15 +3522,49 @@ export class MatchView {
     addZones(this.away, false, "away");
   }
 
+  /**
+   * 换边后的可见标记：队名标签换位。FMM 屏把控球高亮/进攻箭头藏掉了，
+   * 用户真正能看见的是两端队名（`.mp-end-home` / `.mp-end-away`）。
+   * CSS 用 `.mp-field.mp-ends-swapped` 把 home 换到 top、away 换到 bottom。
+   */
+  _applyEndsChrome() {
+    this.fieldEl?.classList.toggle("mp-ends-swapped", !!this.endsSwapped);
+    this._updatePossessionChrome();
+  }
+
+  /**
+   * 换边上升沿：队名标签正在换位，用一次淡场把「换边了」讲出来。
+   *
+   * 只在 false→true 触发，且本场 `_endsSwapAnnounced` 锁死一次。
+   * 默认档（一直 false）和 `build()` 重置都不会走到这里。
+   *
+   * 用户能看见的层：`.mp-seg-cut` 淡场（球场伪元素，FMM 没藏）+
+   * `.mp-fmm-ticker`。不要接到 `.mp-poss-half` / `.mp-attack-arrow`
+   * （`.fmm-match` 把它们 `display:none` 了），也不抢 `.mp-banner` ——
+   * `showSecondHalfKickoff` 已经在播「下半场」，它的 1200ms 超时会把后写的横幅清掉。
+   *
+   * 高光段入场可能已经在播淡场，再叠一次会闪两次，故已有 `.mp-seg-cut` 时跳过。
+   */
+  _announceEndsSwap() {
+    if (!this._built || this._endsSwapAnnounced) return;
+    this._endsSwapAnnounced = true;
+    if (!this.fieldEl?.classList.contains("mp-seg-cut")) {
+      this._playSegmentCut();
+    }
+    const en = typeof document !== "undefined" && document.documentElement?.lang === "en";
+    this.setFmmTicker?.(en ? "2nd half · sides swapped" : "下半场 · 换边", "info", 2400);
+  }
+
   /** 控球半场高亮 + 进攻方向箭头 */
   _updatePossessionChrome() {
     if (!this._built) return;
     const side = this.possession === "away" ? "away" : "home";
-    // 主队向上攻（y 减小），客队向下攻
+    // class 仍跟控球队（颜色），位置由 `.mp-ends-swapped` 翻转。
+    // 默认档 `_attackDir(home)=-1` ⇒ attackingUp，dataset.dir 与改前逐位相同。
+    const attackingUp = this._attackDir(side) < 0;
     if (this.possHalfEl) {
       this.possHalfEl.className = `mp-poss-half side-${side}`;
-      // 进攻方向的半场更亮：主队攻上半场
-      this.possHalfEl.dataset.dir = side === "home" ? "up" : "down";
+      this.possHalfEl.dataset.dir = attackingUp ? "up" : "down";
     }
     if (this.attackArrowEl) {
       this.attackArrowEl.className = `mp-attack-arrow side-${side}`;
@@ -4303,16 +4360,18 @@ export class MatchView {
     for (const pl of list) this._applyPlayer(pl);
   }
 
-  /** 进攻方向：主队朝上(y减小)，客队朝下 */
+  /** 进攻方向：与引擎 `attackDir` 同形。默认主队朝上(y减小)，客队朝下；换边取反。 */
   _attackDir(team) {
-    return team === "home" ? -1 : 1;
+    const base = team === "home" ? -1 : 1;
+    return this.endsSwapped ? -base : base;
   }
 
   /**
    * 对方「倒数第二名」防守线 Y（FIFA：全队含门将，取最靠近本方球门的第二人）
    * —— 不是「以门将为唯一基准」；门将通常是最后一人，线在他身前的第二人。
-   * 主队进攻朝 y→0：对方 y 升序第 2
-   * 客队进攻朝 y→100：对方 y 降序第 2
+   * 朝 y→0 攻：对方 y 升序第 2（最靠近 y=0 球门的第二人）
+   * 朝 y→100 攻：对方 y 降序第 2
+   * 默认档 `_attackDir("home")=-1`，与改前 `attackingTeam === "home"` 同分支。
    */
   _offsideLineY(attackingTeam) {
     const defTeam = attackingTeam === "home" ? "away" : "home";
@@ -4320,7 +4379,7 @@ export class MatchView {
       (p) => p.team === defTeam && !p.el.classList.contains("sent-off")
     );
     if (defs.length < 2) return 50;
-    if (attackingTeam === "home") {
+    if (this._attackDir(attackingTeam) < 0) {
       const ys = defs.map((p) => p.y).sort((a, b) => a - b);
       // ys[0] 常是门将，ys[1] 才是越位线（第二近球门）
       return ys[1];
@@ -4332,7 +4391,7 @@ export class MatchView {
   /** 球是否在进攻方半场（相对进攻方向） */
   _ballInAttackHalf(attackingTeam) {
     const by = this.ball?.y ?? 50;
-    return attackingTeam === "home" ? by < 50 : by > 50;
+    return this._attackDir(attackingTeam) < 0 ? by < 50 : by > 50;
   }
 
   /**

@@ -65,6 +65,9 @@ if (WITH_BROWSER) {
 
 /** 读本地源码（段 A 不走 HTTP，避免为一个断言起服务器） */
 const SOURCE = readFileSync(join(repoRoot, "js/matchview.js"), "utf8");
+const ENGINE_SRC = readFileSync(join(repoRoot, "js/sim/engine.js"), "utf8");
+const ADAPT_SRC = readFileSync(join(repoRoot, "js/sim/adapt.js"), "utf8");
+const CSS_SRC = readFileSync(join(repoRoot, "css/style.css"), "utf8");
 
 const results = [];
 function record(name, ok, detail = "") {
@@ -219,6 +222,76 @@ function runStatic() {
   }
   const located = a.aiAfterReturn.filter((x) => x.found).length;
   record("update() 内至少定位到 2 个画面侧 AI 调用点", located >= 2, `定位到 ${located} 个`);
+
+  console.log("========== 段 A′：换边可见性接线（源码静态）==========");
+  const snapBare = ENGINE_SRC.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const snapIdx = snapBare.indexOf("snapshot() {");
+  const snapEnd = snapBare.indexOf("\n  }\n", snapIdx);
+  const snapBody = snapIdx >= 0 ? snapBare.slice(snapIdx, snapEnd < 0 ? snapBare.length : snapEnd) : "";
+  record(
+    "snapshot() 导出 endsSwapped",
+    /endsSwapped\s*:\s*!!this\.endsSwapped/.test(snapBody),
+    snapBody.length ? `${snapBody.length} 字符` : "方法体未定位"
+  );
+
+  const compactBare = ADAPT_SRC.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const compactIdx = compactBare.indexOf("export function compactSimFrame");
+  const compactEnd = compactBare.indexOf("\n}", compactIdx);
+  const compactBody = compactIdx >= 0 ? compactBare.slice(compactIdx, compactEnd < 0 ? compactBare.length : compactEnd) : "";
+  record(
+    "compactSimFrame() 导出 endsSwapped",
+    /endsSwapped\s*:\s*!!eng\.endsSwapped/.test(compactBody),
+    compactBody.length ? `${compactBody.length} 字符` : "方法体未定位"
+  );
+
+  record(
+    "applySimSnapshot 从帧读入 endsSwapped",
+    /const nextEndsSwapped = !!sim\.endsSwapped/.test(SOURCE)
+  );
+  record(
+    "applySimSnapshotLerped 合成帧带 endsSwapped",
+    /endsSwapped:\s*!!\(t < 0\.5 \? fa\.endsSwapped : fb\.endsSwapped\)/.test(SOURCE)
+  );
+  record(
+    "_attackDir 感知 endsSwapped（与引擎同形）",
+    /_attackDir\(team\)\s*\{[\s\S]*?const base = team === "home" \? -1 : 1;[\s\S]*?return this\.endsSwapped \? -base : base;/.test(SOURCE)
+  );
+  record(
+    "_applyEndsChrome 切换 mp-ends-swapped",
+    /classList\.toggle\("mp-ends-swapped", !!this\.endsSwapped\)/.test(SOURCE)
+  );
+  record(
+    "边裁按 _attackDir 选半场越位线（不写死 home/away）",
+    /const topAttacker = this\._attackDir\("home"\) < 0 \? "home" : "away"/.test(SOURCE)
+  );
+  record(
+    "CSS 换边后翻转队名标签",
+    /\.mp-field\.mp-ends-swapped \.mp-end-label\.mp-end-home/.test(CSS_SRC)
+      && /\.mp-field\.mp-ends-swapped \.mp-end-label\.mp-end-away/.test(CSS_SRC)
+  );
+  record(
+    "换边上升沿调用 _announceEndsSwap",
+    /const endsSwapRising = nextEndsSwapped && !this\.endsSwapped/.test(SOURCE)
+      && /if \(endsSwapRising\) this\._announceEndsSwap\(\)/.test(SOURCE)
+  );
+  {
+    const annIdx = SOURCE.indexOf("_announceEndsSwap() {");
+    const annEnd = SOURCE.indexOf("\n  }", annIdx);
+    const annBody = annIdx >= 0 ? SOURCE.slice(annIdx, annEnd < 0 ? SOURCE.length : annEnd) : "";
+    record(
+      "_announceEndsSwap 复用淡场并打在可见层",
+      /_playSegmentCut\(\)/.test(annBody)
+        && /setFmmTicker/.test(annBody)
+        && !/setBanner/.test(annBody),
+      annBody.length ? `${annBody.length} 字符` : "方法体未定位"
+    );
+  }
+  record(
+    "换边提示本场只讲一次（默认档不触发）",
+    /this\._endsSwapAnnounced = false/.test(SOURCE)
+      && /if \(!this\._built \|\| this\._endsSwapAnnounced\) return;/.test(SOURCE)
+      && /this\._endsSwapAnnounced = true;/.test(SOURCE)
+  );
 }
 
 /* ────────────────────────────────────────────────────────────

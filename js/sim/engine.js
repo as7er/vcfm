@@ -8487,6 +8487,9 @@ export class SimEngine {
     );
     return {
       t: this.t,
+      // 表现层要跟着换边走（队名标签、边裁半场），不能只靠引擎内部状态。
+      // 默认 false，与构造 opts.endsSwapped === true 同形。
+      endsSwapped: !!this.endsSwapped,
       ball: {
         x: this.ball.x,
         y: this.ball.y,

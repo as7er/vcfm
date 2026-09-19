@@ -126,6 +126,12 @@ const checks = [
   // 硬依赖；段 B（真实 Chromium 逐帧计数）需显式加 `--browser`，
   // 走独立入口 `npm run test:matchview-browser`。
   "scripts/matchview-audit-in-simdrive.mjs",
+  // 下半场易边是正式比赛行为（调用层 fromMin===46 置 endsSwapped）。
+  // 这四条是快的契约检查，不跑整场。整场探针是 scripts/_swap-ends-fullmatch-probe.mjs。
+  "scripts/_swap-ends-behavior-check.mjs",
+  "scripts/_swap-ends-wiring-check.mjs",
+  "scripts/_swap-ends-resync-check.mjs",
+  "scripts/_swap-ends-mirror-entry-check.mjs",
   "scripts/manager-onboarding-audit.mjs",
   "scripts/ecosystem-audit.mjs",
   "scripts/world-invariants-audit.mjs",
