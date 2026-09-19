@@ -788,22 +788,53 @@ export class SimEngine {
     return px < 50 ? -1 : 1;
   }
 
-  /** 该队进攻方向：主队朝 y 小(-1)，客队朝 y 大(+1) */
+  /**
+   * 该队此刻「进攻方向」：-1 表示朝 y 小，+1 表示朝 y 大。
+   *
+   * ⚠ 半场换边（`swapEnds`）后本函数必须返回取反值，因此**所有**判断
+   * 进攻/防守朝向的地方都必须走这里，不允许再出现 `team === "home" ? …`
+   * 形式的坐标推断（历史上「team → 球门 y」被硬编码复制了 10+ 处，
+   * 换边时漏改一处就是一个静默错位的分支）。
+   * 详见 docs/halftime-side-swap-verification-2026-09-16.md §4。
+   */
   attackDir(team) {
     return team === "home" ? -1 : 1;
   }
-  /** 该队进攻的目标球门 y */
+
+  /** 该队此刻进攻的**目标球门** y（对手那侧的门）。 */
   targetGoalY(team) {
     return team === "home" ? SIM.AWAY_GOAL_Y : SIM.HOME_GOAL_Y;
   }
 
-  /** 坐标是否位于某队自己的禁区；与自由球门将接管使用同一边界。 */
+  /**
+   * 该队此刻**自己防守的球门** y。与 `targetGoalY` 互补。
+   *
+   * 这个入口是 2026-09-19 重构新增的：此前 `a.team === "home" ? SIM.HOME_GOAL_Y
+   * : SIM.AWAY_GOAL_Y` 在引擎里被逐字抄了 6 遍（旧 :1787/:2118/:3957/:4597/
+   * :4801/:5170），全部绕过 `targetGoalY`。它们此前**恰好**与 `targetGoalY`
+   * 反义，所以看起来像是同一个东西——换边时这就是最危险的一类重复。
+   */
+  ownGoalY(team) {
+    return team === "home" ? SIM.HOME_GOAL_Y : SIM.AWAY_GOAL_Y;
+  }
+
+  /**
+   * 球到该队己方球门的距离（>0 = 球在这一侧之前）。
+   * 替代旧 :5182 的 `home ? clamp(HOME_GOAL_Y - b.y) : clamp(b.y - AWAY_GOAL_Y)`。
+   */
+  _ballDistanceToOwnGoal(team, ball = this.ball) {
+    if (!ball) return 0;
+    return clamp(Math.abs(ball.y - this.ownGoalY(team)), 0, 100);
+  }
+
+  /**
+   * 坐标是否位于某队自己的禁区；与自由球门将接管使用同一边界。
+   * 纵向边界由 `ownGoalY` 推出，不再硬编码 80/20。
+   */
   _inOwnPenaltyArea(team, x, y, margin = 0) {
-    return (
-      x > 18 - margin &&
-      x < 82 + margin &&
-      (team === "home" ? y > 80 - margin : y < 20 + margin)
-    );
+    if (!(x > 18 - margin && x < 82 + margin)) return false;
+    const ownGoal = this.ownGoalY(team);
+    return ownGoal > 50 ? y > 80 - margin : y < 20 + margin;
   }
 
   /** 门将只在自己的禁区附近构成持球压力，不能在中场被当成普通防守者。 */
@@ -1199,7 +1230,7 @@ export class SimEngine {
 
     // 侧向角：防守者相对"持球者 → 对方球门"方向的角偏差。越大越好过。
     const dir = this.attackDir(a.team);
-    const goalY = a.team === "home" ? SIM.AWAY_GOAL_Y : SIM.HOME_GOAL_Y;
+    const goalY = this.targetGoalY(a.team);
     const toGoal = Math.atan2(goalY - a.y, 50 - a.x);
     const toDef = Math.atan2(opp.y - a.y, opp.x - a.x);
     let angleRad = Math.abs(toDef - toGoal);
@@ -1784,7 +1815,7 @@ export class SimEngine {
       return false;
     }
     const b = this.ball;
-    const goalY = agent.team === "home" ? SIM.HOME_GOAL_Y : SIM.AWAY_GOAL_Y;
+    const goalY = this.ownGoalY(agent.team);
     const goalDistance = pitchDistanceBetween(b.x, b.y, 50, goalY);
     if (b.owner) {
       const owner = this.agentById(b.owner);
@@ -2115,9 +2146,14 @@ export class SimEngine {
 
   /** 门将：持球时开球分发（重置攻防），否则守门站位（绝不能离门太远） */
   _thinkGK(a, owner) {
-    const goalY = a.team === "home" ? SIM.HOME_GOAL_Y : SIM.AWAY_GOAL_Y;
+    const goalY = this.ownGoalY(a.team);
     const b = this.ball;
-    const facing = a.team === "home" ? -1 : 1; // 出击方向朝场内
+    // ⚠ 门将出击方向 = **进攻方向**（朝场内推进），不是它的反向。
+    // 曾误按注释「出击方向朝场内」推成 `-attackDir`，实测逐位对比第一帧
+    // 就把 GK 的 ty 从 93.05 改成 99.0（贴到门线上）——见
+    // scripts/_gody-refactor-bitwise-check.mjs。这里保持与旧式
+    // `a.team === "home" ? -1 : 1` 完全等价。
+    const facing = this.attackDir(a.team);
     // 门将活动区：永远贴在球门前（主队 y 大、客队 y 小）
     const sweep = this._roleBehavior(a, "sweep");
     const maxAdvance = 11 + sweep * 4; // 出击职责只扩大真实活动区，不改扑救能力
@@ -3954,7 +3990,7 @@ export class SimEngine {
     a.offBallTargetKind = null;
     const dir = this.attackDir(a.team);
     const b = this.ball;
-    const ownGoalY = a.team === "home" ? SIM.HOME_GOAL_Y : SIM.AWAY_GOAL_Y;
+    const ownGoalY = this.ownGoalY(a.team);
     const prog = clamp(Math.abs(b.y - ownGoalY) / 100, 0, 1);
     // 中卫线的整体前压量（y 格，朝进攻方向）。中卫线原本只站在与球位无关的常量上，
     // 导致进攻时后防线不跟球、队形被拉长成静态模板形状。真实球队是整体平移的块，
@@ -4594,7 +4630,7 @@ export class SimEngine {
       return da - db || String(a.id).localeCompare(String(b.id));
     });
     const nearest = ordered[0] || null;
-    const ownGoalY = team === "home" ? SIM.HOME_GOAL_Y : SIM.AWAY_GOAL_Y;
+    const ownGoalY = this.ownGoalY(team);
     const spatialTrigger = pressingTrigger({
       tactics: this._teamTactics(team),
       phase,
@@ -4798,7 +4834,7 @@ export class SimEngine {
 
   _thinkDefend(a, owner) {
     const b = this.ball;
-    const ownGoalY = a.team === "home" ? SIM.HOME_GOAL_Y : SIM.AWAY_GOAL_Y;
+    const ownGoalY = this.ownGoalY(a.team);
     const phaseTeam = owner?.team || this._phaseTeam;
     const ownerId = owner?.id || this.ball.receiverId || null;
     let context = this._stepDefContext;
@@ -5104,7 +5140,7 @@ export class SimEngine {
 
   /** 对方阵中"最危险的接球点"：离我方球门最近的无球外场进攻者 */
   _mostDangerousReceiver(attTeam) {
-    const ownGoalY = attTeam === "home" ? SIM.AWAY_GOAL_Y : SIM.HOME_GOAL_Y;
+    const ownGoalY = this.targetGoalY(attTeam);
     let best = null;
     let bestD = Infinity;
     for (const o of this.agents) {
@@ -5167,8 +5203,8 @@ export class SimEngine {
   /** 防守时该球员的防线 Y（随球深度回撤，按角色分层） */
   _defLineY(a) {
     const b = this.ball;
-    const ownGoalY = a.team === "home" ? SIM.HOME_GOAL_Y : SIM.AWAY_GOAL_Y;
-    const sign = a.team === "home" ? -1 : 1; // 朝场内为正推进方向的反向
+    const ownGoalY = this.ownGoalY(a.team);
+    const sign = this.attackDir(a.team); // 朝场内为正推进方向的反向
     // 距己方球门的层次：DEF 最靠后，ATT 最靠前
     const lineLevel = this._tacticLevel(a.team, "defensiveLine");
     const linePush =
@@ -5178,9 +5214,7 @@ export class SimEngine {
     const roleDepth = this._roleBehavior(a, "depth") * (a.role === "DEF" ? 3.5 : a.role === "MID" ? 2 : 0);
     const layer = (a.role === "DEF" ? 20 : a.role === "MID" ? 38 : 55) + linePush + roleDepth;
     // 球到己方球门的距离（0=贴门，越大越远）
-    const dBallGoal = a.team === "home"
-      ? clamp(SIM.HOME_GOAL_Y - b.y, 0, 100)
-      : clamp(b.y - SIM.AWAY_GOAL_Y, 0, 100);
+    const dBallGoal = this._ballDistanceToOwnGoal(a.team, b);
     // 威胁度：球越逼近己方球门越接近 1（非线性——进入约 35 范围才急剧上升）
     const threat = clamp(1 - dBallGoal / 35, 0, 1);
     const threatSq = threat * threat; // 平方：远处几乎不收，近门时猛收
@@ -5726,7 +5760,7 @@ export class SimEngine {
       (owner.attr.strength || 0.5) * 0.25 +
       (owner.attr.decisions || 0.5) * 0.23;
     const close = clamp(1 - dBall / reach, 0, 1);
-    const goalY = gk.team === "home" ? SIM.HOME_GOAL_Y : SIM.AWAY_GOAL_Y;
+    const goalY = this.ownGoalY(gk.team);
     const goalSide =
       Math.abs(gk.y - goalY) <= Math.abs(owner.y - goalY) + 0.6 ? 1 : 0;
     const ownerSpeed = clamp(
@@ -5869,7 +5903,8 @@ export class SimEngine {
         // This shot-contact model has no jumping save above the crossbar.
         if ((b.z || 0) > 2.44) continue;
         if (gk.id === b.lastKicker) continue;
-        const goalY = gk.team === "home" ? SIM.HOME_GOAL_Y : SIM.AWAY_GOAL_Y;
+        const goalY = this.ownGoalY(gk.team);
+        // 球正朝己方球门飞（门将出击/接球的前提）
         const towardGoal = gk.team === "home" ? b.vy > 1.2 : b.vy < -1.2;
         if (!towardGoal) continue;
         // 只在球靠近禁区/门前时介入
