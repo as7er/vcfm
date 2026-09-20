@@ -46,8 +46,8 @@ mkdirSync(out, { recursive: true });
 // ratio and the flex sizing. A candidate that only writes `.mp-field {...}`
 // silently loses on mobile. Every candidate below therefore repeats the real
 // selectors.
-const PITCH_RATIO = 68 / 93.45; // (68/105) / (1 - 2*0.055) = 0.7276
-const RATIO = "68 / 93.45";
+const PITCH_RATIO = 93.45 / 68; // (105/68) / 0.89 = 1.7349
+const RATIO = "93.45 / 68";
 
 // The aspect ratio is declared in four places; all four must agree.
 const RATIO_FIX = `

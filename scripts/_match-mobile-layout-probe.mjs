@@ -206,7 +206,7 @@ function measureScript() {
     pitchSvg: pitchSvgInfo,
     centreCircle: circleInfo,
     camera: cameraInfo,
-    pitchAspectTarget: Number((68 / 105).toFixed(4)),
+    pitchAspectTarget: Number((105 / 68).toFixed(4)),
     overflowing,
     tinyText,
     smallTargets,

@@ -33,12 +33,12 @@ const NEW_SVG = match[0].replace(/^<svg[^>]*>/, "").replace(/<\/svg>$/, "");
 // 引擎真相：_inOwnFoulBox → x 22-78, home y>=84 / away y<=16；场地 0-100
 const ENGINE = `
   <g stroke="#fde047" stroke-width="0.6" fill="none" stroke-dasharray="2 1.5">
-    <rect x="0" y="0" width="100" height="150"/>
-    <rect x="22" y="126" width="56" height="24"/>
-    <rect x="22" y="0" width="56" height="24"/>
+    <rect x="0" y="0" width="150" height="100"/>
+    <rect x="0" y="22" width="24" height="56"/>
+    <rect x="126" y="22" width="24" height="56"/>
   </g>
   <g fill="#fde047" font-size="3.2" font-family="system-ui">
-    <text x="79.5" y="128">y=84 引擎禁区线</text>
+    <text x="26" y="20">y=84 引擎禁区线（画面左）</text>
   </g>
 `;
 
@@ -49,15 +49,15 @@ const PROBES = [
   { x: 30, y: 99, label: "y=99", note: "旧线外/引擎内" },
 ];
 const probeSvg = PROBES.map((p) =>
-  `<circle cx="${p.x}" cy="${p.y * 1.5}" r="1.6" fill="#f97316" stroke="#fff" stroke-width="0.4"/>` +
-  `<text x="${p.x + 2.6}" y="${p.y * 1.5 + 1}" fill="#f97316" font-size="3" font-family="system-ui">${p.label} ${p.note}</text>`
+  `<circle cx="${(100 - p.y) * 1.5}" cy="${p.x}" r="1.6" fill="#f97316" stroke="#fff" stroke-width="0.4"/>` +
+  `<text x="${(100 - p.y) * 1.5 + 2.6}" y="${p.x + 1}" fill="#f97316" font-size="3" font-family="system-ui">${p.label} ${p.note}</text>`
 ).join("");
 
 const panel = (title, inner) => `
 <div class="col">
   <div class="cap">${title}</div>
   <div class="field">
-    <svg viewBox="0 0 100 150" preserveAspectRatio="none">${inner}${ENGINE}${probeSvg}</svg>
+    <svg viewBox="0 0 150 100" preserveAspectRatio="none">${inner}${ENGINE}${probeSvg}</svg>
   </div>
 </div>`;
 
@@ -68,7 +68,7 @@ h1{font-size:15px;margin:0 0 4px}
 .row{display:flex;gap:18px}
 .col{width:420px}
 .cap{font-size:12px;color:#cbd5e1;padding:0 0 6px}
-.field{position:relative;width:420px;aspect-ratio:68/105;background:#15803d;border-radius:8px;overflow:hidden}
+.field{position:relative;width:420px;aspect-ratio:105/68;background:#15803d;border-radius:8px;overflow:hidden}
 svg{position:absolute;inset:0;width:100%;height:100%}
 .legend{margin-top:12px;font-size:12px;color:#94a3b8}
 b{color:#fde047}

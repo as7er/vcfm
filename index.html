@@ -11,7 +11,7 @@
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icons/icon.svg" />
   <title>VCFM</title>
-  <link rel="stylesheet" href="css/style.css?v=272" />
+  <link rel="stylesheet" href="css/style.css?v=273" />
   <script>
     /* 尽早应用主题/语言，避免闪白 */
     (function () {
@@ -1507,12 +1507,12 @@
       });
     })();
   </script>
-  <script type="module" src="js/main.js?v=272"></script>
+  <script type="module" src="js/main.js?v=273"></script>
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {
         // 清理历史版本缓存，范围与 sw.js 保持一致。
-        var CURRENT_CACHE = "vcfm-v272";
+        var CURRENT_CACHE = "vcfm-v273";
         if (window.caches && caches.keys) {
           caches.keys().then(function (keys) {
             return Promise.all(
@@ -1523,7 +1523,7 @@
           }).catch(function () {});
         }
         // 本地开发：若 SW 异常可导致旧坏缓存；注册失败不阻断游戏
-        navigator.serviceWorker.register("./sw.js?v=272").then(function (reg) {
+        navigator.serviceWorker.register("./sw.js?v=273").then(function (reg) {
           try { reg.update(); } catch (e) {}
           if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
         }).catch(function () {});
@@ -1532,8 +1532,8 @@
           if (refreshing) return;
           refreshing = true;
           try {
-            if (!sessionStorage.getItem("vcfm-sw-reloaded-v272")) {
-              sessionStorage.setItem("vcfm-sw-reloaded-v272", "1");
+            if (!sessionStorage.getItem("vcfm-sw-reloaded-v273")) {
+              sessionStorage.setItem("vcfm-sw-reloaded-v273", "1");
               location.reload();
             }
           } catch (e) {

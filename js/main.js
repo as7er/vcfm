@@ -57,8 +57,8 @@ import {
   habitLabel,
   startHabitTraining,
 } from "./player-habits.js";
-import { nationFlagHtml } from "./flags.js?v=272";
-import { clubCrestHtml } from "./club-crest.js?v=272";
+import { nationFlagHtml } from "./flags.js?v=273";
+import { clubCrestHtml } from "./club-crest.js?v=273";
 import { applyWorldClubBranding, localizedClubName } from "./branding.js";
 import { recordFinanceEntry } from "./finance-ledger.js";
 import { renderFinance as renderFinanceView } from "./ui/finance.js";
@@ -323,7 +323,7 @@ import {
   selectPlannedSaleCandidate,
   squadPlayerPlan,
   squadPositionPlan,
-} from "./squad-planning.js?v=272";
+} from "./squad-planning.js?v=273";
 import {
   TRAINING_MODES,
   ensureTrainingBoost,
@@ -390,7 +390,7 @@ import {
   staffAvatarHtml,
   avatarHtml,
   hydrateAvatarKitRecolor,
-} from "./avatar.js?v=272";
+} from "./avatar.js?v=273";
 import { attributeArchetypeLabel } from "./player-attributes.js";
 import {
   MANAGER_ONBOARDING_TAB_STEPS,
@@ -490,7 +490,7 @@ let matchViewModulePromise = null;
 
 function loadMatchViewModule() {
   if (!matchViewModulePromise) {
-    matchViewModulePromise = import("./matchview.js?v=272").then((module) => {
+    matchViewModulePromise = import("./matchview.js?v=273").then((module) => {
       matchViewApi = module;
       return module;
     });
@@ -936,20 +936,15 @@ function motionIncidentValue(incident, en = getLang() === "en") {
   return incident.entityId || "";
 }
 
-// 复核弹窗的小球场必须与主球场（js/matchview.js 里的 .mp-lines）共用同一套坐标系，
-// 否则「引擎位置 vs 画面位置」的对照本身就不可信：
-//   viewBox 宽 100 = 引擎 x（0-100，对应球场宽 68 m）
-//   viewBox 高 150 = 引擎 y × 1.5（0-150，对应球场长 105 m）
-// 此前这里写的是 viewBox 0 0 100 100，而容器 .motion-review-pitch 是 aspect-ratio 68/105；
-// 在 preserveAspectRatio="none" 下 x 方向会被压到 0.6476 倍，于是中圈渲染成偏 35% 的竖椭圆，
-// 球员点、球和号码文字一起被横向压扁——SVG 对这种情况不报任何错，只能量出来。
-// 标线坐标直接照抄 .mp-lines（含椭圆中圈 13.46/13.07），两处以后必须同步改。
-const MOTION_PITCH_UNITS_X = 100 / 68;
-const MOTION_PITCH_UNITS_Y = 150 / 105;
+// 复核弹窗的小球场必须与主球场（js/matchview.js 里的 .mp-lines）共用同一套坐标系：
+//   横向：viewBox 宽 150 = 引擎 y × 1.5（球场长 105 m），高 100 = 引擎 x（球场宽 68 m）
+//   画面映射 screenX = 100 − engineY，screenY = engineX。标线照抄 .mp-lines。
+const MOTION_PITCH_UNITS_X = 150 / 105;
+const MOTION_PITCH_UNITS_Y = 100 / 68;
 /**
  * 屏幕上要画成正圆时，椭圆短半轴该取多少。
- * rx 是 x 方向的半轴；每米在 x 方向占 100/68 个单位、在 y 方向占 150/105 个单位，
- * 所以 ry/rx = (150/105) / (100/68) = 0.97143。
+ * rx 沿球场长（viewBox x）；ry 沿球场宽（viewBox y）。
+ * ry/rx = (100/68) / (150/105) = 1.0294。
  */
 function motionPitchRy(rx) {
   return rx * (MOTION_PITCH_UNITS_Y / MOTION_PITCH_UNITS_X);
@@ -958,51 +953,51 @@ function motionPitchRy(rx) {
 function motionPitchSvg(frame, metadata = {}) {
   const homeColor = safeMotionColor(metadata.home?.color, "#22c55e");
   const awayColor = safeMotionColor(metadata.away?.color, "#ef4444");
-  // 引擎坐标 → viewBox：x 原样（0-100），y 乘 1.5（0-150）
-  const vx = (value) => Math.max(1, Math.min(99, Number(value) || 0));
-  const vy = (value) => vx(value) * 1.5;
+  // 引擎坐标 → 横向 viewBox：x = (100-y)*1.5，y = engineX
+  const vx = (x, y) => Math.max(1, Math.min(149, (100 - (Number(y) || 0)) * 1.5));
+  const vy = (x, y) => Math.max(1, Math.min(99, Number(x) || 0));
   const targets = (frame?.players || []).map((player) => {
     if (!player.movementTarget || player.sentOff) return "";
-    const x = vx(player.x);
-    const y = vy(player.y);
-    const tx = vx(player.movementTarget.x);
-    const ty = vy(player.movementTarget.y);
+    const x = vx(player.x, player.y);
+    const y = vy(player.x, player.y);
+    const tx = vx(player.movementTarget.x, player.movementTarget.y);
+    const ty = vy(player.movementTarget.x, player.movementTarget.y);
     const color = player.team === "home" ? homeColor : awayColor;
     const r = 0.72;
     return `<g class="motion-target"><line x1="${x}" y1="${y}" x2="${tx}" y2="${ty}" stroke="${color}" stroke-width=".63" stroke-dasharray="2.25 1.8" opacity=".72"/><ellipse cx="${tx}" cy="${ty}" rx="${r}" ry="${motionPitchRy(r).toFixed(2)}" fill="none" stroke="${color}" stroke-width=".63" opacity=".9"/></g>`;
   }).join("");
   const players = (frame?.players || []).map((player) => {
-    const x = vx(player.x);
-    const y = vy(player.y);
+    const x = vx(player.x, player.y);
+    const y = vy(player.x, player.y);
     const color = player.team === "home" ? homeColor : awayColor;
     const number = Number.isFinite(Number(player.num)) ? String(player.num) : "";
     const opacity = player.sentOff ? 0.28 : 1;
     const r = 2.45;
     return `<g opacity="${opacity}"><ellipse cx="${x}" cy="${y}" rx="${r}" ry="${motionPitchRy(r).toFixed(2)}" fill="${color}" stroke="#f8fafc" stroke-width="0.825"/><text x="${x}" y="${(y + 1.17).toFixed(2)}" text-anchor="middle" fill="#fff" font-size="3.225" font-weight="800">${escapeHtml(number)}</text></g>`;
   }).join("");
-  const ballX = Math.max(0.7, Math.min(99.3, Number(frame?.ball?.x) || 0));
-  const ballY = Math.max(0.7, Math.min(99.3, Number(frame?.ball?.y) || 0)) * 1.5;
+  const ballX = Math.max(0.7, Math.min(149.3, (100 - (Number(frame?.ball?.y) || 0)) * 1.5));
+  const ballY = Math.max(0.7, Math.min(99.3, Number(frame?.ball?.x) || 0));
   const ballR = 1.15;
   const ball = `<ellipse cx="${ballX}" cy="${ballY}" rx="${ballR}" ry="${motionPitchRy(ballR).toFixed(2)}" fill="#fff" stroke="#111827" stroke-width="0.975"/>`;
-  return `<svg viewBox="0 0 100 150" preserveAspectRatio="none" aria-hidden="true">
-    <rect x="0.35" y="0.35" width="99.3" height="149.3" fill="none" stroke="rgba(255,255,255,.78)" stroke-width=".7"/>
-    <line x1="0.35" y1="75" x2="99.65" y2="75" stroke="rgba(255,255,255,.7)" stroke-width=".55"/>
-    <ellipse cx="50" cy="75" rx="13.46" ry="13.07" fill="none" stroke="rgba(255,255,255,.68)" stroke-width=".55"/>
-    <circle cx="50" cy="75" r=".85" fill="rgba(255,255,255,.9)"/>
-    <rect x="22" y="126" width="56" height="23.65" fill="none" stroke="rgba(255,255,255,.68)" stroke-width=".55"/>
-    <rect x="36.53" y="142.14" width="26.94" height="7.51" fill="none" stroke="rgba(255,255,255,.68)" stroke-width=".55"/>
-    <path d="M 39.6 126 A 13.46 13.07 0 0 1 60.4 126" fill="none" stroke="rgba(255,255,255,.55)" stroke-width=".5"/>
-    <circle cx="50" cy="134.29" r=".6" fill="rgba(255,255,255,.75)"/>
-    <line x1="44" y1="149.65" x2="56" y2="149.65" stroke="rgba(255,255,255,.92)" stroke-width="1.4"/>
-    <rect x="22" y="0.35" width="56" height="23.65" fill="none" stroke="rgba(255,255,255,.68)" stroke-width=".55"/>
-    <rect x="36.53" y="0.35" width="26.94" height="7.51" fill="none" stroke="rgba(255,255,255,.68)" stroke-width=".55"/>
-    <path d="M 39.6 24 A 13.46 13.07 0 0 0 60.4 24" fill="none" stroke="rgba(255,255,255,.55)" stroke-width=".5"/>
-    <circle cx="50" cy="15.71" r=".6" fill="rgba(255,255,255,.75)"/>
-    <line x1="44" y1="0.35" x2="56" y2="0.35" stroke="rgba(255,255,255,.92)" stroke-width="1.4"/>
-    <path d="M 0.35 1.78 A 1.47 1.43 0 0 0 1.82 0.35" fill="none" stroke="rgba(255,255,255,.5)" stroke-width=".5"/>
-    <path d="M 98.18 0.35 A 1.47 1.43 0 0 0 99.65 1.78" fill="none" stroke="rgba(255,255,255,.5)" stroke-width=".5"/>
-    <path d="M 0.35 148.22 A 1.47 1.43 0 0 1 1.82 149.65" fill="none" stroke="rgba(255,255,255,.5)" stroke-width=".5"/>
-    <path d="M 98.18 149.65 A 1.47 1.43 0 0 1 99.65 148.22" fill="none" stroke="rgba(255,255,255,.5)" stroke-width=".5"/>
+  return `<svg viewBox="0 0 150 100" preserveAspectRatio="none" aria-hidden="true">
+    <rect x="0.35" y="0.35" width="149.3" height="99.3" fill="none" stroke="rgba(255,255,255,.78)" stroke-width=".7"/>
+    <line x1="75" y1="0.35" x2="75" y2="99.65" stroke="rgba(255,255,255,.7)" stroke-width=".55"/>
+    <ellipse cx="75" cy="50" rx="13.07" ry="13.46" fill="none" stroke="rgba(255,255,255,.68)" stroke-width=".55"/>
+    <circle cx="75" cy="50" r=".85" fill="rgba(255,255,255,.9)"/>
+    <rect x="0.35" y="22" width="23.65" height="56" fill="none" stroke="rgba(255,255,255,.68)" stroke-width=".55"/>
+    <rect x="0.35" y="36.53" width="7.51" height="26.94" fill="none" stroke="rgba(255,255,255,.68)" stroke-width=".55"/>
+    <path d="M 24 39.6 A 13.07 13.46 0 0 1 24 60.4" fill="none" stroke="rgba(255,255,255,.55)" stroke-width=".5"/>
+    <circle cx="15.71" cy="50" r=".6" fill="rgba(255,255,255,.75)"/>
+    <line x1="0.35" y1="44" x2="0.35" y2="56" stroke="rgba(255,255,255,.92)" stroke-width="1.4"/>
+    <rect x="126" y="22" width="23.65" height="56" fill="none" stroke="rgba(255,255,255,.68)" stroke-width=".55"/>
+    <rect x="142.14" y="36.53" width="7.51" height="26.94" fill="none" stroke="rgba(255,255,255,.68)" stroke-width=".55"/>
+    <path d="M 126 39.6 A 13.07 13.46 0 0 0 126 60.4" fill="none" stroke="rgba(255,255,255,.55)" stroke-width=".5"/>
+    <circle cx="134.29" cy="50" r=".6" fill="rgba(255,255,255,.75)"/>
+    <line x1="149.65" y1="44" x2="149.65" y2="56" stroke="rgba(255,255,255,.92)" stroke-width="1.4"/>
+    <path d="M 1.78 0.35 A 1.43 1.47 0 0 1 0.35 1.82" fill="none" stroke="rgba(255,255,255,.5)" stroke-width=".5"/>
+    <path d="M 0.35 98.18 A 1.43 1.47 0 0 1 1.78 99.65" fill="none" stroke="rgba(255,255,255,.5)" stroke-width=".5"/>
+    <path d="M 148.22 0.35 A 1.43 1.47 0 0 0 149.65 1.82" fill="none" stroke="rgba(255,255,255,.5)" stroke-width=".5"/>
+    <path d="M 149.65 98.18 A 1.43 1.47 0 0 0 148.22 99.65" fill="none" stroke="rgba(255,255,255,.5)" stroke-width=".5"/>
     ${targets}${players}${ball}
   </svg>`;
 }
@@ -10384,7 +10379,7 @@ async function runMatch(mode) {
 
     // 进场动画：两队从各自一侧场边跑入阵型位（约 2s，可点击/按键跳过）。
     // 位置在 `playFirstHalf` **之前** —— 时序必须是「入场 → 开球 → 上半场」。
-    // 只做表现层位移（画在 canvas 上，见 `matchview.js` 的 `_introOffsetY`），
+    // 只做表现层位移（画在 canvas 上，见 `matchview.js` 的 `_introOffsetX`），
     // 不碰引擎：`_kickoff` 已经把 22 人摆在合法开球位了。
     // 每场比赛只播一次（`matchState._introPlayed`），避免快速模式下反复重播。
     //

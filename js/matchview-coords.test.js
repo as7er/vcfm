@@ -251,15 +251,25 @@ test('shootingAngle - 正对球门角度最大', () => {
   assert(wide < corner, 'Wide position has worst angle');
 });
 
-test('logicToCanvas - 坐标转换', () => {
+test('logicToScreenPct - 横向球场（主队球门在左）', () => {
+  const homeGoal = coordSystem.logicToScreenPct(50, 100);
+  assertNear(homeGoal.left, 0, 0.01, 'engine y=100 → screen left');
+  assertNear(homeGoal.top, 50, 0.01);
+
+  const awayGoal = coordSystem.logicToScreenPct(50, 0);
+  assertNear(awayGoal.left, 100, 0.01, 'engine y=0 → screen right');
+  assertNear(awayGoal.top, 50, 0.01);
+});
+
+test('logicToCanvas - 横向映射', () => {
   coordSystem.updateCanvasSize(800, 1200, 1);
 
   const pos1 = coordSystem.logicToCanvas(0, 0);
-  assertNear(pos1.x, 0, 0.01);
+  assertNear(pos1.x, 800, 0.01, 'engine (0,0) → 客队左角 = 画面右上');
   assertNear(pos1.y, 0, 0.01);
 
   const pos2 = coordSystem.logicToCanvas(100, 100);
-  assertNear(pos2.x, 800, 0.01);
+  assertNear(pos2.x, 0, 0.01, 'engine (100,100) → 主队右角 = 画面左下');
   assertNear(pos2.y, 1200, 0.01);
 
   const pos3 = coordSystem.logicToCanvas(50, 50);
@@ -270,11 +280,11 @@ test('logicToCanvas - 坐标转换', () => {
 test('canvasToLogic - 反向转换', () => {
   coordSystem.updateCanvasSize(800, 1200, 1);
 
-  const pos1 = coordSystem.canvasToLogic(0, 0);
+  const pos1 = coordSystem.canvasToLogic(800, 0);
   assertNear(pos1.x, 0, 0.01);
   assertNear(pos1.y, 0, 0.01);
 
-  const pos2 = coordSystem.canvasToLogic(800, 1200);
+  const pos2 = coordSystem.canvasToLogic(0, 1200);
   assertNear(pos2.x, 100, 0.01);
   assertNear(pos2.y, 100, 0.01);
 

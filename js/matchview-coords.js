@@ -4,9 +4,10 @@
  * 统一处理 matchview 中的坐标变换，减少魔法数字和重复逻辑。
  *
  * 坐标系约定：
- * - 逻辑坐标：0-100 × 0-100（百分比场地）
- * - 主队守下方（y=100 附近），进攻方向朝 y=0
- * - 客队守上方（y=0 附近），进攻方向朝 y=100
+ * - 逻辑坐标：0-100 × 0-100（百分比场地，引擎不变）
+ * - 主队守 y=100，进攻朝 y=0；客队相反
+ * - 画面是横向球场（FM2026）：主队球门在左、客队在右
+ * - 逻辑 → 画面：screenX = 100 - y，screenY = x
  * - Canvas 像素坐标：由实际容器尺寸决定
  */
 
@@ -64,15 +65,24 @@ export class MatchCoordSystem {
   }
 
   /**
-   * 逻辑坐标 → Canvas 像素坐标
+   * 逻辑坐标 → 画面 left/top 百分比（横向球场）
+   * 主队球门在左（y=100 → left 0），客队球门在右（y=0 → left 100）
+   */
+  logicToScreenPct(x, y) {
+    return { left: this.FIELD_H - y, top: x };
+  }
+
+  /**
+   * 逻辑坐标 → Canvas 像素坐标（横向球场：screenX = 100-y，screenY = x）
    * @param {number} x - 0..100
    * @param {number} y - 0..100
    * @returns {{x: number, y: number}}
    */
   logicToCanvas(x, y) {
+    const p = this.logicToScreenPct(x, y);
     return {
-      x: (x / this.FIELD_W) * this.canvasWidth,
-      y: (y / this.FIELD_H) * this.canvasHeight
+      x: (p.left / this.FIELD_W) * this.canvasWidth,
+      y: (p.top / this.FIELD_H) * this.canvasHeight
     };
   }
 
@@ -80,9 +90,11 @@ export class MatchCoordSystem {
    * Canvas 像素坐标 → 逻辑坐标
    */
   canvasToLogic(px, py) {
+    const left = (px / this.canvasWidth) * this.FIELD_W;
+    const top = (py / this.canvasHeight) * this.FIELD_H;
     return {
-      x: (px / this.canvasWidth) * this.FIELD_W,
-      y: (py / this.canvasHeight) * this.FIELD_H
+      x: top,
+      y: this.FIELD_H - left
     };
   }
 

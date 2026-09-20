@@ -1555,25 +1555,23 @@ html[data-theme="light"] #screen-match {
   width: min(640px, 100%);
 }
 
-/* ── PC 宽屏（≥1060px）：竖球场 | 事件流 两栏 ──
-   42a5b3d 把比赛屏砍成手机竖栈宽度后，桌面上一整条 480px 竖柱挂在屏幕中央，
-   两侧全是空白。宽屏下改栅格：计分条/底栏通栏，球场居左（宽度跟视口高度走，
-   保住 68:105 竖比例），事件流/数据居右占满行高。手机布局不动。 */
+/* ── PC 宽屏（≥1060px）：横球场 | 事件流 两栏 ──
+   宽屏下改栅格：计分条/底栏通栏，球场居左（高度跟行走、宽度按横向盒比反推），
+   事件流/数据居右占满行高。手机布局仍是全宽横场 + 页面滚动。 */
 @media (min-width: 1060px) {
   .match-layout.fm-match.fmm-match {
-    width: min(1360px, 100%);
+    width: min(1680px, 100%);
     /* 高度必须是确定值：1fr 行与列内 height:100% 的百分比链都从它解析。
        只写 max-height 时 grid 视可用空间为不定，1fr 退化为内容高，
        球场组件按固有尺寸撑出容器（实测 dock 溢出球场区 265px）。 */
     height: calc(100vh - 0.6rem);
     height: calc(100dvh - 0.6rem);
     display: grid;
-    /* 球场列宽 ≈ 可用行高 × 0.728。这里也是「球场盒含看台」：列里放的是 .mp-field
-       （= 球场 + 两侧各 5.5% 看台），所以系数是 68/105 ÷ 0.89 = 0.7276 而不是
-       68/105=0.648。0.78 是留一点余量：球场实际按行高反推宽度（见下方
-       .live-kick/.ht-kick 的 .mp-field 规则），列只要不卡住它就行。 */
+    /* 球场列宽 ≈ 可用行高 × 1.374。横向后看台在上下，盒比是
+       105/68 ÷ 0.89 = 1.374 = 93.45/68。1.48 留一点余量：球场按行高反推
+       宽度（见下方 .live-kick/.ht-kick 的 .mp-field 规则），列只要不卡住它。 */
     grid-template-columns:
-      minmax(260px, calc((100vh - 250px) * 0.78))
+      minmax(360px, calc((100vh - 250px) * 1.48))
       minmax(300px, 1fr);
     grid-template-rows: auto auto minmax(0, 1fr) auto;
     column-gap: 0.55rem;
@@ -1622,8 +1620,8 @@ html[data-theme="light"] #screen-match {
   .match-layout.fm-match.fmm-match .mp-field {
     max-height: 100%;
   }
-  /* 赛前：手机档的「宽度定高（2:3）」在宽屏列上会撑出 700px+ 的竖场，
-     挤掉底栏。改为高度跟行走、宽度按 2:3 反推，居中放置。
+  /* 赛前：手机档的「宽度定高」在宽屏列上会撑出过宽的横场，
+     挤掉底栏。改为高度跟行走、宽度按横向盒比反推，居中放置。
      dock 是 wrap 里的 position:relative 文档流块（非覆盖层），
      field 必须可收缩给它让位，否则 dock 溢出 wrap 底边。 */
   .match-layout.fm-match.fmm-match.pre-kickoff .fm-pitch-col {
@@ -2213,7 +2211,7 @@ html[data-theme="light"] .fmm-match-bar {
 }
 .motion-review-pitch {
   width: min(100%, 350px);
-  aspect-ratio: 68 / 105;
+  aspect-ratio: 105 / 68;
   margin: 0 auto;
   overflow: hidden;
   border: 1px solid rgba(226, 232, 240, 0.42);
@@ -2487,6 +2485,15 @@ html[data-theme="light"] .fmm-match-bar {
   display: flex;
   flex-direction: column;
 }
+/* 球场槽：宽屏 contain 需要一块「宽高都确定」的盒子。
+   .mp-field 的子元素全是绝对定位，没有固有尺寸；width/height:auto
+   只会算出 0。槽在桌面吃掉 dock 以外的剩余空间，再用容器查询
+   按 93.45/68 等比放下球场。手机档槽跟着球场走，不定高。 */
+.mp-pitch-slot {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
 html[data-theme="light"] .mp-wrap {
   background: #0f1a28;
   border-color: rgba(15, 23, 42, 0.12);
@@ -2512,16 +2519,12 @@ html[data-theme="light"] .mp-boards {
 .mp-field {
   position: relative;
   width: 100%;
-  /* 2026-09-15：球场盒 = 看台 + 球场，不是球场本身。
-     真正画球场的是 .mp-camera，它为了露出两侧看台而左右各内缩 5.5%，
-     所以「球场盒」必须比「球场」宽 1/(1-2×0.055)=1.1236 倍：
-         68/105 ÷ 0.89 = 0.6476 / 0.89 = 0.7276 = 68 / 93.45
-     这里原先写 68/105、`.fmm-match` 与赛前/开赛中又各写了一次 2/3，四处都把
-     球场盒当成球场来算，相机因此只拿到 0.89×的比例，中圈在屏幕上是竖椭圆
-     （实测渲染宽高比 0.9166，即纵向拉伸 8.3%；桌面 0.8755 / 12.4%）。
-     球场 SVG 用 preserveAspectRatio="none"，这种拉伸不会报任何错。
+  /* 2026-09-20：横向球场。球场盒 = 看台 + 球场，不是球场本身。
+     真正画球场的是 .mp-camera，它为了露出上下看台而上下各内缩 5.5%，
+     所以「球场盒」必须比「球场」高 1/(1-2×0.055)=1.1236 倍：
+         105/68 ÷ 0.89 = 1.5441 / 0.89 = 1.7349 = 93.45 / 68
      四处 aspect-ratio 必须同时改，只改一处会被更高特异性的规则盖掉。 */
-  aspect-ratio: 68 / 93.45;
+  aspect-ratio: 93.45 / 68;
   /* 2026-09-05（表现层 A1 收尾）：这条 max-height 在唯一比赛屏上从未生效——
      index.html 的 match-layout 恒带 fmm-match，而 `.fmm-match .mp-field`（下文）
      以更高特异性设 max-height:none。实测比赛屏球场高由 flex 给（1440×1000 下
@@ -3083,28 +3086,25 @@ html[data-theme="light"] .ht-tip em { color: #b45309; }
   color: #f8fafc;
 }
 
-/* 镜头层：平移+缩放跟随球；左右留白给 FMM 看台 */
+/* 镜头层：平移+缩放跟随球；上下留白给 FMM 看台 */
 .mp-camera {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 5.5%;
-  right: 5.5%;
+  left: 0;
+  right: 0;
+  top: 5.5%;
+  bottom: 5.5%;
   transform-origin: 50% 50%;
   will-change: transform;
   transition: none;
   z-index: 1;
   overflow: hidden;
 }
-.mp-stands {
-  z-index: 2;
-}
 .mp-grass {
   position: absolute;
   inset: -2%;
   /* FMM：横条棋盘格草坪（对照 rec 录屏） */
   background: repeating-linear-gradient(
-    0deg,
+    90deg,
     #2d7a47 0px,
     #2d7a47 22px,
     #266938 22px,
@@ -3124,7 +3124,7 @@ html[data-theme="light"] .ht-tip em { color: #b45309; }
   position: absolute;
   inset: 0;
   background: linear-gradient(
-    90deg,
+    180deg,
     rgba(0, 0, 0, 0.1) 0%,
     transparent 8%,
     transparent 92%,
@@ -3132,23 +3132,20 @@ html[data-theme="light"] .ht-tip em { color: #b45309; }
   );
   pointer-events: none;
 }
-/* FMM 两侧看台 */
+/* FMM 上下看台（横向球场） */
 .mp-stands {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 5.5%;
-  /* 2026-09-15：看台要盖在 .mp-camera（z-index:1）之上，当固定画框用。
-     原来 z-index:0 在相机之下：相机跟随球平移时，草坪会跟着挪，一侧看台被
-     完全盖住、另一侧露出一大条灰色条纹，左右不对称（实测手机档左 0 条、
-     右 ~13px），看着像渲染坏了。看台宽度正好等于相机的左右内缩量，所以
-     相机在 1.0 倍时不会压到球场，只有放大/平移超出时才被看台切掉——这正是
-     转播画框该有的行为。 */
+  left: 0;
+  right: 0;
+  height: 5.5%;
+  /* 2026-09-20：看台要盖在 .mp-camera（z-index:1）之上，当固定画框用。
+     看台高度正好等于相机的上下内缩量，所以相机在 1.0 倍时不会压到球场，
+     只有放大/平移超出时才被看台切掉——这正是转播画框该有的行为。 */
   z-index: 2;
   pointer-events: none;
   background:
     repeating-linear-gradient(
-      180deg,
+      90deg,
       #c5c9ce 0px,
       #c5c9ce 3px,
       #aeb4bb 3px,
@@ -3158,13 +3155,13 @@ html[data-theme="light"] .ht-tip em { color: #b45309; }
     );
   box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.25);
 }
-.mp-stands.left {
-  left: 0;
-  border-right: 1px solid rgba(0, 0, 0, 0.12);
+.mp-stands.top {
+  top: 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
 }
-.mp-stands.right {
-  right: 0;
-  border-left: 1px solid rgba(0, 0, 0, 0.12);
+.mp-stands.bot {
+  bottom: 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
 }
 .mp-field.mp-fmm2d {
   background: #178a3f;
@@ -3452,44 +3449,41 @@ html[data-theme="dark"] .mp-fmm-dock {
   to { opacity: 1; }
 }
 
-/* 球门网口：贴在端线外侧（与 SVG 门架一致），不伸进场内。
-   ⚠ 宽度必须对上引擎的 `SIM.GOAL_X0 = 44` / `GOAL_X1 = 56`——`left/width` 的 1% 就是
-   一个 x 格（球员定位也用 `left: ${x}%`）。旧值 `left:43%; width:14%` 把球门画宽了
-   两格（每边 0.68m），于是「看着从柱内进了、引擎判出去」会周期性出现。
-   `box-sizing: border-box`（style.css:95）让 1.5px 边框落在宽度内侧，残差 ~0.3%。 */
+/* 球门网口：贴在左右端线外侧（与 SVG 门架一致），不伸进场内。
+   ⚠ 高度必须对上引擎的 `SIM.GOAL_X0 = 44` / `GOAL_X1 = 56`——画面 top 轴就是引擎 x。
+   `box-sizing: border-box` 让 1.5px 边框落在宽度内侧。 */
 .mp-goal-mouth {
   position: absolute;
-  left: 44%;
-  width: 12%;
-  height: 1.7%;
+  top: 44%;
+  height: 12%;
+  width: 1.7%;
   z-index: 2;
   pointer-events: none;
   background:
     repeating-linear-gradient(
-      90deg,
+      0deg,
       rgba(255, 255, 255, 0.28) 0 1px,
       transparent 1px 3.5px
     ),
     repeating-linear-gradient(
-      0deg,
+      90deg,
       rgba(255, 255, 255, 0.18) 0 1px,
       transparent 1px 2.5px
     );
   border: 1.5px solid rgba(255, 255, 255, 0.55);
   box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.3);
 }
-/* 顶线外侧：略伸出 0，避免画进禁区 */
-.mp-goal-mouth.top {
-  top: 0;
-  border-radius: 0 0 2px 2px;
-  transform-origin: 50% 0%;
-  border-top: none;
+.mp-goal-mouth.left {
+  left: 0;
+  border-radius: 0 2px 2px 0;
+  transform-origin: 0% 50%;
+  border-left: none;
 }
-.mp-goal-mouth.bot {
-  bottom: 0;
-  border-radius: 2px 2px 0 0;
-  transform-origin: 50% 100%;
-  border-bottom: none;
+.mp-goal-mouth.right {
+  right: 0;
+  border-radius: 2px 0 0 2px;
+  transform-origin: 100% 50%;
+  border-right: none;
 }
 /* 进球：球门网微颤（克制可读，避免整框荧光绿爆炸） */
 .mp-goal-mouth.mp-goal-mouth-hit {
@@ -3502,8 +3496,8 @@ html[data-theme="dark"] .mp-fmm-dock {
 }
 @keyframes mp-mouth-bulge {
   0% { transform: scale(1, 1); filter: brightness(1); }
-  20% { transform: scale(1.12, 1.35); filter: brightness(1.2); }
-  55% { transform: scale(0.97, 1.08); }
+  20% { transform: scale(1.35, 1.12); filter: brightness(1.2); }
+  55% { transform: scale(1.08, 0.97); }
   100% { transform: scale(1, 1); filter: brightness(1); }
 }
 /* 入网轻闪已改为独立元素 .mp-goal-flash-fx（见下方）。
@@ -3518,10 +3512,8 @@ html[data-theme="dark"] .mp-fmm-dock {
 /* 半场方向标签 */
 .mp-end-label {
   position: absolute;
-  /* 原来是 left:50% 居中，正好落在球门口（43%–57%）上，而门将也站在那儿：
-     球门网 + 队名 + 门将圆点三层叠在同一小块区域。挪到端线左侧的空白角，
-     那里既不在球门带里，也不在大禁区（22%–78%）里。 */
-  left: 4%;
+  /* 横向后球门在左右中线高度。队名贴在端线上沿空白角，避开门将。 */
+  top: 8%;
   z-index: 5;
   font-size: var(--fs-4xs);
   font-weight: 900;
@@ -3531,87 +3523,87 @@ html[data-theme="dark"] .mp-fmm-dock {
   pointer-events: none;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
-.mp-end-label.mp-end-away { top: 4px; }
-.mp-end-label.mp-end-home { bottom: 4px; }
-/* 换边后主队守上、客队守下：标签跟着端走，不改队名文字。 */
+.mp-end-label.mp-end-away { right: 4px; left: auto; }
+.mp-end-label.mp-end-home { left: 4px; }
+/* 换边后主队守右、客队守左：标签跟着端走，不改队名文字。 */
 .mp-field.mp-ends-swapped .mp-end-label.mp-end-away {
-  top: auto;
-  bottom: 4px;
+  right: auto;
+  left: 4px;
 }
 .mp-field.mp-ends-swapped .mp-end-label.mp-end-home {
-  bottom: auto;
-  top: 4px;
+  left: auto;
+  right: 4px;
 }
 /* 控球半场高亮 */
 .mp-poss-half {
   position: absolute;
-  left: 0;
-  right: 0;
+  top: 0;
+  bottom: 0;
   z-index: 1;
   pointer-events: none;
-  transition: top 0.45s ease, height 0.45s ease, background 0.45s ease, opacity 0.35s ease;
+  transition: left 0.45s ease, width 0.45s ease, background 0.45s ease, opacity 0.35s ease;
   opacity: 0.55;
 }
 .mp-poss-half.side-home {
-  top: 0;
-  height: 50%;
-  background: linear-gradient(180deg, rgba(96, 165, 250, 0.14) 0%, transparent 88%);
+  left: 0;
+  width: 50%;
+  background: linear-gradient(90deg, rgba(96, 165, 250, 0.14) 0%, transparent 88%);
 }
 .mp-poss-half.side-away {
-  bottom: 0;
-  top: auto;
-  height: 50%;
-  background: linear-gradient(0deg, rgba(248, 113, 113, 0.14) 0%, transparent 88%);
+  right: 0;
+  left: auto;
+  width: 50%;
+  background: linear-gradient(270deg, rgba(248, 113, 113, 0.14) 0%, transparent 88%);
 }
 /* 换边后 class 仍跟控球队（颜色），位置翻到对面半场。FMM 屏把这两处藏掉了。 */
 .mp-field.mp-ends-swapped .mp-poss-half.side-home {
-  top: auto;
-  bottom: 0;
-  background: linear-gradient(0deg, rgba(96, 165, 250, 0.14) 0%, transparent 88%);
+  left: auto;
+  right: 0;
+  background: linear-gradient(270deg, rgba(96, 165, 250, 0.14) 0%, transparent 88%);
 }
 .mp-field.mp-ends-swapped .mp-poss-half.side-away {
-  bottom: auto;
-  top: 0;
-  background: linear-gradient(180deg, rgba(248, 113, 113, 0.14) 0%, transparent 88%);
+  right: auto;
+  left: 0;
+  background: linear-gradient(90deg, rgba(248, 113, 113, 0.14) 0%, transparent 88%);
 }
 /* 进攻方向箭头 */
 .mp-attack-arrow {
   position: absolute;
-  left: 50%;
+  top: 50%;
   z-index: 4;
   width: 0;
   height: 0;
-  margin-left: -10px;
+  margin-top: -10px;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.3s ease, top 0.4s ease, bottom 0.4s ease;
+  transition: opacity 0.3s ease, left 0.4s ease, right 0.4s ease;
   filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.45));
 }
 .mp-attack-arrow.show { opacity: 0.85; }
 .mp-attack-arrow.side-home {
-  top: 18%;
-  border-left: 10px solid transparent;
-  border-right: 10px solid transparent;
-  border-bottom: 16px solid rgba(147, 197, 253, 0.85);
+  left: 18%;
+  border-top: 10px solid transparent;
+  border-bottom: 10px solid transparent;
+  border-left: 16px solid rgba(147, 197, 253, 0.85);
 }
 .mp-attack-arrow.side-away {
-  bottom: 18%;
-  top: auto;
-  border-left: 10px solid transparent;
-  border-right: 10px solid transparent;
-  border-top: 16px solid rgba(252, 165, 165, 0.85);
+  right: 18%;
+  left: auto;
+  border-top: 10px solid transparent;
+  border-bottom: 10px solid transparent;
+  border-right: 16px solid rgba(252, 165, 165, 0.85);
 }
 .mp-field.mp-ends-swapped .mp-attack-arrow.side-home {
-  top: auto;
-  bottom: 18%;
-  border-bottom: none;
-  border-top: 16px solid rgba(147, 197, 253, 0.85);
+  left: auto;
+  right: 18%;
+  border-left: none;
+  border-right: 16px solid rgba(147, 197, 253, 0.85);
 }
 .mp-field.mp-ends-swapped .mp-attack-arrow.side-away {
-  bottom: auto;
-  top: 18%;
-  border-top: none;
-  border-bottom: 16px solid rgba(252, 165, 165, 0.85);
+  right: auto;
+  left: 18%;
+  border-right: none;
+  border-left: 16px solid rgba(252, 165, 165, 0.85);
 }
 /* 阵型色块 */
 .mp-form-zones {
@@ -4228,8 +4220,8 @@ html[data-theme="dark"] .mp-fmm-dock {
    时读数一模一样 —— 三条一起证明了「CSS 完全没生效」。
 
    结论：入场位移必须做在 **canvas 绘制层** —— 见
-   `js/matchview.js` 的 `_introOffsetY()`，它在 `_drawCanvas` 给每名
-   球员的屏幕 y 坐标叠加一个按错峰衰减的偏移。CSS 这里不再承担视觉。
+   `js/matchview.js` 的 `_introOffsetX()`，它在 `_drawCanvas` 给每名
+   球员的屏幕 x 坐标叠加一个按错峰衰减的偏移。CSS 这里不再承担视觉。
    ──────────────────────────────────────────────────────────────── */
 .mp-player.scorer .mp-dot {
   box-shadow: 0 0 0 2px #fff, 0 0 14px 4px rgba(61, 214, 140, 0.95);
@@ -4600,8 +4592,8 @@ html[data-theme="light"] .mp-official {
   box-shadow: 0 0 8px rgba(255, 255, 255, 0.22);
   animation: mp-net-shake 0.7s cubic-bezier(0.2, 0.85, 0.3, 1) forwards;
 }
-.mp-goal-net.top { transform-origin: 50% 0%; }
-.mp-goal-net.bottom { transform-origin: 50% 100%; }
+.mp-goal-net.left { transform-origin: 0% 50%; }
+.mp-goal-net.right { transform-origin: 100% 50%; }
 @keyframes mp-net-shake {
   0% { transform: scale(0.7, 0.45); opacity: 0; }
   18% { transform: scale(1.12, 1.18); opacity: 0.95; }
@@ -4620,17 +4612,17 @@ html[data-theme="light"] .mp-official {
   pointer-events: none;
   animation: mp-goal-flash 0.26s ease-out forwards;
 }
-.mp-goal-flash-fx.top {
+.mp-goal-flash-fx.left {
   background: radial-gradient(
-    ellipse 28% 16% at 50% 6%,
+    ellipse 16% 28% at 6% 50%,
     rgba(255, 255, 255, 0.12) 0%,
     rgba(255, 255, 255, 0.04) 36%,
     transparent 62%
   );
 }
-.mp-goal-flash-fx.bottom {
+.mp-goal-flash-fx.right {
   background: radial-gradient(
-    ellipse 28% 16% at 50% 94%,
+    ellipse 16% 28% at 94% 50%,
     rgba(255, 255, 255, 0.12) 0%,
     rgba(255, 255, 255, 0.04) 36%,
     transparent 62%
@@ -4708,7 +4700,7 @@ html[data-theme="light"] .mp-official {
   letter-spacing: 0.02em;
 }
 
-/* FMM 2D 球场布局：竖屏全场、号码优先、少杂讯 */
+/* FMM 2D 球场布局：横屏全场、号码优先、少杂讯 */
 .fmm-match .mp-boards {
   display: flex;
   padding: 0.18rem 0.4rem;
@@ -4718,8 +4710,8 @@ html[data-theme="light"] .mp-official {
 }
 .fmm-match .mp-field {
   max-height: none;
-  /* 68/93.45 的来历见 .mp-field 上方注释：球场盒要含两侧 5.5% 看台 */
-  aspect-ratio: 68 / 93.45;
+  /* 93.45/68 的来历见 .mp-field 上方注释：球场盒要含上下 5.5% 看台 */
+  aspect-ratio: 93.45 / 68;
   flex: 1 1 auto;
   min-height: 240px;
 }
@@ -6940,7 +6932,7 @@ html[data-theme="light"] .badge-chip {
   /* 2026-09-16：窄屏（flex 列）下必须不可收缩。这里原本是 flex: 0 1 auto +
      min-height: 0，而同一个 flex 列里计分板 flex-shrink:0、.fmm-match-body
      开赛前 flex:0 0 auto、评论流 flex:0 0 auto——于是它成了**唯一可收缩项**，
-     被全宽竖场（手机 390 宽 → .mp-field 367×505，比例 68/93.45 正确）挤成
+     被全宽横场（手机 390 宽 → .mp-field 367×267，比例 93.45/68 正确）挤成
      2 px，819 px 简报内容全进滚动区、一屏都看不见。
      原设计意图由外层 .match-layout.fm-match 的 overflow-y:auto 承担
      （见下方「赛前简报+讲话变高后必须可滚」），所以这里取 0 0 auto，
@@ -6960,7 +6952,7 @@ html[data-theme="light"] .badge-chip {
   display: none;
 }
 /*
- * 赛前球场：与计分板/评论同宽全宽竖场，保持 2:3。
+ * 赛前球场：与计分板/评论同宽全宽横场。
  * 不再缩成中间窄条（会显得像「小窗叠在简报上」、阵型挤成一团）。
  * 高度随宽度走；整页可滚 + 底栏 sticky。
  */
@@ -6993,7 +6985,7 @@ html[data-theme="light"] .badge-chip {
   max-height: none;
   min-height: 0;
   flex: 0 0 auto;
-  aspect-ratio: 68 / 93.45;
+  aspect-ratio: 93.45 / 68;
   margin-inline: 0;
 }
 /* 赛前：只显示号码，姓名默认隐藏（点选再出），避免 22 人名字糊成一团 */
@@ -7015,7 +7007,7 @@ html[data-theme="light"] .badge-chip {
 .match-pre-brief:not(.hidden) ~ .fmm-commentary {
   max-height: min(18vh, 150px);
 }
-/* 开赛后恢复全宽竖场 */
+/* 开赛后恢复全宽横场 */
 .match-layout.live-kick .fmm-match-body,
 .match-layout.ht-kick .fmm-match-body {
   max-height: none;
@@ -7035,7 +7027,7 @@ html[data-theme="light"] .badge-chip {
   height: auto;
   max-height: none;
   min-height: 240px;
-  aspect-ratio: 68 / 93.45;
+  aspect-ratio: 93.45 / 68;
   flex: 1 1 auto;
   margin-inline: 0;
 }
@@ -7043,7 +7035,7 @@ html[data-theme="light"] .badge-chip {
 /* Mobile live play must keep the pitch ratio. The desktop grid can give the
    body a bounded height; on a narrow screen that would squeeze the pitch into
    the remaining strip between commentary and controls. Let the page scroll
-   instead. (The ratio itself is 68/93.45, not 2:3 — see .mp-field.) */
+   instead. (The ratio itself is 93.45/68 — see .mp-field.) */
 @media (max-width: 1059px) {
   .match-layout.live-kick .fmm-match-body,
   .match-layout.ht-kick .fmm-match-body {
@@ -7061,19 +7053,42 @@ html[data-theme="light"] .badge-chip {
     flex: 0 0 auto;
     height: auto;
   }
+  .match-layout.live-kick .fmm-match-body .mp-pitch-slot,
+  .match-layout.ht-kick .fmm-match-body .mp-pitch-slot {
+    flex: 0 0 auto;
+    height: auto;
+  }
 }
-/* 2026-09-15：宽屏开赛/中场反过来要「高度定宽」。宽屏行高是确定值，球场盒
-   由 aspect-ratio 反推宽度即可精确落在 68:105；只靠列宽公式的话，行高与公式
-   里的 250px 常数一旦对不上（换视口高度就对不上），比例就漂——实测未加这条时
-   桌面球场盒是 583×762=0.765，相机 0.681，中圈渲染成横椭圆 1.052。
-   手机档不适用：那里行高不确定，只能宽度定高、页面滚动。
+/* 2026-09-20：宽屏开赛/中场按列的可用宽高 contain。
+   横向后盒比 93.45/68 ≈ 1.37，比竖场 0.73 宽得多：旧「height:100%」会把宽高
+   同时钉死，aspect-ratio 失效，中圈被拉成竖椭圆（桌面实测 0.87）。
+   第一版 width/height:auto + 只写 max-* 也不行：.mp-field 没有固有尺寸，
+   会塌成 0 高。正解是给 .mp-pitch-slot 确定宽高（flex 吃剩余空间），
+   再用容器查询把球场放进「列宽 × 行高」里最大的 93.45/68 矩形。
+   手机档仍宽度定高、页面滚动。
    必须放在上面 .live-kick 基础规则之后：同特异性下后写的才生效。 */
 @media (min-width: 1060px) {
-  .match-layout.live-kick .fmm-match-body .mp-field,
-  .match-layout.ht-kick .fmm-match-body .mp-field {
-    width: auto;
-    height: 100%;
+  .match-layout.fm-match.fmm-match.live-kick .fmm-match-body .mp-pitch-slot,
+  .match-layout.fm-match.fmm-match.ht-kick .fmm-match-body .mp-pitch-slot,
+  .match-layout.fm-match.fmm-match.pre-kickoff .fmm-match-body .mp-pitch-slot {
+    flex: 1 1 0%;
+    min-height: 0;
+    width: 100%;
+    display: grid;
+    place-items: center;
+    container-type: size;
+  }
+  .match-layout.fm-match.fmm-match.live-kick .fmm-match-body .mp-field,
+  .match-layout.fm-match.fmm-match.ht-kick .fmm-match-body .mp-field,
+  .match-layout.fm-match.fmm-match.pre-kickoff .fmm-match-body .mp-field {
+    flex: none;
+    width: min(100cqw, calc(100cqh * 93.45 / 68));
+    height: min(100cqh, calc(100cqw * 68 / 93.45));
     max-width: 100%;
+    max-height: 100%;
+    min-height: 0;
+    aspect-ratio: 93.45 / 68;
+    place-self: center;
     margin-inline: auto;
   }
 }

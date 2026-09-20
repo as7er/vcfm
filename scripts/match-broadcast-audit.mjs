@@ -33,12 +33,14 @@ const tvBox = cameraFraming({ preset: "tv", ball: { x: 82, y: 8 }, mode: "box", 
 assert.ok(tvWide.scale > 1.2 && tvWide.scale < 1.4, "TV camera must zoom to broadcast framing instead of the global view");
 assert.ok(tvWide.x === 0 && tvWide.y === 0, "ball at midfield must sit dead-centre");
 assert.ok(tvBox.scale > tvWide.scale, "TV camera should push in for box action");
-// 平移界限 = 窗口 ⊆ 草皮 [-2,102] 的几何解：|t| ≤ 52s − 50/0.89（横）、52s − 50（纵）。
-const spanH = (50 + GRASS_MARGIN) * tvBox.scale - 50 / CAMERA_WIDTH_FRAC;
-const spanV = (50 + GRASS_MARGIN) * tvBox.scale - 50;
+// 平移界限 = 窗口 ⊆ 草皮 [-2,102] 的几何解：|t| ≤ 52s − 50（横）、52s − 50/0.89（纵）。
+const spanH = (50 + GRASS_MARGIN) * tvBox.scale - 50;
+const spanV = (50 + GRASS_MARGIN) * tvBox.scale - 50 / CAMERA_WIDTH_FRAC;
 assert.ok(Math.abs(tvBox.x) <= spanH + 1e-9 && Math.abs(tvBox.y) <= spanV + 1e-9, "TV pan must stay inside the grass-edge span");
-const tvLeft = cameraFraming({ preset: "tv", ball: { x: 0, y: 50 }, mode: "follow" });
-assert.ok(tvLeft.x > 0, "a ball on the left touchline must pan the camera, not be read as centre (falsy-zero regression)");
+const tvLeft = cameraFraming({ preset: "tv", ball: { x: 50, y: 100 }, mode: "follow" });
+assert.ok(tvLeft.x > 0, "a ball at the home (left) goal must pan the camera, not be read as centre");
+const tvTop = cameraFraming({ preset: "tv", ball: { x: 0, y: 50 }, mode: "follow" });
+assert.ok(tvTop.y > 0, "a ball on the top touchline must pan the camera, not be read as centre (falsy-zero regression)");
 
 assert.equal(visualCuePolicy({ preset: "tactical" }).drawStructure, true);
 assert.equal(visualCuePolicy({ preset: "full" }).drawStructure, false);

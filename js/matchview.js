@@ -37,12 +37,17 @@ import {
 // 代码全部保留，改回 true 即可找回。canvas 侧的字符串守卫见 _drawBall 附近注释。
 const SHOW_BALL_TRAIL = false;
 
-// .mp-press / .mp-network / .mp-trails 三个叠层用的是 viewBox="0 0 100 100"（x/y 都是
-// 0-100 的百分比，位置映射没问题），但它们的盒子是 .mp-camera，宽高比 68/105。
-// preserveAspectRatio="none" 会把 x 方向压到 68/105 = 0.6476 倍：直线和路径看不出问题，
-// 圆点却会变成横扁的椭圆。要让屏幕上正圆，ry = rx × 68/105。
-// （.mp-lines 用的是 viewBox="0 0 100 150"，比例不同，那里按椭圆中圈 13.46/13.07 处理。）
-const OVERLAY_CIRCLE_RY = 68 / 105;
+// .mp-press / .mp-network / .mp-trails 三个叠层用的是 viewBox="0 0 100 100"，写入的是
+// **画面百分比**（screenX=100-engineY，screenY=engineX），不是引擎坐标。
+// 盒子是横向 .mp-camera，宽高比 105/68。preserveAspectRatio="none" 会把 y 方向
+// 压到 68/105：要让屏幕上正圆，ry = rx × 105/68。
+// （.mp-lines 用的是 viewBox="0 0 150 100"，中圈椭圆 rx=13.07 ry=13.46。）
+const OVERLAY_CIRCLE_RY = 105 / 68;
+
+/** 引擎坐标 → 画面 left/top 百分比。主队球门在左（y=100 → left 0），客队在右（y=0 → left 100）。 */
+function pitchToScreenPct(x, y) {
+  return { left: 100 - y, top: x };
+}
 
 function clamp(n, a, b) {
   return Math.max(a, Math.min(b, n));
@@ -237,7 +242,7 @@ export class MatchView {
     this.lastTs = 0;
     this.fsm = new MatchViewFSM(); // 状态机替代 phase
     this.possession = "home";
-    /** 与引擎 `endsSwapped` 同步：下半场换边后主队守上、客队守下。默认 false。 */
+    /** 与引擎 `endsSwapped` 同步：下半场换边后主队守右、客队守左。默认 false。 */
     this.endsSwapped = false;
     /** 本场是否已提示过换边。上升沿只讲一次，高光回放把队名翻回去再翻回来不再闪。 */
     this._endsSwapAnnounced = false;
@@ -1442,51 +1447,49 @@ export class MatchView {
     wrap.className = "mp-wrap";
 
     wrap.innerHTML = `
+      <div class="mp-pitch-slot">
       <div class="mp-field mp-fmm2d" id="mp-field">
-        <!-- FMM 两侧看台 -->
-        <div class="mp-stands left" aria-hidden="true"></div>
-        <div class="mp-stands right" aria-hidden="true"></div>
+        <!-- FMM 上下看台（横向球场，球门在左右） -->
+        <div class="mp-stands top" aria-hidden="true"></div>
+        <div class="mp-stands bot" aria-hidden="true"></div>
         <div class="mp-end-label mp-end-away" id="mp-end-away">AWAY</div>
         <div class="mp-end-label mp-end-home" id="mp-end-home">HOME</div>
         <div class="mp-camera" id="mp-camera">
           <div class="mp-grass"></div>
-          <div class="mp-goal-mouth top" aria-hidden="true"></div>
-          <div class="mp-goal-mouth bot" aria-hidden="true"></div>
+          <div class="mp-goal-mouth left" aria-hidden="true"></div>
+          <div class="mp-goal-mouth right" aria-hidden="true"></div>
           <div class="mp-poss-half" id="mp-poss-half" aria-hidden="true"></div>
           <div class="mp-form-zones" id="mp-form-zones" aria-hidden="true"></div>
           <div class="mp-attack-arrow" id="mp-attack-arrow" aria-hidden="true"></div>
-          <svg class="mp-lines" viewBox="0 0 100 150" preserveAspectRatio="none" aria-hidden="true">
-            <!-- 标线坐标 = 引擎坐标 × [1, 1.5]：球员用 left/top 百分比定位（引擎 x/y 均为
-                 0-100），本 SVG 的 viewBox 高 150，所以 y 要乘 1.5。禁区必须与
-                 _inOwnFoulBox（x 22-78、home y>=84）逐格对齐——此前画的是 x 21-79 /
-                 y 78-98，比引擎判定浅 6 个单位（约 6.3 米），站在 y=80 的球员看着在禁区里，
-                 引擎却算他在禁区外，于是出现「禁区内犯规不判点球」。边线同理：此前内缩到
-                 x 3-97 / y 2-98，而球员可以走到 0 和 100，会跑到画出的边线之外。
+          <svg class="mp-lines" viewBox="0 0 150 100" preserveAspectRatio="none" aria-hidden="true">
+            <!-- 横向球场：screenX=100-engineY、screenY=engineX。viewBox 宽 150 = 球场长
+                 105 m（engine y × 1.5），高 100 = 球场宽 68 m（engine x）。主队球门在左
+                 （y=100 → x=0），客队在右（y=0 → x=150）。禁区必须与 _inOwnFoulBox
+                 （x 22-78、home y>=84）逐格对齐。
                  注意：本段位于 innerHTML 模板字符串内，注释里不得出现反引号或美元花括号插值。 -->
-            <rect x="0.35" y="0.35" width="99.3" height="149.3" fill="none" stroke="rgba(255,255,255,0.78)" stroke-width="0.7"/>
-            <line x1="0.35" y1="75" x2="99.65" y2="75" stroke="rgba(255,255,255,0.7)" stroke-width="0.55"/>
-            <!-- 中圈半径 9.15 m。x/y 缩放比不同（68 m 对 105 m），必须用椭圆，
-                 屏幕上才是正圆：rx=9.15/68*100、ry=9.15/105*100*1.5。 -->
-            <ellipse cx="50" cy="75" rx="13.46" ry="13.07" fill="none" stroke="rgba(255,255,255,0.68)" stroke-width="0.55"/>
-            <circle cx="50" cy="75" r="0.85" fill="rgba(255,255,255,0.9)"/>
-            <!-- 底端（主队防守）：大禁区 40.32×16.5 m = 引擎 x22-78 / y84-100 -->
-            <rect x="22" y="126" width="56" height="23.65" fill="none" stroke="rgba(255,255,255,0.68)" stroke-width="0.55"/>
-            <rect x="36.53" y="142.14" width="26.94" height="7.51" fill="none" stroke="rgba(255,255,255,0.68)" stroke-width="0.55"/>
-            <path d="M 39.6 126 A 13.46 13.07 0 0 1 60.4 126" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="0.5"/>
-            <circle cx="50" cy="134.29" r="0.6" fill="rgba(255,255,255,0.75)"/>
-            <!-- 球门口：与引擎 SIM.GOAL_X0/GOAL_X1（44/56）一致 -->
-            <line x1="44" y1="149.65" x2="56" y2="149.65" stroke="rgba(255,255,255,0.92)" stroke-width="1.4"/>
-            <!-- 顶端（客队防守） -->
-            <rect x="22" y="0.35" width="56" height="23.65" fill="none" stroke="rgba(255,255,255,0.68)" stroke-width="0.55"/>
-            <rect x="36.53" y="0.35" width="26.94" height="7.51" fill="none" stroke="rgba(255,255,255,0.68)" stroke-width="0.55"/>
-            <path d="M 39.6 24 A 13.46 13.07 0 0 0 60.4 24" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="0.5"/>
-            <circle cx="50" cy="15.71" r="0.6" fill="rgba(255,255,255,0.75)"/>
-            <line x1="44" y1="0.35" x2="56" y2="0.35" stroke="rgba(255,255,255,0.92)" stroke-width="1.4"/>
-            <!-- 角球弧半径 1 m（此前 4.2 SVG 单位≈2.9 m） -->
-            <path d="M 0.35 1.78 A 1.47 1.43 0 0 0 1.82 0.35" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.5"/>
-            <path d="M 98.18 0.35 A 1.47 1.43 0 0 0 99.65 1.78" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.5"/>
-            <path d="M 0.35 148.22 A 1.47 1.43 0 0 1 1.82 149.65" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.5"/>
-            <path d="M 98.18 149.65 A 1.47 1.43 0 0 1 99.65 148.22" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.5"/>
+            <rect x="0.35" y="0.35" width="149.3" height="99.3" fill="none" stroke="rgba(255,255,255,0.78)" stroke-width="0.7"/>
+            <line x1="75" y1="0.35" x2="75" y2="99.65" stroke="rgba(255,255,255,0.7)" stroke-width="0.55"/>
+            <!-- 中圈半径 9.15 m。横向后 x 沿球场长、y 沿球场宽，椭圆轴对调：
+                 rx=9.15/105*150、ry=9.15/68*100。 -->
+            <ellipse cx="75" cy="50" rx="13.07" ry="13.46" fill="none" stroke="rgba(255,255,255,0.68)" stroke-width="0.55"/>
+            <circle cx="75" cy="50" r="0.85" fill="rgba(255,255,255,0.9)"/>
+            <!-- 左侧（主队防守）：大禁区 engine x22-78 / y84-100 → SVG x 0-24、y 22-78 -->
+            <rect x="0.35" y="22" width="23.65" height="56" fill="none" stroke="rgba(255,255,255,0.68)" stroke-width="0.55"/>
+            <rect x="0.35" y="36.53" width="7.51" height="26.94" fill="none" stroke="rgba(255,255,255,0.68)" stroke-width="0.55"/>
+            <path d="M 24 39.6 A 13.07 13.46 0 0 1 24 60.4" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="0.5"/>
+            <circle cx="15.71" cy="50" r="0.6" fill="rgba(255,255,255,0.75)"/>
+            <line x1="0.35" y1="44" x2="0.35" y2="56" stroke="rgba(255,255,255,0.92)" stroke-width="1.4"/>
+            <!-- 右侧（客队防守） -->
+            <rect x="126" y="22" width="23.65" height="56" fill="none" stroke="rgba(255,255,255,0.68)" stroke-width="0.55"/>
+            <rect x="142.14" y="36.53" width="7.51" height="26.94" fill="none" stroke="rgba(255,255,255,0.68)" stroke-width="0.55"/>
+            <path d="M 126 39.6 A 13.07 13.46 0 0 0 126 60.4" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="0.5"/>
+            <circle cx="134.29" cy="50" r="0.6" fill="rgba(255,255,255,0.75)"/>
+            <line x1="149.65" y1="44" x2="149.65" y2="56" stroke="rgba(255,255,255,0.92)" stroke-width="1.4"/>
+            <!-- 角球弧半径 1 m -->
+            <path d="M 1.78 0.35 A 1.43 1.47 0 0 1 0.35 1.82" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.5"/>
+            <path d="M 0.35 98.18 A 1.43 1.47 0 0 1 1.78 99.65" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.5"/>
+            <path d="M 148.22 0.35 A 1.43 1.47 0 0 0 149.65 1.82" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.5"/>
+            <path d="M 149.65 98.18 A 1.43 1.47 0 0 0 148.22 99.65" fill="none" stroke="rgba(255,255,255,0.5)" stroke-width="0.5"/>
           </svg>
           <div class="mp-heat" id="mp-heat" aria-hidden="true"></div>
           <svg class="mp-press" id="mp-press" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
@@ -1503,6 +1506,7 @@ export class MatchView {
         <div class="mp-flash-card hidden" id="mp-flash-card" aria-live="polite"></div>
         <div class="mp-tip hidden" id="mp-tip"></div>
         <div class="mp-card hidden" id="mp-card"></div>
+      </div>
       </div>
       <!-- FMM 底栏：解说文案 ↔ 控球条（互斥） -->
       <div class="mp-fmm-dock" id="mp-fmm-dock">
@@ -1658,7 +1662,7 @@ export class MatchView {
       legA.textContent = away.short || away.name;
       legA.previousElementSibling.style.background = awayPrimary;
     }
-    // 球门方向标签（主队守下半场，客队守上半场 — 经典 FM 2D）
+    // 球门方向标签（主队守左、客队守右 — 横向 FM 2D）
     const endH = wrap.querySelector("#mp-end-home");
     const endA = wrap.querySelector("#mp-end-away");
     if (endH) endH.textContent = (home.short || home.name || "HOME").slice(0, 10);
@@ -2247,8 +2251,8 @@ export class MatchView {
    * 球员只是**点击热区**。而且那条选择器（0,3,1）优先级高于
    * `.mp-intro .mp-player`（0,2,1），我的 `opacity: 0.35` 被直接压回 1。
    *
-   * 所以入场位移做在这里：`_introOffsetY()` 给 `_drawCanvas` 里每名球员
-   * 的**屏幕 y 像素**叠加一个按错峰衰减的偏移。玩家看到的才是真位移。
+   * 所以入场位移做在这里：`_introOffsetX()` 给 `_drawCanvas` 里每名球员
+   * 的**屏幕 x 像素**叠加一个按错峰衰减的偏移。玩家看到的才是真位移。
    *
    * 为什么不动引擎
    * --------------
@@ -2364,23 +2368,23 @@ export class MatchView {
   }
 
   /**
-   * 计算某名球员当前的**纵向入场偏移**（屏幕像素，正 = 向下）。
+   * 计算某名球员当前的**横向入场偏移**（屏幕像素，负 = 向左）。
    *
    * 在 `_drawCanvas` 里被逐帧调用（只在动画进行中）。返回 0 表示已到位。
    *
    * 观感设计：
-   * - 主队守下方 ⇒ 从下往上跑入，偏移为正（画在真实位置下方）；客队相反。
-   * - 幅度取球场高度的 6%：最远的是门将（y≈97），至少要 3% 才在场外，
-   *   6% 留出余量，看起来是「从边线外跨进来」而不是「贴着线冒出来」。
+   * - 主队守左 ⇒ 从左往右跑入，偏移为负（画在真实位置左侧）；客队相反。
+   * - 幅度取球场宽度的 6%：最远的是门将（engine y≈97 → 画面最左），至少要 3%
+   *   才在场外，6% 留出余量，看起来是「从端线外跨进来」。
    * - 错峰：每名球员有自己的延迟（`staggerDelay`），22 人依次跑出，
    *   而不是一坨人同时弹进来。
    *
    * @param {object} pl 球员记录（`this.players` 里的元素，用于查错峰序号）
    * @param {number} drawIndex 在绘制列表里的下标（仅作 `_introIndex` 缺失时的兜底）
-   * @param {number} h 球场画布高度（像素）
+   * @param {number} w 球场画布宽度（像素）
    * @returns {number} 像素偏移
    */
-  _introOffsetY(pl, drawIndex, h) {
+  _introOffsetX(pl, drawIndex, w) {
     const plan = this._introPlan;
     if (!plan || this._introStartAt == null) return 0;
     const isHome = pl.team === "home";
@@ -2390,7 +2394,7 @@ export class MatchView {
       const f = this._introFast;
       const p = Math.min(1, (performance.now() - f.t0) / f.dur);
       const ratio = f.ratio * (1 - p);
-      return (isHome ? 1 : -1) * ratio * h * 0.06;
+      return (isHome ? -1 : 1) * ratio * w * 0.06;
     }
 
     const elapsed = performance.now() - this._introStartAt;
@@ -2402,11 +2406,11 @@ export class MatchView {
     const delayMs = staggerDelay(within, isHome) * plan.staggerScale * 1000;
     // 位移时长（毫秒）：plan.runSeconds 是本队位移补间时长。
     const runMs = plan.runSeconds * 1000;
-    if (elapsed <= delayMs) return (isHome ? 1 : -1) * h * 0.06;
+    if (elapsed <= delayMs) return (isHome ? -1 : 1) * w * 0.06;
     const t = Math.min(1, (elapsed - delayMs) / runMs);
     // 缓出（ease-out cubic）：起步快、收尾稳，像真的「跑到位站住」。
     const eased = 1 - Math.pow(1 - t, 3);
-    return (isHome ? 1 : -1) * (1 - eased) * h * 0.06;
+    return (isHome ? -1 : 1) * (1 - eased) * w * 0.06;
   }
 
   /** 当前剩余偏移比例（0..1），供 skip 时衔接快速收拢 */
@@ -3314,8 +3318,9 @@ export class MatchView {
     for (const key of ["referee", "assistantA", "assistantB"]) {
       const m = o[key];
       if (!m?.el) continue;
-      m.el.style.left = `${m.x}%`;
-      m.el.style.top = `${m.y}%`;
+      const s = pitchToScreenPct(m.x, m.y);
+      m.el.style.left = `${s.left}%`;
+      m.el.style.top = `${s.top}%`;
     }
   }
 
@@ -3502,19 +3507,20 @@ export class MatchView {
       for (const pos of ["DEF", "MID", "ATT"]) {
         const pts = byPos[pos];
         if (!pts.length) continue;
-        const xs = pts.map((p) => p.x);
-        const ys = pts.map((p) => p.y);
+        const screens = pts.map((p) => pitchToScreenPct(p.x, p.y));
         const pad = pos === "MID" ? 7 : 6;
-        const minX = clamp(Math.min(...xs) - pad, 2, 90);
-        const maxX = clamp(Math.max(...xs) + pad, 10, 98);
-        const minY = clamp(Math.min(...ys) - pad * 0.85, 2, 90);
-        const maxY = clamp(Math.max(...ys) + pad * 0.85, 10, 98);
+        const lefts = screens.map((s) => s.left);
+        const tops = screens.map((s) => s.top);
+        const minL = clamp(Math.min(...lefts) - pad, 2, 90);
+        const maxL = clamp(Math.max(...lefts) + pad, 10, 98);
+        const minT = clamp(Math.min(...tops) - pad * 0.85, 2, 90);
+        const maxT = clamp(Math.max(...tops) + pad * 0.85, 10, 98);
         const el = document.createElement("div");
         el.className = `mp-zone ${teamClass} pos-${pos.toLowerCase()}`;
-        el.style.left = `${minX}%`;
-        el.style.top = `${minY}%`;
-        el.style.width = `${Math.max(8, maxX - minX)}%`;
-        el.style.height = `${Math.max(8, maxY - minY)}%`;
+        el.style.left = `${minL}%`;
+        el.style.top = `${minT}%`;
+        el.style.width = `${Math.max(8, maxL - minL)}%`;
+        el.style.height = `${Math.max(8, maxT - minT)}%`;
         this.formZonesEl.appendChild(el);
       }
     };
@@ -3525,7 +3531,7 @@ export class MatchView {
   /**
    * 换边后的可见标记：队名标签换位。FMM 屏把控球高亮/进攻箭头藏掉了，
    * 用户真正能看见的是两端队名（`.mp-end-home` / `.mp-end-away`）。
-   * CSS 用 `.mp-field.mp-ends-swapped` 把 home 换到 top、away 换到 bottom。
+   * CSS 用 `.mp-field.mp-ends-swapped` 把 home 换到右端、away 换到左端。
    */
   _applyEndsChrome() {
     this.fieldEl?.classList.toggle("mp-ends-swapped", !!this.endsSwapped);
@@ -3560,11 +3566,11 @@ export class MatchView {
     if (!this._built) return;
     const side = this.possession === "away" ? "away" : "home";
     // class 仍跟控球队（颜色），位置由 `.mp-ends-swapped` 翻转。
-    // 默认档 `_attackDir(home)=-1` ⇒ attackingUp，dataset.dir 与改前逐位相同。
-    const attackingUp = this._attackDir(side) < 0;
+    // 默认档 `_attackDir(home)=-1` ⇒ 朝 y=0 攻 ⇒ 画面朝右。
+    const attackingRight = this._attackDir(side) < 0;
     if (this.possHalfEl) {
       this.possHalfEl.className = `mp-poss-half side-${side}`;
-      this.possHalfEl.dataset.dir = attackingUp ? "up" : "down";
+      this.possHalfEl.dataset.dir = attackingRight ? "right" : "left";
     }
     if (this.attackArrowEl) {
       this.attackArrowEl.className = `mp-attack-arrow side-${side}`;
@@ -3582,9 +3588,11 @@ export class MatchView {
    */
   _resizeCanvas() {
     if (!this.canvas || !this.fieldEl) return false;
+    // 量 .mp-camera：横屏后 .mp-field 含上下看台，球员/标线都画在 camera 里。
     // clientWidth 不吃 transform 缩放误差，比 getBoundingClientRect 更稳
-    const w = Math.floor(this.fieldEl.clientWidth || 0);
-    const h = Math.floor(this.fieldEl.clientHeight || 0);
+    const box = this.cameraEl || this.fieldEl;
+    const w = Math.floor(box.clientWidth || 0);
+    const h = Math.floor(box.clientHeight || 0);
     if (w < 40 || h < 40) {
       this._canvasNeedsResize = true;
       return false;
@@ -3719,9 +3727,9 @@ export class MatchView {
         });
         if (ordered.length < 2) continue;
         ctx.beginPath();
-        ctx.moveTo(px(ordered[0].x), py(ordered[0].y));
+        ctx.moveTo(px(ordered[0].x, ordered[0].y), py(ordered[0].x, ordered[0].y));
         for (let index = 1; index < ordered.length; index++) {
-          ctx.lineTo(px(ordered[index].x), py(ordered[index].y));
+          ctx.lineTo(px(ordered[index].x, ordered[index].y), py(ordered[index].x, ordered[index].y));
         }
         ctx.stroke();
       }
@@ -3731,9 +3739,9 @@ export class MatchView {
         ctx.lineWidth = 0.9;
         ctx.setLineDash([2, 5]);
         ctx.beginPath();
-        ctx.moveTo(px(centroids[0].x), py(centroids[0].y));
+        ctx.moveTo(px(centroids[0].x, centroids[0].y), py(centroids[0].x, centroids[0].y));
         for (let index = 1; index < centroids.length; index++) {
-          ctx.lineTo(px(centroids[index].x), py(centroids[index].y));
+          ctx.lineTo(px(centroids[index].x, centroids[index].y), py(centroids[index].x, centroids[index].y));
         }
         ctx.stroke();
       }
@@ -3745,8 +3753,9 @@ export class MatchView {
     this._updateCrowdAtmosphere();
     // 每帧检查：布局若已变化则重绑缓冲（不用再手动缩放页面）
     if (this.fieldEl) {
-      const fw = Math.floor(this.fieldEl.clientWidth || 0);
-      const fh = Math.floor(this.fieldEl.clientHeight || 0);
+      const box = this.cameraEl || this.fieldEl;
+      const fw = Math.floor(box.clientWidth || 0);
+      const fh = Math.floor(box.clientHeight || 0);
       if (
         this._canvasNeedsResize ||
         !this._cw ||
@@ -3762,8 +3771,8 @@ export class MatchView {
     const w = this._cw;
     const h = this._ch;
     ctx.clearRect(0, 0, w, h);
-    const px = (x) => (x / 100) * w;
-    const py = (y) => (y / 100) * h;
+    const px = (x, y) => ((100 - y) / 100) * w;
+    const py = (x, y) => (x / 100) * h;
     const minDim = Math.min(w, h);
     const focusOn =
       this.focusIds?.size > 0 && performance.now() < (this.focusUntil || 0);
@@ -3794,8 +3803,8 @@ export class MatchView {
         const t = i / trail.length;
         const elev = Math.max(a.z || 0, b.z || 0);
         ctx.beginPath();
-        ctx.moveTo(px(a.x), py(a.y));
-        ctx.lineTo(px(b.x), py(b.y));
+        ctx.moveTo(px(a.x, a.y), py(a.x, a.y));
+        ctx.lineTo(px(b.x, b.y), py(b.x, b.y));
         if (isShotTrail) {
           // 更克制的射门轨迹：降低透明度和线宽
           ctx.strokeStyle = `rgba(251, 146, 60, ${0.12 + t * 0.48})`;
@@ -3814,14 +3823,14 @@ export class MatchView {
 
     // 球员：先阴影再本体，持球者最后画一层环
     const drawList = this.players.filter((p) => !p.el.classList.contains("sent-off"));
-    // 进场动画的纵向偏移（像素）。没在播时返回 0，零开销。
+    // 进场动画的横向偏移（像素）。没在播时返回 0，零开销。
     const introActive = this._introStartAt != null;
     for (let di = 0; di < drawList.length; di++) {
       const pl = drawList[di];
-      const x = px(pl.x);
-      // 入场位移叠加在**屏幕 y** 上（不是引擎坐标）：球场高度 h 已换算成
-      // 像素，按 h 取比例才能让「从场边进来」在不同屏幕上都成立。
-      const y = py(pl.y) + (introActive ? this._introOffsetY(pl, di, h) : 0);
+      // 入场位移叠加在**屏幕 x** 上（不是引擎坐标）：球场宽度 w 已换算成
+      // 像素，按 w 取比例才能让「从端线外进来」在不同屏幕上都成立。
+      const x = px(pl.x, pl.y) + (introActive ? this._introOffsetX(pl, di, w) : 0);
+      const y = py(pl.x, pl.y);
       // 与模拟层 2.85~3.35 的中心间距匹配；旧半径 9px 会让直径大于碰撞距离。
       // 2026-09-05（A1）：上限 10→12——列放宽到 640px 后 minDim 变大，12px 半径
       // 与纵向分离距离的比例和旧 10px/480px 列一致（≈0.65），大屏上球员更可读。
@@ -3842,8 +3851,8 @@ export class MatchView {
 
       // One short motion cue only for a decisive TV-camera sprint.
       if (cue.drawTrail && pl.heading != null && pl.pose !== "dive") {
-        const hx = Math.cos(pl.heading);
-        const hy = Math.sin(pl.heading);
+        const hx = -Math.sin(pl.heading);
+        const hy = Math.cos(pl.heading);
         ctx.strokeStyle = "rgba(248,250,252,0.2)";
         ctx.lineWidth = Math.max(1, r * 0.18);
         ctx.lineCap = "round";
@@ -3872,20 +3881,19 @@ export class MatchView {
         (!pl.poseUntil || performance.now() < pl.poseUntil);
       const diveDir = diving ? pl.poseDir || 1 : 0;
 
-      // 扑救方向（屏幕空间）。引擎给的 heading 是引擎坐标下的角度，而 x/y 的
-      // 像素比例不同（px 用 w、py 用 h），直接拿 cos/sin 会把角度拉歪，
-      // 所以换算到屏幕向量后再归一化。拿不到 heading 时退回横向 poseDir。
+      // 扑救方向（屏幕空间）。引擎 heading 是 (dx, dy)=(cos, sin)；横向映射后
+      // 屏幕向量是 d(left)/d(engine) = (-dy, dx)，再乘像素比例。
       let dux = diveDir;
       let duy = 0;
       if (diving) {
         let sx = null;
         let sy = null;
         if (Number.isFinite(pl.heading)) {
-          sx = Math.cos(pl.heading) * (w / 100);
-          sy = Math.sin(pl.heading) * (h / 100);
+          sx = -Math.sin(pl.heading) * (w / 100);
+          sy = Math.cos(pl.heading) * (h / 100);
         } else if (this.ball) {
-          sx = px(this.ball.x) - x;
-          sy = py(this.ball.y) - y;
+          sx = px(this.ball.x, this.ball.y) - x;
+          sy = py(this.ball.x, this.ball.y) - y;
         }
         const len = sx == null ? 0 : Math.hypot(sx, sy);
         if (len > 0.001) {
@@ -3963,8 +3971,8 @@ export class MatchView {
 
       // 朝向箭头
       if (cue.drawArrow && pl.heading !== undefined && spd > 0.35) {
-        const hx = Math.cos(pl.heading);
-        const hy = Math.sin(pl.heading);
+        const hx = -Math.sin(pl.heading);
+        const hy = Math.cos(pl.heading);
         const tipX = drawX + hx * r * 1.35;
         const tipY = drawY + hy * r * 1.35;
         const nx = -hy;
@@ -4023,8 +4031,8 @@ export class MatchView {
     // 球：z 影响阴影偏移 + 球体放大（FM 空中球）
     const bz = clamp(this.ball.z || 0, 0, 12);
     const elev = bz / 6; // 0..2
-    const bx = px(this.ball.x);
-    const by = py(this.ball.y);
+    const bx = px(this.ball.x, this.ball.y);
+    const by = py(this.ball.x, this.ball.y);
     const br = Math.max(4, minDim * 0.012) * (1 + elev * 0.35);
     // 地面落点阴影
     const shOff = elev * minDim * 0.018;
@@ -4179,13 +4187,13 @@ export class MatchView {
     URL.revokeObjectURL(a.href);
   }
 
-  /** 6×8 热区网格（半透明叠层） */
+  /** 8×6 热区网格（横向球场：沿球场长 8 格、沿球场宽 6 格） */
   _initHeatGrid() {
     this.heatCells = [];
     if (!this.heatLayer) return;
     this.heatLayer.innerHTML = "";
-    const cols = 6;
-    const rows = 8;
+    const cols = 8;
+    const rows = 6;
     const w = 100 / cols;
     const h = 100 / rows;
     for (let r = 0; r < rows; r++) {
@@ -4204,8 +4212,9 @@ export class MatchView {
 
   _markHeat(x, y, team, amount = 1) {
     if (this._presentationReadOnlyDepth > 0 || !this.heatEnabled || !this.heatCells.length) return;
+    const s = pitchToScreenPct(x, y);
     for (const cell of this.heatCells) {
-      if (x >= cell.x && x < cell.x + cell.w && y >= cell.y && y < cell.y + cell.h) {
+      if (s.left >= cell.x && s.left < cell.x + cell.w && s.top >= cell.y && s.top < cell.y + cell.h) {
         if (team === "home") cell.home += amount;
         else cell.away += amount;
         break;
@@ -5531,7 +5540,7 @@ export class MatchView {
     }
   }
 
-  /** 压迫线 / 防线：SVG 横线随队形上下移动 */
+  /** 压迫线 / 防线：横向球场画竖线，随队形平均 engineY 左右移动 */
   _updatePressLines() {
     if (!this.pressLayer) return;
     const homeOut = this.players.filter(
@@ -5544,18 +5553,18 @@ export class MatchView {
       list.length ? list.reduce((s, p) => s + p.y, 0) / list.length : 50;
     const homeDefs = homeOut.filter((p) => p.pos === "DEF");
     const awayDefs = awayOut.filter((p) => p.pos === "DEF");
-    const hy = avgY(homeOut);
-    const ay = avgY(awayOut);
-    const hDefY = avgY(homeDefs.length ? homeDefs : homeOut);
-    const aDefY = avgY(awayDefs.length ? awayDefs : awayOut);
+    const hx = pitchToScreenPct(50, avgY(homeOut)).left;
+    const ax = pitchToScreenPct(50, avgY(awayOut)).left;
+    const hDefX = pitchToScreenPct(50, avgY(homeDefs.length ? homeDefs : homeOut)).left;
+    const aDefX = pitchToScreenPct(50, avgY(awayDefs.length ? awayDefs : awayOut)).left;
 
     // 持球方压迫线更靠前、更亮
     const homePress = this.possession === "home";
     this.pressLayer.innerHTML = `
-      <line class="mp-press-line home ${homePress ? "active" : ""}" x1="6" y1="${hy.toFixed(1)}" x2="94" y2="${hy.toFixed(1)}" />
-      <line class="mp-def-line home" x1="10" y1="${hDefY.toFixed(1)}" x2="90" y2="${hDefY.toFixed(1)}" />
-      <line class="mp-press-line away ${!homePress ? "active" : ""}" x1="6" y1="${ay.toFixed(1)}" x2="94" y2="${ay.toFixed(1)}" />
-      <line class="mp-def-line away" x1="10" y1="${aDefY.toFixed(1)}" x2="90" y2="${aDefY.toFixed(1)}" />
+      <line class="mp-press-line home ${homePress ? "active" : ""}" x1="${hx.toFixed(1)}" y1="6" x2="${hx.toFixed(1)}" y2="94" />
+      <line class="mp-def-line home" x1="${hDefX.toFixed(1)}" y1="10" x2="${hDefX.toFixed(1)}" y2="90" />
+      <line class="mp-press-line away ${!homePress ? "active" : ""}" x1="${ax.toFixed(1)}" y1="6" x2="${ax.toFixed(1)}" y2="94" />
+      <line class="mp-def-line away" x1="${aDefX.toFixed(1)}" y1="10" x2="${aDefX.toFixed(1)}" y2="90" />
     `;
   }
 
@@ -5702,18 +5711,20 @@ export class MatchView {
       const to = byId.get(e.toId);
       if (!from || !to) continue;
       if (from.el.classList.contains("sent-off") || to.el.classList.contains("sent-off")) continue;
-      const p0 = this._netPos(from);
-      const p1 = this._netPos(to);
+      const p0e = this._netPos(from);
+      const p1e = this._netPos(to);
+      const p0 = pitchToScreenPct(p0e.x, p0e.y);
+      const p1 = pitchToScreenPct(p1e.x, p1e.y);
       const t = e.count / maxCount;
       const age = clamp(1 - (now - e.last) / 45000, 0.35, 1);
       const sw = 0.35 + t * 1.85;
       const op = (0.22 + t * 0.55) * age;
       const cls = e.team === "home" ? "home" : "away";
-      // 轻微弧线，避免重叠直线
-      const mx = (p0.x + p1.x) / 2 + (p0.y - p1.y) * 0.06;
-      const my = (p0.y + p1.y) / 2 + (p1.x - p0.x) * 0.06;
+      // 轻微弧线，避免重叠直线（画面坐标）
+      const mx = (p0.left + p1.left) / 2 + (p0.top - p1.top) * 0.06;
+      const my = (p0.top + p1.top) / 2 + (p1.left - p0.left) * 0.06;
       parts.push(
-        `<path class="mp-net-edge ${cls}" d="M ${p0.x.toFixed(1)} ${p0.y.toFixed(1)} Q ${mx.toFixed(1)} ${my.toFixed(1)} ${p1.x.toFixed(1)} ${p1.y.toFixed(1)}" stroke-width="${sw.toFixed(2)}" opacity="${op.toFixed(2)}" data-count="${e.count}" />`
+        `<path class="mp-net-edge ${cls}" d="M ${p0.left.toFixed(1)} ${p0.top.toFixed(1)} Q ${mx.toFixed(1)} ${my.toFixed(1)} ${p1.left.toFixed(1)} ${p1.top.toFixed(1)}" stroke-width="${sw.toFixed(2)}" opacity="${op.toFixed(2)}" data-count="${e.count}" />`
       );
     }
     for (const id of nodeIds) {
@@ -5721,11 +5732,12 @@ export class MatchView {
       if (!pl || pl.el.classList.contains("sent-off")) continue;
       if (this.networkFilter === "home" && pl.team !== "home") continue;
       if (this.networkFilter === "away" && pl.team !== "away") continue;
-      const p = this._netPos(pl);
+      const pe = this._netPos(pl);
+      const p = pitchToScreenPct(pe.x, pe.y);
       const touches = pl.passTouches || 1;
       const r = clamp(0.55 + Math.sqrt(touches) * 0.28, 0.55, 1.6);
       parts.push(
-        `<ellipse class="mp-net-node ${pl.team}" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" rx="${r.toFixed(2)}" ry="${(r * OVERLAY_CIRCLE_RY).toFixed(2)}" />`
+        `<ellipse class="mp-net-node ${pl.team}" cx="${p.left.toFixed(1)}" cy="${p.top.toFixed(1)}" rx="${r.toFixed(2)}" ry="${(r * OVERLAY_CIRCLE_RY).toFixed(2)}" />`
       );
     }
     this.networkSvg.innerHTML = parts.join("");
@@ -5915,8 +5927,9 @@ export class MatchView {
   }
 
   _applyPlayer(pl) {
-    pl.el.style.left = `${pl.x}%`;
-    pl.el.style.top = `${pl.y}%`;
+    const s = pitchToScreenPct(pl.x, pl.y);
+    pl.el.style.left = `${s.left}%`;
+    pl.el.style.top = `${s.top}%`;
     // FMM：默认隐藏姓名；持球/高亮/点选时显示
     // 赛前/中场暂停不再强制全员挂名（22 人叠字会糊成一团）
     const showName =
@@ -5930,8 +5943,9 @@ export class MatchView {
 
   _applyBall() {
     if (!this.ball.el) return;
-    this.ball.el.style.left = `${this.ball.x}%`;
-    this.ball.el.style.top = `${this.ball.y}%`;
+    const s = pitchToScreenPct(this.ball.x, this.ball.y);
+    this.ball.el.style.left = `${s.left}%`;
+    this.ball.el.style.top = `${s.top}%`;
     // DOM 回退路径：用 CSS 变量表达高度（canvas 模式仍会隐藏球）
     const z = clamp(this.ball.z || 0, 0, 12);
     this.ball.el.style.setProperty("--ball-z", String(z));
@@ -6829,11 +6843,13 @@ export class MatchView {
   _addTrail(x0, y0, x1, y1, kind = "shot", life = 0.7) {
     if (!SHOW_BALL_TRAIL) return; // 球尾总开关（2026-09-05）：关闭 SVG 弧线尾迹
     if (!this.trailSvg) return;
-    // 二次贝塞尔：中点侧偏模拟弧线
-    const mx = (x0 + x1) / 2 + (Math.random() - 0.5) * (kind === "pass" ? 4 : 10);
-    const my = (y0 + y1) / 2 + (kind === "goal" || kind === "shot" ? (y1 < y0 ? -6 : 6) : 0);
+    const a = pitchToScreenPct(x0, y0);
+    const b = pitchToScreenPct(x1, y1);
+    // 二次贝塞尔：中点侧偏模拟弧线（画面坐标）
+    const mx = (a.left + b.left) / 2 + (Math.random() - 0.5) * (kind === "pass" ? 4 : 10);
+    const my = (a.top + b.top) / 2 + (kind === "goal" || kind === "shot" ? (b.left < a.left ? -6 : 6) : 0);
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    const d = `M ${x0} ${y0} Q ${mx} ${my} ${x1} ${y1}`;
+    const d = `M ${a.left} ${a.top} Q ${mx} ${my} ${b.left} ${b.top}`;
     path.setAttribute("d", d);
     path.setAttribute("class", `mp-trail mp-trail-${kind}`);
     path.setAttribute("fill", "none");
@@ -8271,7 +8287,7 @@ export class MatchView {
   /** 进球入网特效：克制版——球门微颤 + 单层网 + 轻闪（避免迷你球场上的街机光污染） */
   _goalNetEffect(gx, gy, attHome) {
     // 永久球门口微颤
-    const mouthSel = attHome ? ".mp-goal-mouth.top" : ".mp-goal-mouth.bot";
+    const mouthSel = attHome ? ".mp-goal-mouth.right" : ".mp-goal-mouth.left";
     const mouth = this.fieldEl?.querySelector(mouthSel);
     if (mouth) {
       mouth.classList.remove("mp-goal-mouth-hit");
@@ -8285,16 +8301,17 @@ export class MatchView {
     // 它的 ::after（"慢镜"角标）在样式表里写在后面、特异度相同，于是把闪光整条
     // 规则盖掉——闪光恰好在最需要它的时刻不显示。改成独立元素，不再抢伪元素。
     const flash = document.createElement("div");
-    flash.className = `mp-goal-flash-fx ${attHome ? "top" : "bottom"}`;
+    flash.className = `mp-goal-flash-fx ${attHome ? "right" : "left"}`;
     this.fxLayer.appendChild(flash);
     setTimeout(() => flash.remove(), 320);
 
     // 单层小网涟漪（不加第二层大网 / 爆炸光环 / 绿色 burst，
     // 那些在迷你球场上是光污染）
     const net = document.createElement("div");
-    net.className = `mp-goal-net ${attHome ? "top" : "bottom"}`;
-    net.style.left = `${gx}%`;
-    net.style.top = `${gy}%`;
+    net.className = `mp-goal-net ${attHome ? "right" : "left"}`;
+    const ns = pitchToScreenPct(gx, gy);
+    net.style.left = `${ns.left}%`;
+    net.style.top = `${ns.top}%`;
     this.fxLayer.appendChild(net);
     setTimeout(() => net.remove(), 720);
     // 球轻微强调即可
@@ -8922,8 +8939,9 @@ export class MatchView {
     if (!this.fxLayer) return;
     const el = document.createElement("div");
     el.className = `mp-burst ${kind}`;
-    el.style.left = `${x}%`;
-    el.style.top = `${y}%`;
+    const s = pitchToScreenPct(x, y);
+    el.style.left = `${s.left}%`;
+    el.style.top = `${s.top}%`;
     this.fxLayer.appendChild(el);
     setTimeout(() => el.remove(), 700);
   }

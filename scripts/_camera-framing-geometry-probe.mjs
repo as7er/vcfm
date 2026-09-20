@@ -35,19 +35,19 @@
 import { cameraFraming } from "../js/match-broadcast.js";
 
 // ---- 真实 CSS 几何常量（改 CSS 必须同步这里，见文件头推导） ----
-const CAM_W = 0.89; // .mp-camera left/right 5.5% → 宽 = 场宽 89%
+const CAM_H = 0.89; // 横向后 .mp-camera top/bottom 5.5% → 高 = 场高 89%
 const GRASS = 2; // .mp-grass inset -2% → 草皮边缘在相机坐标 -2 / 102
 const EPS = 1e-9;
 
 /** 相机内容坐标 → 屏幕（父容器）百分比 */
 function toScreen(c, { axis, s, t }) {
-  if (axis === "h") return CAM_W * s * c + 50 - 50 * s * CAM_W + CAM_W * t;
+  if (axis === "v") return CAM_H * s * c + 50 - 50 * s * CAM_H + CAM_H * t;
   return s * c + 50 - 50 * s + t;
 }
 
 /** 可见窗口（屏幕 [0,100] 对应的内容坐标区间） */
 function windowOf(axis, s, t) {
-  const half = 50 / (axis === "h" ? CAM_W : 1) / s;
+  const half = 50 / (axis === "v" ? CAM_H : 1) / s;
   const center = 50 - t / s;
   return { lo: center - half, hi: center + half, center };
 }
@@ -66,24 +66,26 @@ const FIXED = {
   label: "fixed (center-origin + 5.5% inset)",
   target: (o, s) => -50 * s * o,
   bounds: (s) => ({
-    loH: 50 / CAM_W - 52 * s,
-    hiH: 52 * s - 50 / CAM_W,
-    loV: 50 - 52 * s,
-    hiV: 52 * s - 50,
+    loH: 50 - 52 * s,
+    hiH: 52 * s - 50,
+    loV: 50 / CAM_H - 52 * s,
+    hiV: 52 * s - 50 / CAM_H,
   }),
 };
 
 /** 对给定球位与 scale，量化一个公式的三条几何指标 */
 function evaluate(def, ball, s) {
-  const ox = (ball.x - 50) / 50;
-  const oy = (ball.y - 50) / 50;
+  const sx = 100 - ball.y;
+  const sy = ball.x;
+  const ox = (sx - 50) / 50;
+  const oy = (sy - 50) / 50;
   const { loH, hiH, loV, hiV } = def.bounds(s);
   const tx = clamp(def.target(ox, s), loH, hiH);
   const ty = clamp(def.target(oy, s), loV, hiV);
   const winH = windowOf("h", s, tx);
   const winV = windowOf("v", s, ty);
   // 球到窗口边缘的余量（相机坐标 %）；负 = 球出画
-  const margin = Math.min(ball.x - winH.lo, winH.hi - ball.x, ball.y - winV.lo, winV.hi - ball.y);
+  const margin = Math.min(sx - winH.lo, winH.hi - sx, sy - winV.lo, winV.hi - sy);
   // 窗口超出草皮 [-2,102] 的宽度（相机坐标 %）
   const overhang =
     Math.max(0, -GRASS - winH.lo) + Math.max(0, winH.hi - (100 + GRASS)) +

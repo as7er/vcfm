@@ -545,11 +545,11 @@ async function assertStraightPassRendering(page) {
     `pass network node aspect ${result.networkGeometry.nodeAspect} disagrees with live pitch circle ${result.networkGeometry.liveCircleAspect}`
   );
   // 复核弹窗小球场的几何：坐标系与主球场一致，且画出来的圆真的是圆
-  assert.equal(result.motionReview.viewBox, "0 0 100 150");
+  assert.equal(result.motionReview.viewBox, "0 0 150 100");
   assert.equal(result.motionReview.preserveAspectRatio, "none");
   assert.ok(
-    Math.abs(result.motionReview.pitchAspect - 68 / 105) < 0.005,
-    `motion review pitch aspect ${result.motionReview.pitchAspect} should be 68/105`
+    Math.abs(result.motionReview.pitchAspect - 105 / 68) < 0.005,
+    `motion review pitch aspect ${result.motionReview.pitchAspect} should be 105/68`
   );
   for (const [key, limit] of [
     ["engineCircleAspect", 0.02],

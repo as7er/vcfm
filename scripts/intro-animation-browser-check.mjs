@@ -172,14 +172,14 @@ async function main() {
     const rPlayer = Math.min(12, Math.max(7, minDim * 0.026));
     const isPlayerArc = (a) => Math.abs(a.r - rPlayer) < 0.6;
 
-    const captureYs = () => {
+    const captureXs = () => {
       window.__recordStart();
       view._drawCanvas();
-      return window.__recordStop().filter(isPlayerArc).map((a) => a.y);
+      return window.__recordStop().filter(isPlayerArc).map((a) => a.x);
     };
 
     // 基线：此刻没有动画。
-    const baseline = captureYs();
+    const baseline = captureXs();
 
     // 开始动画（长时长 ⇒ 不会在采样期间自然结束）。
     view.playPlayerIntro(20000);
@@ -188,10 +188,10 @@ async function main() {
     const at = async (targetMs) => {
       const wait = targetMs - (performance.now() - t0);
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-      const ys = captureYs();
+      const xs = captureXs();
       let maxAbs = 0;
-      for (let i = 0; i < Math.min(ys.length, baseline.length); i++) {
-        maxAbs = Math.max(maxAbs, Math.abs(ys[i] - baseline[i]));
+      for (let i = 0; i < Math.min(xs.length, baseline.length); i++) {
+        maxAbs = Math.max(maxAbs, Math.abs(xs[i] - baseline[i]));
       }
       samples.push({ ms: performance.now() - t0, offset: maxAbs });
     };
@@ -202,28 +202,29 @@ async function main() {
     // 结束，别留 20 秒计时器。
     view.skipPlayerIntro();
     await new Promise((r) => setTimeout(r, 350));
-    const afterYs = captureYs();
+    const afterXs = captureXs();
     let afterMax = 0;
-    for (let i = 0; i < Math.min(afterYs.length, baseline.length); i++) {
-      afterMax = Math.max(afterMax, Math.abs(afterYs[i] - baseline[i]));
+    for (let i = 0; i < Math.min(afterXs.length, baseline.length); i++) {
+      afterMax = Math.max(afterMax, Math.abs(afterXs[i] - baseline[i]));
     }
 
     return {
       baselineCount: baseline.length,
       samples,
       afterOffset: afterMax,
+      cw: view._cw,
       ch: view._ch,
     };
   });
 
   record("基线画出 22 个球员圆点", measure.baselineCount === 22, `${measure.baselineCount} 个`);
-  const expected = measure.ch * 0.06;
+  const expected = measure.cw * 0.06;
   const early = measure.samples[0]?.offset ?? 0;
   const mid = measure.samples[1]?.offset ?? 0;
   const late = measure.samples[2]?.offset ?? 0;
 
   record(
-    "起步时球员被画在场外（偏移≈球场高 6%）",
+    "起步时球员被画在场外（偏移≈球场宽 6%）",
     early > expected * 0.6,
     `60ms 偏移 ${early.toFixed(1)}px，期望≈${expected.toFixed(1)}px`,
   );
@@ -249,23 +250,23 @@ async function main() {
     const minDim = Math.min(view._cw, view._ch);
     const rPlayer = Math.min(12, Math.max(7, minDim * 0.026));
     const isPlayerArc = (a) => Math.abs(a.r - rPlayer) < 0.6;
-    const captureYs = () => {
+    const captureXs = () => {
       window.__recordStart();
       view._drawCanvas();
-      return window.__recordStop().filter(isPlayerArc).map((a) => a.y);
+      return window.__recordStop().filter(isPlayerArc).map((a) => a.x);
     };
-    const baseline = captureYs();
+    const baseline = captureXs();
 
     view.playPlayerIntro(20000);
     await new Promise((r) => setTimeout(r, 200));
-    const during = captureYs();
+    const during = captureXs();
     // 真实跳过：向球场派发 pointerdown（走的就是用户点击的路径）。
     const field = view.fieldEl;
     field.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     const fastRightAfter = view._introFast ? { ...view._introFast } : null;
     // 收拢应在 ~0.16s 内完成（再看是否已复位）
     await new Promise((r) => setTimeout(r, 400));
-    const after = captureYs();
+    const after = captureXs();
     const maxAbs = (a, b) => {
       let m = 0;
       for (let i = 0; i < Math.min(a.length, b.length); i++) m = Math.max(m, Math.abs(a[i] - b[i]));
@@ -281,7 +282,7 @@ async function main() {
   });
   record(
     "点击时正处在位移中（有可见偏移）",
-    skipMeasure.duringOffset > measure.ch * 0.06 * 0.2,
+    skipMeasure.duringOffset > measure.cw * 0.06 * 0.2,
     `偏移 ${skipMeasure.duringOffset.toFixed(1)}px`,
   );
   record("点击建立快速收拢（非硬切）", skipMeasure.fastDur != null, `dur=${skipMeasure.fastDur}ms`);
@@ -394,7 +395,7 @@ async function main() {
   // 注：曾想在此加「罚下球员不让错峰序号错位」的断言，但**该场景不会
   // 发生** —— 入场动画只在比赛开始时播一次，那时不可能有人被罚下。
   // 为一个不会发生的场景硬造测试，只会测到自己的桩。相关防御保留在
-  // `_introOffsetY` 里（按 `pl` 对象查错峰表，不用绘制下标），并在
+  // `_introOffsetX` 里（按 `pl` 对象查错峰表，不用绘制下标），并在
   // 那里注释了原因。这里不设断言。
 
   record("无 JS 运行时错误", errors.length === 0, errors.slice(0, 2).join(" | "));

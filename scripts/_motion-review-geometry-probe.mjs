@@ -148,7 +148,7 @@ try {
       host.style.cssText =
         "position:fixed;left:0;top:0;z-index:999999;background:#0b1220;padding:10px;display:flex;gap:10px;font:12px system-ui;color:#e5edf6";
       const live = document.querySelector("#match-motion-engine-pitch");
-      for (const [label, html] of [["fixed (0 0 100 150)", live?.innerHTML || ""], ["legacy (0 0 100 100)", legacySvg]]) {
+      for (const [label, html] of [["fixed (0 0 150 100)", live?.innerHTML || ""], ["legacy (0 0 100 100)", legacySvg]]) {
         const column = document.createElement("div");
         column.innerHTML = `<div style="text-align:center;margin-bottom:4px">${label}</div><div class="motion-review-pitch">${html}</div>`;
         host.appendChild(column);
@@ -179,11 +179,11 @@ try {
     );
   }
 
-  const target = 68 / 105;
+  const target = 105 / 68;
   const problems = [];
   for (const row of rows) {
-    if (Math.abs(row.pitchBox - target) > 0.005) problems.push(`${row.viewport}: 盒子比 ${f(row.pitchBox)} ≠ 68/105`);
-    if (row.viewBox !== "0 0 100 150") problems.push(`${row.viewport}: viewBox ${row.viewBox} ≠ 0 0 100 150`);
+    if (Math.abs(row.pitchBox - target) > 0.005) problems.push(`${row.viewport}: 盒子比 ${f(row.pitchBox)} ≠ 105/68`);
+    if (row.viewBox !== "0 0 150 100") problems.push(`${row.viewport}: viewBox ${row.viewBox} ≠ 0 0 150 100`);
     if (row.playerCount !== 22) problems.push(`${row.viewport}: 球员 ${row.playerCount} ≠ 22`);
     for (const [key, value] of [
       ["中圈", row.circle],

@@ -5,7 +5,7 @@
 > 仓库：https://github.com/as7er/vcfm.git · `master`（**2026-09-14 起规范地址为小写 `vcfm`**；
 > 大写 `VCFM` 仍可用但会走重定向，`origin` 已更新为小写）  
 > 预览：`python -m http.server 8765 --bind 127.0.0.1`  
-> 缓存：**vcfm-v272**（**下半场易边是正式比赛行为**：调用层中场置位 + 画面可见性 + 提示）：
+> 缓存：**vcfm-v273**（**横向球场**：PC/移动都改成左右球门，与 FM2026 一致）：
 > ① **「下半场换边」查证结论：引擎从未实现** —— 不是「没处理好」，而是完全不存在。
 >    `attackDir(team)` 是纯函数无半场参数；`grep swapEnds|secondHalf` 实现 0 处；
 >    `grep MATCH_SECONDS js/` = 0 处（半场划分只在解说文案层 `js/match.js:1410/1655`）；
@@ -40,14 +40,14 @@
 >    实测三条铁证：起始位移 `fy` 恒为 `-13px`（那只是热区自身的
 >    `translate(-50%,-50%)`）、`opacity` 恒为 1、且 `ms=0`（动画根本没跑）
 >    时读数**一模一样**。
->    修法：位移做在 **canvas 绘制层** —— `matchview.js` 的 `_introOffsetY()`
->    在 `_drawCanvas` 里给每名球员的屏幕 y 叠加按错峰衰减的偏移（幅度 6% 球场高）。
+>    修法：位移做在 **canvas 绘制层** —— `matchview.js` 的 `_introOffsetX()`
+>    在 `_drawCanvas` 里给每名球员的屏幕 x 叠加按错峰衰减的偏移（幅度 6% 球场宽）。
 >    CSS 侧只留一段「为什么这里不放视觉规则」的返工注释。
 >    ① 时序算术抽成纯函数模块 `js/matchview-intro.js`（`planIntro`/`planSkip`/
 >    `staggerDelay`），配 `js/matchview-intro.test.js`（20 例）；
 >    ② 真实渲染由 `scripts/intro-animation-browser-check.mjs`（Playwright +
 >    canvas 2D context 插桩抓 `arc()` 坐标）验收 —— **这条才是有效的验证**，
->    24/24 通过（起步偏移 30.2px 恰好 = 球场高 6%，750ms 收敛到 0.3px）。
+>    24/24 通过（起步偏移 ≈ 球场宽 6%，750ms 收敛到 0.3px）。
 >    过程中还抓到两个真 bug：`holdMs` 被误当总时长（`ms=700` 时 153ms 就收尾，
 >    球员跑到一半被掐断）、`totalMs` 用 `Math.round` 后的值导致边界上比位移还短。
 >    两者都补了回归单测。
@@ -1156,7 +1156,7 @@ AGENTS.md 里「标准档真实进球率贴着 2.5 下限（要判定需 ≥96 �
 - 中圈渲染宽高比（1.0 = 正圆）：手机/平板 **0.9166**（拉伸 8.3%）、桌面 **0.8755**
   （12.4%）→ 修后六档 **1.0004~1.0005**。球场 SVG 用 `preserveAspectRatio="none"`，
   这种拉伸不报任何错。
-- 正解：`球场盒宽高比 = (68/105) ÷ 0.89 = 0.7276 = 68 / 93.45`。
+- 正解（竖向时代）：`球场盒宽高比 = (68/105) ÷ 0.89 = 0.7276 = 68 / 93.45`。 v273 横向后看台改上下，盒比翻成 `(105/68) ÷ 0.89 = 1.7349 = 93.45 / 68`。
   `css/style.css` 里**四处** `aspect-ratio` 必须同时改（`.mp-field`、`.fmm-match .mp-field`、
   赛前、开赛/中场），只改一处会被更高特异性的规则盖掉。
 - 宽屏另有两条：列宽公式 `* 0.648` → `* 0.78`（`minmax` 下限 340 → 260），

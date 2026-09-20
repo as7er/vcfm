@@ -4,7 +4,7 @@ function clamp(value, min, max) {
 
 // 与 css/style.css 耦合的镜头几何常量（改 CSS 必须同步；推导与验证见
 // scripts/_camera-framing-geometry-probe.mjs 文件头）：
-export const CAMERA_WIDTH_FRAC = 0.89; // .mp-camera left/right 5.5% → 宽 = 场宽 89%
+export const CAMERA_WIDTH_FRAC = 0.89; // 横向后看台在上下：.mp-camera top/bottom 5.5% → 高 = 场高 89%（名字保留给审计 import）
 export const GRASS_MARGIN = 2; // .mp-grass inset -2% → 草皮边缘在相机坐标 -2 / 102
 
 export const CAMERA_PRESETS = Object.freeze({
@@ -32,23 +32,24 @@ export function cameraFraming({ preset, ball, mode = "follow", goalSequence = fa
   // Number()||50 会把合法的 0 当缺省（球贴上/左边线时镜头误判为居中），用 isFinite 判缺省。
   const nx = Number(ball?.x);
   const ny = Number(ball?.y);
-  const x = clamp(Number.isFinite(nx) ? nx : 50, 0, 100);
-  const y = clamp(Number.isFinite(ny) ? ny : 50, 0, 100);
+  const ex = clamp(Number.isFinite(nx) ? nx : 50, 0, 100);
+  const ey = clamp(Number.isFinite(ny) ? ny : 50, 0, 100);
+  // 横向球场：镜头跟画面坐标（screenX=100-engineY，screenY=engineX），不是引擎坐标。
+  // 否则球在左门（engine y=100）时镜头仍按竖场上下移。
+  const x = 100 - ey;
+  const y = ex;
   const ox = (x - 50) / 50;
   const oy = (y - 50) / 50;
-  const deep = y < 22 || y > 78;
+  const deep = x < 22 || x > 78;
   const tight = mode === "box" || goalSequence;
-  // 2026-09-05（表现层 A2）：旧版 follow 档 scale 1.015~1.055 ≈ 永远全球场，
-  // 球员只有 ~20px；且位移钳制 (±1.45%) 是按 scale≈1.03 手调的，放大倍率一改
-  // 镜头就跟不动球。这里把两件事按真实 CSS 几何参数化：
-  //   · 真实 CSS：transform-origin 50% 50%（中心），.mp-camera 左右内缩 5.5%、
-  //     垂直满高，.mp-grass inset -2%。可见窗口中心 = 50 − t/s，窗口半宽
-  //     横轴 50/(0.89s)、纵轴 50/s（相机窄于场，同倍率下横轴看到的内容更多）。
-  //   · 居中球 → t = −50·s·o；窗口钳回草皮 [-2,102] → |t| ≤ 52s − 50/0.89（横）、
-  //     52s − 50（纵）。球到边线时镜头钉在草皮边缘，不露场外。
+  // 2026-09-05（表现层 A2）+ 2026-09-20 横向：
+  //   · 真实 CSS：transform-origin 50% 50%。横向后看台在上下，.mp-camera
+  //     上下内缩 5.5%、水平满宽，.mp-grass inset -2%。
+  //   · 可见窗口中心 = 50 − t/s；窗口半宽横轴 50/s、纵轴 50/(0.89s)
+  //     （相机矮于场，同倍率下纵轴看到的内容更多）。
+  //   · 居中球 → t = −50·s·o；窗口钳回草皮 [-2,102] → |t| ≤ 52s − 50（横）、
+  //     52s − 50/0.89（纵）。球到边线时镜头钉在草皮边缘，不露场外。
   //   · full/tactical 档保持 scale 1 不动（战术总览仍可用）。
-  //   （本段首版推导误用「scale 关于左上原点」模型且横纵同钳，实机球会被推离
-  //     屏心 ~11%、贴左/上边线时出画——几何探针证伪后重推，见上述探针。）
   const scale = tight
     ? (boosted ? 1.5 : 1.45)
     : boosted
@@ -56,8 +57,8 @@ export function cameraFraming({ preset, ball, mode = "follow", goalSequence = fa
       : deep
         ? 1.3
         : 1.28;
-  const spanH = Math.max(0, (50 + GRASS_MARGIN) * scale - 50 / CAMERA_WIDTH_FRAC);
-  const spanV = Math.max(0, (50 + GRASS_MARGIN) * scale - 50);
+  const spanH = Math.max(0, (50 + GRASS_MARGIN) * scale - 50);
+  const spanV = Math.max(0, (50 + GRASS_MARGIN) * scale - 50 / CAMERA_WIDTH_FRAC);
   const kx = clamp(-50 * scale * ox, -spanH, spanH);
   const ky = clamp(-50 * scale * oy, -spanV, spanV);
   return { x: kx, y: ky, scale };
@@ -92,7 +93,6 @@ export function crowdAtmosphere({
   const attendance = clamp(Number(context.attendanceRatio) || 0.84, 0.35, 1);
   const importance = clamp(Number(context.importance) || 0, 0, 1);
   // 与 cameraFraming 同款 falsy-zero 修复：||50 会把合法的 0 当缺省。
-  const bx = Number(ball.x);
   const by = Number(ball.y);
   const ballY = clamp(Number.isFinite(by) ? by : 50, 0, 100);
   const lead = Math.abs((Number(homeGoals) || 0) - (Number(awayGoals) || 0));
@@ -106,6 +106,6 @@ export function crowdAtmosphere({
   const intensity = clamp(0.12 + attendance * 0.31 + importance * 0.1 + occasion + attackingDepth * 0.18 + lateTension + reaction, 0.06, 1);
   return {
     intensity,
-    pan: clamp(((Number.isFinite(bx) ? bx : 50) - 50) / 85, -0.5, 0.5),
+    pan: clamp(((100 - (Number.isFinite(by) ? by : 50)) - 50) / 85, -0.5, 0.5),
   };
 }
