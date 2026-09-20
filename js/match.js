@@ -1755,7 +1755,16 @@ function tryAttack(state, minute, club, opp, atk, def, xgPer90) {
   if (chance(0.035 * (state.derby ? 1.2 : 1))) {
     const cornerMod = cornerThreatMod(club, xi);
     st.corners++;
-    pushEv(state, minute, "corner", `🚩 ${minute}' ${club.short} 获得角球`, { teamId: club.id });
+    // 角球侧别：本层是**统计事件**，并不模拟球从哪侧出底线，
+    // 所以侧别在这里掷一次并写进事件，供表现层照用。
+    // 坐标用引擎系：x 是球场宽度轴（边线 x=0 / x=100），
+    // 角旗在 x=2（左）或 x=98（右）——与 engine.js `_restart("corner", ...)`
+    // 的 `b.x < 50 ? 2 : 98` 同一约定。
+    const cornerX = chance(0.5) ? 2 : 98;
+    pushEv(state, minute, "corner", `🚩 ${minute}' ${club.short} 获得角球`, {
+      teamId: club.id,
+      cornerX,
+    });
     if (chance(0.18 * cornerMod)) {
       // 角球转化威胁
       st.shots++;

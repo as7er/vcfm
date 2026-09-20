@@ -14,6 +14,12 @@ const checks = [
   "scripts/replay-ui-audit.mjs",
   "scripts/match-presentation-audit.mjs",
   "scripts/match-continuity-audit.mjs",
+  // 角球侧别：`js/match.js` 的角球是统计事件（不模拟球出底线），所以侧别必须在
+  // 生成事件时掷一次并写进 `cornerX`；表现层的**两条**路径（sim 的
+  // `_stageCornerSetPiece` 与非 sim 的内联 `case "corner"`）都必须照读，不能
+  // 各自 `Math.random() < 0.5` 掷骰子——否则同一角球的文字与画面会互相矛盾，
+  // 用户 2026-09-20 报的就是「从另一侧底线开角球」。
+  "scripts/corner-side-consistency-verify.mjs",
   // 主动突破原语护栏：`beat`/场 落在 [2.68, 5.18]，基线 3.93，半边 1.25（=2SE）。
   // 半边由 96 场噪声标定实测（SD_batch 0.62 @12 场/批），**不是拍脑袋**。
   // ⚠ 24 场只能判「大幅消失 / 大幅爆表」；辨出 1/场 需每组 37 场（本审计不承诺更细）。

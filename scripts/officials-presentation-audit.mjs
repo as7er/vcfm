@@ -111,6 +111,9 @@ function makeViewStub() {
     players: [],
     _isBallInFlight: MatchView.prototype._isBallInFlight,
     _offsideLineY: MatchView.prototype._offsideLineY,
+    // `_updateOfficials` 现按「哪队朝哪头攻」分配边裁半场（`07f1391` 加入），
+    // 因此也要读 `_attackDir`。方法与上面两条同样取自原型。
+    _attackDir: MatchView.prototype._attackDir,
     _updateOfficials: MatchView.prototype._updateOfficials,
     _applyOfficials() {},
   };

@@ -153,6 +153,26 @@ export const SIM = {
   PENALTY_RUN_SEC, // 判罚 → 开始助跑
   PENALTY_KICK_SEC, // 判罚 → 出脚
   PENALTY_RESOLVE_SEC, // 判罚 → 进球/扑救结算
+
+  /** A2（2026-09-20）：`drop` 分支纵向锚的「球位权重」。
+   *
+   *  背景（`docs/offball-upstream-target-flip-2026-09-16.md`）：`_chooseAttackOffBallTarget`
+   *  的 ATT/MID `drop` 分支锚在**球位**，`else`/前插分支锚在**固定阵型位**，
+   *  两锚相距可达 **74 m**，由 `this.random() < p` 每 0.42~1.32 s 重掷 ⇒ 目标点
+   *  来回翻转 ⇒ 画面瞬移（实测锚点翻转使「大跳 >=15m」概率提升 **10.4 倍**）。
+   *
+   *  A2 = 在两条分支之间取折中：
+   *      ty = lerp(baseY, b.y + dir*dropDepth, A2_ANCHOR_BLEND)
+   *  与 `:5374` 防守跑位早就在用的 `baseY + (b.y - baseY) * pull` **同族**。
+   *
+   *  **取 0.65 的理由**：球位仍占主导 ⇒ 回撤深度基本保留（回撤是「回撤要球」
+   *  这个行为本身，砍掉它就等于删功能）；同时把 74 m 的锚点间距压到
+   *  `1 - 0.65 = 35%`（约 26 m），足以让两条分支的目标点不再天差地别。
+   *
+   *  ⚠ 这是**标准档行为改动**（改位置 ⇒ 下游决策路径随之改变），
+   *  不是「默认关闭的可选行为」。落地前必须跑全量 `verify.mjs` +
+   *  进球/射门护栏复核。设 1 即恢复「纯球位锚」（原行为）。 */
+  A2_ANCHOR_BLEND: 0.65,
 };
 
 /**
@@ -4284,7 +4304,24 @@ export class SimEngine {
         );
         const dropDepth = 8 + this.random() * 10;
         a.tx = clamp(softIn + (this.random() - 0.5) * 4, 10, 90);
-        a.ty = clamp(b.y + dir * dropDepth, 8, 92);
+        // A2（2026-09-20）：纵向锚从「纯球位」改成「球位与阵型位的加权」。
+        //
+        // 根因（docs/offball-upstream-target-flip-2026-09-16.md §2.1）：
+        // drop 分支原本锚在**球位**（`b.y + dir*dropDepth`），而下面的 else/内切
+        // 分支锚在**固定阵型位**（`a.baseY + dir*...`）。两锚相距可达 **74 m**，
+        // 且由 `this.random() < p` **每 0.42~1.32 s 重掷** ⇒ 目标点在两条分支间来回
+        // 翻转 ⇒ 画面硬切（实测锚点翻转使「大跳 >=15m」概率提升 10.4 倍）。
+        //
+        // A2 在两条分支之间取折中：`lerp(baseY, 球位锚, A2_ANCHOR_BLEND)`，
+        // 把 74 m 的间距按比例压缩。这与 `:5374` 防守跑位早就在用的
+        // `baseY + (b.y - baseY) * pull` **同族**，只是那里的 pull 是 0~0.2。
+        // 取 0.65 是为了**保留大部分回撤深度**（球位仍占主导），同时让两锚靠近。
+        const ballAnchoredY = b.y + dir * dropDepth;
+        a.ty = clamp(
+          a.baseY + (ballAnchoredY - a.baseY) * SIM.A2_ANCHOR_BLEND,
+          8,
+          92
+        );
         a.fsm = "support";
         this._clampOffside(a);
         return;
@@ -4338,7 +4375,16 @@ export class SimEngine {
         // 回撤深度：到球与中场之间，而不是一直顶在越位线
         const dropDepth = nearest || core ? 10 + this.random() * 8 : 14 + this.random() * 6;
         a.tx = clamp(b.x + side * (6 + this.random() * 8), 8, 92);
-        a.ty = clamp(b.y + dir * dropDepth, 8, 92);
+        // A2（2026-09-20）：与上方边锋/MID 的 drop 分支同一处理 ——
+        // 纵向锚从「纯球位」改成「球位与阵型位的加权」，消掉与
+        // 下方前插分支（锚在 `a.baseY`）之间最多 74 m 的锚点间距。
+        // 见上方注释与 docs/offball-upstream-target-flip-2026-09-16.md §2.1。
+        const ballAnchoredY = b.y + dir * dropDepth;
+        a.ty = clamp(
+          a.baseY + (ballAnchoredY - a.baseY) * SIM.A2_ANCHOR_BLEND,
+          8,
+          92
+        );
         a.fsm = "support";
         return;
       }

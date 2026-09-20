@@ -1,0 +1,148 @@
+角球侧别 bug —— 根因与修复（2026-09-20）
+==========================================
+
+用户报告（原文）
+----------------
+「我发现有个bug，开角球的时候竟然存在从另外一边底线角球区开角球！」
+
+
+[0] 结论（一句话）
+------------------
+角球的**侧别**在整条链路上从来没被传过：`js/match.js` 的角球是纯统计事件
+（`chance(0.035 * ...)`，不模拟球出底线），所以事件里没有侧别；表现层因此只能
+`Math.random() < 0.5` 掷骰子选边 —— 而且**两条路径都在掷**。修法是把侧别在
+事件源掷一次写进 `cornerX`，表现层两条路径都改读它。
+
+
+[1] 根因链（三层，逐层查）
+--------------------------
+① 引擎层 —— **本来就是对的**
+   `js/sim/engine.js`：
+     · 7532/7553  `_restart("corner", team, b.x < 50 ? 2 : 98, ...)`：按球的真实
+       `b.x` 判左/右角旗。
+     · 7614       `const cornerSide = x < 50 ? 0 : 100;` 选主罚者（离该侧最近的）。
+     · 7824-7825  把 taker 摆在真实 `(x, y)`。
+   所以「空间引擎跑的比赛」这一路从来没错。
+
+② 事件源 —— **侧别在这里丢失**
+   `js/match.js:1755` 附近：
+     if (chance(0.035 * (state.derby ? 1.2 : 1))) {
+       st.corners++;
+       pushEv(state, minute, "corner", ...);            // ← 只带 teamId
+     }
+   这层是**统计事件**：它只掷「有没有角球」，并不模拟球从哪条边线出底线，
+   所以事件里根本没有侧别可言。
+
+③ 表现层 —— **两处各自掷骰子**（用户实际看到的现象来源）
+   `js/matchview.js`：
+
+   (a) sim 路径 → `_stageCornerSetPiece()`（约 7662 行）
+       const left =
+         Number.isFinite(ev.x) ? ev.x < 50 : (this.ball?.x ?? 50) < 50 || Math.random() < 0.5;
+       ⚠ `ev.x` 从来没被写过（②里只写了 `teamId`）⇒ `Number.isFinite(undefined)`
+         为 false ⇒ **永远**走 `Math.random() < 0.5`。
+
+   (b) 非 sim 路径 → 内联 `case "corner"`（约 7291 行）
+       const left = Math.random() < 0.5;
+       const tx = left ? 5 : 95;
+
+   两处独立掷骰子 ⇒ 同一场比赛里「文字说某队获得角球」与「画面从哪侧开」
+   彼此独立 ⇒ 用户看到的就是「从另一侧底线开角球」。
+
+
+[2] 坐标系（修之前必须先钉死，否则会改出新 bug）
+------------------------------------------------
+`matchview.js:48`  `pitchToScreenPct(x, y) = { left: 100 - y, top: x }`
+⇒ 引擎 **x 是球场宽度轴**（边线 0/100），**y 是长轴**（底线 0/100）；
+   画面 left 轴 = 引擎 y，画面 top 轴 = 引擎 x。
+
+`MatchCoordSystem.AREA.CORNER`（`js/matchview-coords.js`）：
+   HOME_LEFT  {x:5,  y:93}     HOME_RIGHT {x:95, y:93}
+   AWAY_LEFT  {x:5,  y:7}      AWAY_RIGHT {x:95, y:7}
+⇒ 视图 `{x, y}` 与引擎 `{x, y}` **逐轴相同**（不翻转）；只是「哪个端」由 y 决定。
+   佐证：客队守 y=0 端 ⇒ 其角旗 y=7；主队守 y=100 端 ⇒ y=93。左右用 x=5/95 区分，
+   正是引擎 `x=2/98` 的边界值。
+
+`_shootBall(tx, ty)` 收的就是这套视图坐标（与 `applySimSnapshot` 喂给
+`ball.x/ball.y` 的同一套）。
+
+
+[3] 修了什么
+-------------
+(a) `js/match.js`（事件源）—— 掷**一次**侧别并写进事件：
+      const cornerX = chance(0.5) ? 2 : 98;
+      pushEv(state, minute, "corner", `...`, { teamId: club.id, cornerX });
+    用 `chance`（走比赛种子随机）而非 `Math.random`，保证同种子可复现。
+
+(b) `js/matchview.js` 内联 `case "corner"` —— 读事件侧别、由引擎 x 派生视图 tx：
+      const cornerX = Number(ev.cornerX);
+      const sideEngX = Number.isFinite(cornerX) ? cornerX : Math.random() < 0.5 ? 2 : 98;
+      const tx = sideEngX < 50 ? 5 : 95;
+      const ty = this._attackDir(side) < 0 ? 7 : 93;
+   缺字段时退回随机（老存档/旧回放不炸）。
+
+(c) `js/matchview.js` `_stageCornerSetPiece()` —— 同上，并把**端侧**也改走
+    `_attackDir`：
+      const sideEngX = Number.isFinite(ev.cornerX) ? ev.cornerX
+                     : Number.isFinite(ev.x) ? ev.x : (this.ball?.x ?? 50);
+      const left = sideEngX < 50;
+      const cx = left ? 4 : 96;
+      const attacksUp = this._attackDir(team) < 0;
+      const cy = attacksUp ? 3.5 : 96.5;
+      const boxY = attacksUp ? 14 : 86;
+    同时把函数体内另外 3 处 `attHome ?`（`stageY`、对方 GK 的 y、taker 的 y）
+    一并改成 `attacksUp`，否则换边档会出现「角旗摆对了但队友跑到自己半场」。
+
+⚠ 默认档（不换边）行为与改前**逐值一致**：`ty = attHome ? 7 : 93` 与
+  `_attackDir(side) < 0 ? 7 : 93` 在默认档等价（已断言）。所以这是纯修 bug，
+  不改标准档的比赛表现。
+
+
+[4] 验证（两层，缺一不可）
+---------------------------
+(A) 静态断言：`scripts/corner-side-consistency-verify.mjs`（已注册进 `verify.mjs`）
+    读源码断言：
+      · `match.js` 写 `cornerX = chance(0.5) ? 2 : 98` 且进了 `pushEv` 的 extra
+      · 内联分支引用 `ev.cornerX`，`tx` 由它派生（`<50 → 5 : 95`），
+        `tx` 的赋值里**没有** `Math.random`
+      · `_stageCornerSetPiece` 引用 `ev.cornerX`，`left` 不再用 `Math.random() < 0.5`
+      · 两条路径都用 `_attackDir` 派生端侧
+      · 映射单调不翻转；换边后端侧正确翻转
+    结果：**全部通过**（20 项）。
+
+    易踩的坑（已写进脚本注释）：
+      · `case "corner"` 在 matchview.js 里出现**三次**，要取**最后一个**
+        （非 sim 路径那个）；前两个分别是 kickoff 分组与 sim 路径。
+      · `_stageCornerSetPiece` 的**函数签名之前的注释**里就提到了
+        `_showCornerChrome`，用「下一个方法名」作右边界会切出空串 ⇒
+        改用**花括号配对**精确切函数体。
+      · 分支体里仍有 `Math.random() < 0.55`（禁区内堆人的概率，属**正当**随机）
+        ⇒ 不能笼统禁 `Math.random`，只能断言「`tx` 的赋值不含它」。
+
+(B) 动态实测：`scripts/corner-side-e2e-probe.mjs`（24 场整场模拟）
+      · 角球总数 153，缺侧别 0，非法侧别 0
+      · 左(2) 83 / 右(98) 70 ⇒ 左占比 54.2%，在 50%±3SE(±12.1%) 内
+      · 24 场侧别序列**全不相同**（不是复制粘贴）
+      · 「≥3 球且全同侧」仅 1 场（未退化）
+    结果：**全部通过**。
+
+    坑：`simulateMatchSync` 的 world **必须用 `createWorld`** 造（手搓的残缺
+    club 缺 `overall`/`power`/`staff`，会在 `createMatchSession` 内部抛
+    「Cannot read properties of undefined」）；起始队也不能随便挑，
+    `createWorld` 会断言 `START_DIVISIONS.includes(user.division)`，
+    取 `division === 3`（照抄 `match-balance-audit.mjs`）。
+    另：探针必须显式断言「样本 > 0」——第一版因为 world 造错导致 0 场 0 角球，
+    而空集合让所有分布断言**空真通过**（vacuous truth），差点误报成功。
+
+
+[5] 附带发现（未修，留着）
+--------------------------
+引擎层（空间比赛）角球**完全正确**，本次不动。若将来想让文字层与空间层彻底统一，
+正解是让 `js/match.js` 也走引擎的 `_restart("corner", ...)`，而不是继续在
+统计层掷侧别；那是更大的重构，本次不做。
+
+
+[6] 一句话总结
+--------------
+侧别必须在**事件源**掷一次并随事件传下去；任何表现层都不该自己再掷——
+否则「同一件事」在不同层会各自成真，用户看到的就是自相矛盾。

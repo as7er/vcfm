@@ -1508,6 +1508,13 @@ export class MatchView {
         <div class="mp-card hidden" id="mp-card"></div>
       </div>
       </div>
+      <!-- 竖持手机提示（B 方案）：球门在左右，竖屏塞不下，改提示横持。
+           桌面（pointer: fine）永不命中，见 css 里同名规则。 -->
+      <div class="mp-rotate-hint" id="mp-rotate-hint" role="status">
+        <div class="mp-rotate-icon" aria-hidden="true"></div>
+        <div class="mp-rotate-title">请横持手机</div>
+        <div class="mp-rotate-sub">球门在左右两侧，横过来才能看全场</div>
+      </div>
       <!-- FMM 底栏：解说文案 ↔ 控球条（互斥） -->
       <div class="mp-fmm-dock" id="mp-fmm-dock">
         <div class="mp-bench-strip" id="mp-bench-strip" aria-label="Substitutes">
@@ -7281,9 +7288,33 @@ export class MatchView {
       case "corner": {
         const attHome = ev.teamId ? isHomeTeam(ev.teamId) : this.possession === "home";
         const side = attHome ? "home" : "away";
-        const left = Math.random() < 0.5;
-        const tx = left ? 5 : 95;
-        const ty = attHome ? 7 : 93;
+        // 角球侧别：**读事件里带的 `cornerX`**，不要掷骰子。
+        //
+        // 旧实现是 `const left = Math.random() < 0.5; tx = left ? 5 : 95;`——
+        // 每次角球都重新随机一次边侧，于是同一场比赛里「文字说主队角球」
+        // 与「画面从哪条边线开」彼此独立，用户看到的就是「从另一侧底线开角球」。
+        //
+        // `js/match.js` 产生角球时掷一次侧别写进事件（引擎系 x：左角旗 2 / 右角旗 98），
+        // 这里只做「引擎系 → 视图系」的映射，不再自己掷。
+        //
+        // 视图系（与 `MatchCoordSystem.AREA.CORNER` 同一套，也是 `_shootBall(tx, ty)`
+        // 和 `ball.x/ball.y` 用的那套）：
+        //   - 引擎 x（宽度轴，边线 0/100）→ 视图 **x**（直接照抄，不翻转）
+        //   - 引擎 y（长轴，底线 0/100）  → 视图 **y**（直接照抄，不翻转）
+        // 即视图 `{x, y}` 与引擎 `{x, y}` **逐轴相同**；画面映射另由
+        // `pitchToScreenPct(x, y) = {left: 100-y, top: x}` 完成（引擎 y 是画面横轴）。
+        // 佐证：`AREA.CORNER.AWAY_LEFT = {x:5, y:7}`——客队守 y=0 端（画面右端，
+        // 引擎 y 小），故视图 y=7；与其底边线同侧的左右角旗分别是 x=5 / x=95，
+        // 正是引擎 x=2/98 的边界值。原先的 `ty = attHome ? 7 : 93` 也是同一约定。
+        const cornerX = Number(ev.cornerX);
+        // 缺字段（老存档/旧回放）时退回随机侧，保证不炸。
+        const sideEngX = Number.isFinite(cornerX) ? cornerX : Math.random() < 0.5 ? 2 : 98;
+        // 引擎角旗 2/98 → 视图 5/95（沿用 `AREA.CORNER` 的观感尺度，别贴着端线）。
+        const tx = sideEngX < 50 ? 5 : 95;
+        // 视图 y 取「攻方底线那一端」：主队朝 y→0 攻 ⇒ 在对方（客队 y=0）端开角球。
+        // 原写法 `attHome ? 7 : 93` 在默认档等价；换成 `_attackDir` 后，
+        // 下半场换边也不会出现「角旗跑到自己半场」。
+        const ty = this._attackDir(side) < 0 ? 7 : 93;
         this.possession = side;
         this.camMode = "box";
         this.camBoostUntil = performance.now() + 600;
@@ -7627,12 +7658,27 @@ export class MatchView {
         ? ev.teamId === homeId
         : this.possession === "home";
     const team = attHome ? "home" : "away";
-    // 角旗：优先球当前半边，否则随机
-    const left =
-      Number.isFinite(ev.x) ? ev.x < 50 : (this.ball?.x ?? 50) < 50 || Math.random() < 0.5;
+    // 角旗侧别：**优先读事件带的 `cornerX`**（2026-09-20 修）。
+    //
+    // 旧实现是 `Number.isFinite(ev.x) ? ev.x < 50 : (ball.x ?? 50) < 50 || Math.random() < 0.5`
+    // ——但 `js/match.js` 从来没写过 `ev.x`（角球是统计事件，不带位置），
+    // 所以第一个分支永远进不去，实际总是落到 `Math.random() < 0.5` 掷骰子。
+    // 这就是用户报的「角球从另一侧底线开出」。
+    //
+    // `ev.cornerX` 是引擎系 x（左角旗 2 / 右角旗 98，边线轴）。
+    // 值域仍兼容旧的 `ev.x`（若将来有别的来源写它），最后才退回球当前半边/随机。
+    const sideEngX = Number.isFinite(ev.cornerX)
+      ? ev.cornerX
+      : Number.isFinite(ev.x)
+        ? ev.x
+        : (this.ball?.x ?? 50);
+    const left = sideEngX < 50;
     const cx = left ? 4 : 96;
-    const cy = attHome ? 3.5 : 96.5;
-    const boxY = attHome ? 14 : 86;
+    // 端侧：攻方朝 y→0 攻 ⇒ 在对方（y=0）端开角球。
+    // 换边安全（与 `_attackDir` 同源），不再写死 `attHome ? 3.5 : 96.5`。
+    const attacksUp = this._attackDir(team) < 0;
+    const cy = attacksUp ? 3.5 : 96.5;
+    const boxY = attacksUp ? 14 : 86;
 
     // 主罚人：事件球员 or 最近边路
     let taker =
@@ -7653,7 +7699,9 @@ export class MatchView {
     }
 
     // 固定 5v5 禁区分槽，其他人留在弧顶。双方槽位交错，避免随机摆位重叠。
-    const stageY = (topY) => (attHome ? topY : 100 - topY);
+    // 槽位坐标以「攻方朝 y→0 攻」为基准；`stageY` 负责按实际进攻方向镜像。
+    // 用 `attacksUp`（`_attackDir` 派生）而非 `attHome`，换边档才不会反过来。
+    const stageY = (topY) => (attacksUp ? topY : 100 - topY);
     const attackBox = [[35, 13], [43, 17], [50, 10], [57, 17], [65, 13]];
     const attackEdge = [[27, 30], [39, 27], [50, 31], [61, 27], [73, 30]];
     const defendBox = [[38, 16], [46, 12], [50, 19], [54, 12], [62, 16]];
@@ -7675,7 +7723,7 @@ export class MatchView {
       if (pl.pos === "GK" || pl.role === "GK") {
         if (pl.team !== team) {
           pl.x = clamp(50 + (Math.random() - 0.5) * 3, 46, 54);
-          pl.y = attHome ? 5 : 95;
+          pl.y = attacksUp ? 5 : 95;
         } else {
           pl.x = pl.baseX ?? pl.x;
           pl.y = pl.baseY ?? pl.y;
@@ -7710,7 +7758,7 @@ export class MatchView {
     // 主罚人最后钉在角旗（必须在堆人之后）
     if (taker) {
       taker.x = cx;
-      taker.y = cy + (attHome ? 1.5 : -1.5);
+      taker.y = cy + (attacksUp ? 1.5 : -1.5);
       taker.tx = taker.x;
       taker.ty = taker.y;
       taker.heading = Math.atan2(boxY - taker.y, 50 - taker.x);

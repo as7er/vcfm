@@ -7092,6 +7092,183 @@ html[data-theme="light"] .badge-chip {
     margin-inline: auto;
   }
 }
+/* 2026-09-20：手机横持也走 contain（B 方案）。
+   手机横屏的逻辑宽常 >1059px（如 844×390 横过来是 844 宽，触屏却仍是手机），
+   所以**不能用宽度阈值**判断，要用 `pointer: coarse` 认触屏。
+   竖持时球场先天不匹配（横长比 1.37 塞进竖屏只会变成很小一条），
+   因此竖屏不渲染球场，改由 .mp-rotate-hint 提示横持。
+   与上面桌面档同款 contain；`@media` 优先级相同、后写生效，
+   但两档的媒体条件互斥（桌面 pointer:fine），所以不会打架。
+
+   ⚠ **必须给容器链一个「由视口算出的确定高度」**：
+   `container-type: size` 的 `100cqh/100cqw` 要求容器有确定尺寸。桌面档之所以能
+   工作，是因为 `@media (min-width:1060px)` 的 `.match-layout` 写了
+   `height: calc(100dvh - 0.6rem)`（确定值）。
+   手机档若只靠 `@media (max-width:1059px)` 的 `flex: 0 0 auto; height: auto`，
+   容器高度就由**内容**决定，而球场高度又依赖 `100cqh` ⇒ **循环依赖** ⇒
+   球场被算成 0×0（实测横屏：slotDisplay 是 grid、规则命中了，
+   但 fieldRect 是 0×0——极易误判成「规则没生效」）。
+   这里显式把高度钉在本视口上，打断循环。 */
+@media (pointer: coarse) and (orientation: landscape) {
+  /* 球场区高度 = 视口高 − chrome。这里**必须**给一个「由视口算出」的确定值：
+     `container-type: size` 的 `100cqh/100cqw` 要求容器有确定尺寸。桌面档之所以
+     能工作，是因为 `.match-layout` 写了 `height: calc(100dvh - 0.6rem)`。
+     手机档若只靠 `@media (max-width:1059px)` 的 `flex: 0 0 auto; height: auto`，
+     容器高度就由**内容**决定，而内容里的 `.mp-field` 又依赖 `100cqh`
+     ⇒ **循环依赖** ⇒ 球场被算成极小值（实测一度只有 61×44px，比例还是对的
+     1.374——比例对、尺寸错，最容易误判成「本来就该这么小」）。
+
+     N 的取值由实测标定（**h 与 N 呈 1:1**，两点定线：N=96→h=238、N=56→h=278，
+     ⇒ `h ≈ 334 − N`，底边 `= 116 + h = 450 − N`）。要 `底边 ≤ 视口高 390`
+     ⇒ **N ≥ 60**。取 **N=72** ⇒ h≈262、底边≈378，留 12px 余量。
+     ⚠ 别再往下压：N=56 时底边 394 > 390（**溢出 4px**，探针会报
+     「球场下缘超出视口」）；N=60 会贴边，取整误差可能刚好越界。
+     N=96 是安全但偏保守的一侧（球场只 238 高、底部白留 36px）。 */
+  .match-layout.fm-match.fmm-match.live-kick .fmm-match-body,
+  .match-layout.fm-match.fmm-match.ht-kick .fmm-match-body,
+  .match-layout.fm-match.fmm-match.pre-kickoff .fmm-match-body {
+    flex: 0 0 auto;
+    height: calc(100vh - 72px);
+    height: calc(100dvh - 72px);
+    min-height: 0;
+    max-height: none;
+  }
+  .match-layout.fm-match.fmm-match.live-kick .fmm-match-body .fm-pitch-col,
+  .match-layout.fm-match.fmm-match.ht-kick .fmm-match-body .fm-pitch-col,
+  .match-layout.fm-match.fmm-match.pre-kickoff .fmm-match-body .fm-pitch-col {
+    flex: 1 1 auto;
+    height: 100%;
+    min-height: 0;
+    max-height: none;
+  }
+  .match-layout.fm-match.fmm-match.live-kick .fmm-match-body .mp-wrap,
+  .match-layout.fm-match.fmm-match.ht-kick .fmm-match-body .mp-wrap,
+  .match-layout.fm-match.fmm-match.pre-kickoff .fmm-match-body .mp-wrap {
+    flex: 1 1 auto;
+    height: 100%;
+    min-height: 0;
+  }
+  .match-layout.fm-match.fmm-match.live-kick .fmm-match-body .mp-pitch-slot,
+  .match-layout.fm-match.fmm-match.ht-kick .fmm-match-body .mp-pitch-slot,
+  .match-layout.fm-match.fmm-match.pre-kickoff .fmm-match-body .mp-pitch-slot {
+    flex: 1 1 0%;
+    min-height: 0;
+    width: 100%;
+    height: 100%;
+    display: grid;
+    place-items: center;
+    container-type: size;
+  }
+  .match-layout.fm-match.fmm-match.live-kick .fmm-match-body .mp-field,
+  .match-layout.fm-match.fmm-match.ht-kick .fmm-match-body .mp-field,
+  .match-layout.fm-match.fmm-match.pre-kickoff .fmm-match-body .mp-field {
+    flex: none;
+    width: min(100cqw, calc(100cqh * 93.45 / 68));
+    height: min(100cqh, calc(100cqw * 68 / 93.45));
+    max-width: 100%;
+    max-height: 100%;
+    min-height: 0;
+    aspect-ratio: 93.45 / 68;
+    place-self: center;
+    margin-inline: auto;
+  }
+  /* 横屏手机屏幕极矮（390px）：把解说栏收成一条，高度全让给球场。
+     用户横持手机时想看的是**全场跑位**，解说文字可以回看/赛后看。 */
+  .match-layout.fm-match.fmm-match.live-kick .fmm-commentary,
+  .match-layout.fm-match.fmm-match.ht-kick .fmm-commentary,
+  .match-layout.fm-match.fmm-match.pre-kickoff .fmm-commentary {
+    max-height: 4.4rem;
+    flex: 0 0 auto;
+  }
+}
+/* 竖持手机：不渲染小球场，给「请横持」提示。
+   只在触屏 + 竖屏 + 窄宽时出现；桌面永远不命中（pointer: fine）。 */
+.mp-rotate-hint {
+  display: none;
+}
+@media (pointer: coarse) and (orientation: portrait) {
+  .match-layout.fm-match.fmm-match.live-kick .mp-rotate-hint,
+  .match-layout.fm-match.fmm-match.ht-kick .mp-rotate-hint,
+  .match-layout.fm-match.fmm-match.pre-kickoff .mp-rotate-hint {
+    display: flex;
+  }
+  /* 竖屏藏球场（它只会是屏幕中间很小一条，没有观看价值）。
+     ⚠ 要藏的是 `.mp-pitch-slot`（球场本体），**不是 `.mp-wrap`**——
+     `.mp-rotate-hint` 是 `.mp-wrap` 的**子元素**（与 `.mp-pitch-slot` 同级），
+     藏 `.mp-wrap` 会把提示自己一起藏掉（实测：hint 祖先 display:none ⇒ 尺寸 0，
+     而它自身的 `display: flex` 规则明明命中了，极易误判成「规则没生效」）。 */
+  .match-layout.fm-match.fmm-match.live-kick .fmm-match-body .mp-pitch-slot,
+  .match-layout.fm-match.fmm-match.ht-kick .fmm-match-body .mp-pitch-slot,
+  .match-layout.fm-match.fmm-match.pre-kickoff .fmm-match-body .mp-pitch-slot {
+    display: none;
+  }
+  /* ⚠ 藏掉球场后 .fmm-match-body / .fm-pitch-col 会塌成 0 高（它们的高度原本
+     由球场撑起），提示元素就跟着变 0 高、看不见。给容器兜最小高度把提示托起来。
+     三层都要给：`.fmm-match-body` 是对外高度、`.fm-pitch-col` 与 `.mp-wrap`
+     是 hint 的祖先链（都是 flex 容器），少给一层就会在那一层塌掉。 */
+  .match-layout.fm-match.fmm-match.live-kick .fmm-match-body,
+  .match-layout.fm-match.fmm-match.ht-kick .fmm-match-body,
+  .match-layout.fm-match.fmm-match.pre-kickoff .fmm-match-body {
+    min-height: 40vh;
+    flex: 1 1 auto;
+    height: auto;
+  }
+  .match-layout.fm-match.fmm-match.live-kick .fmm-match-body .fm-pitch-col,
+  .match-layout.fm-match.fmm-match.ht-kick .fmm-match-body .fm-pitch-col,
+  .match-layout.fm-match.fmm-match.pre-kickoff .fmm-match-body .fm-pitch-col {
+    min-height: 40vh;
+    flex: 1 1 auto;
+    height: auto;
+    max-height: none;
+  }
+  .match-layout.fm-match.fmm-match.live-kick .fmm-match-body .mp-wrap,
+  .match-layout.fm-match.fmm-match.ht-kick .fmm-match-body .mp-wrap,
+  .match-layout.fm-match.fmm-match.pre-kickoff .fmm-match-body .mp-wrap {
+    min-height: 40vh;
+    flex: 1 1 auto;
+    height: auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .match-layout.fm-match.fmm-match.live-kick .mp-rotate-hint,
+  .match-layout.fm-match.fmm-match.ht-kick .mp-rotate-hint,
+  .match-layout.fm-match.fmm-match.pre-kickoff .mp-rotate-hint {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 8rem;
+  }
+}
+.mp-rotate-hint {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--text-2, #cbd5e1);
+}
+.mp-rotate-hint .mp-rotate-icon {
+  width: 3.25rem;
+  height: 3.25rem;
+  border: 2px solid currentColor;
+  border-radius: 0.45rem;
+  animation: mp-rotate-sway 1.8s ease-in-out infinite;
+}
+.mp-rotate-hint .mp-rotate-title {
+  font-size: var(--fs-lg, 1.05rem);
+  font-weight: 600;
+}
+.mp-rotate-hint .mp-rotate-sub {
+  font-size: var(--fs-sm, 0.85rem);
+  opacity: 0.75;
+}
+@keyframes mp-rotate-sway {
+  0%, 40% { transform: rotate(0deg); }
+  60%, 100% { transform: rotate(90deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mp-rotate-hint .mp-rotate-icon { animation: none; }
+}
 .brief-head {
   display: flex;
   flex-wrap: wrap;

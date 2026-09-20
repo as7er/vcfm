@@ -1,0 +1,162 @@
+手机端横屏适配（B 方案）（2026-09-20）
+=====================================
+
+用户报告（原文）
+----------------
+「横屏之后，PC端的网页观感没有问题，但手机端有问题！竖着拿手机的时候显示是很小的
+横向，横着手机的时候也适应不了。你觉得可以怎么解决这个问题？」
+
+用户在 A/B/C 三方向中拍板：**B：竖屏提示「请横持」+ 横屏 contain**。
+
+
+[0] 结论（一句话）
+------------------
+手机端用 `pointer: coarse` 认触屏（**不能用宽度阈值**），横持时把球场按 contain
+等比放进视口（同桌面档），竖持时干脆不渲染球场、改给「请横持手机」提示。
+
+
+[1] 为什么不能用宽度阈值
+------------------------
+既有代码里所有手机档都是 `@media (max-width: 1059px)`。但**手机横持时逻辑宽
+常 > 1059px**（844×390 横过来就是 844 宽……更宽的机型横持会直接 >1059），
+而那些「手机档」规则会**失效**，掉回桌面档的 grid —— 桌面档给
+`.match-layout` 定了 `height: calc(100dvh - 0.6rem)`，在 390 高的横屏手机上
+把球场区压到没有空间。这就是用户说的「横着手机的时候也适应不了」。
+
+**正解**：用 `@media (pointer: coarse)` 认输入设备（触屏），
+配 `and (orientation: landscape|portrait)` 分姿态。
+
+⚠ 注意与 `@media (max-width: 1059px)` 的**层叠关系**：两者特异性可能相同，
+靠「后写生效」。所以本方案的两块 `@media (pointer: coarse)` 必须写在
+`(max-width: 1059px)` 块**之后**（当前位于 style.css 的 7102 / 7172 行附近）。
+
+
+[2] 竖屏：藏球场 + 给提示
+--------------------------
+球场盒比 93.45/68 ≈ 1.374（横长）。竖屏 390 宽下按宽度铺满 ⇒ 只有 267px 高，
+夹在计分条与评论之间，实际是「屏幕中间很小一条横向」，看不了。
+所以竖屏**不渲染球场**，改显示提示。
+
+CSS（`@media (pointer: coarse) and (orientation: portrait)`）：
+```css
+.fmm-match-body .mp-pitch-slot { display: none; }   /* 藏球场本体 */
+.fmm-match-body { min-height: 40vh; flex: 1 1 auto; height: auto; }
+.fmm-match-body .fm-pitch-col { min-height: 40vh; flex: 1 1 auto; height: auto; max-height: none; }
+.fmm-match-body .mp-wrap { min-height: 40vh; flex: 1 1 auto; height: auto; display: flex; flex-direction: column; }
+.mp-rotate-hint { display: flex; flex: 1 1 auto; min-height: 8rem; }
+```
+
+DOM（`js/matchview.js`，插在 `.mp-pitch-slot` 之后、`.mp-fmm-dock` 之前）：
+```html
+<div class="mp-rotate-hint" id="mp-rotate-hint" role="status">
+  <div class="mp-rotate-icon" aria-hidden="true"></div>
+  <div class="mp-rotate-title">请横持手机</div>
+  <div class="mp-rotate-sub">球门在左右两侧，横过来才能看全场</div>
+</div>
+```
+含 `mp-rotate-sway` 动画 + `prefers-reduced-motion` 兜底。
+
+
+[3] 横屏：contain 等比
+-----------------------
+与桌面档同款（`container-type: size` + `100cqw/100cqh`），球场按
+`min(100cqw, calc(100cqh * 93.45 / 68))` 取最大等比矩形。
+
+```css
+.fmm-match-body { flex: 0 0 auto; height: calc(100dvh - 72px); min-height: 0; max-height: none; }
+.fmm-match-body .fm-pitch-col { flex: 1 1 auto; height: 100%; min-height: 0; max-height: none; }
+.fmm-match-body .mp-wrap { flex: 1 1 auto; height: 100%; min-height: 0; }
+.fmm-match-body .mp-pitch-slot { flex: 1 1 0%; width: 100%; height: 100%; display: grid; place-items: center; container-type: size; }
+.fmm-match-body .mp-field {
+  flex: none;
+  width: min(100cqw, calc(100cqh * 93.45 / 68));
+  height: min(100cqh, calc(100cqw * 68 / 93.45));
+  aspect-ratio: 93.45 / 68;
+  place-self: center; margin-inline: auto;
+}
+/* 横屏手机屏幕极矮：解说栏收成一条，高度全让给球场 */
+.fmm-commentary { max-height: 4.4rem; flex: 0 0 auto; }
+```
+
+
+[4] ⚠ 踩过的三个坑（都极易误判成「CSS 没生效」）
+------------------------------------------------
+
+### 坑 1：藏了父容器，把要留的子元素一起藏掉
+第一版把 `.mp-wrap { display: none }` 当作「藏球场」。但 `.mp-rotate-hint`
+是 `.mp-wrap` 的**子元素**（与真正的球场 `.mp-pitch-slot` 同级），
+于是**提示自己也被一起藏掉**。
+
+**伪装**：探针量到 `hintDisplay === "flex"`（规则明明命中了）、
+`min-height: 128px`（也生效了），但 `rectW/rectH` 全是 0。
+只盯着「我的规则命中了吗」永远查不出来。
+
+**修法**：藏最内层的 `.mp-pitch-slot`，保留 `.mp-wrap`。
+**通用做法**：藏之前先打印目标元素到 `document.body` 的完整祖先链
+（逐级 `getComputedStyle(el).display` + `getBoundingClientRect()`），
+确认「要藏的东西」与「要留的东西」在 DOM 树上的关系。
+
+### 坑 2：`100cqh` 的循环依赖 ⇒ 球场被算成极小值
+`container-type: size` 的 `100cqh/100cqw` 要求容器有**确定尺寸**。
+桌面档之所以能工作，是因为 `.match-layout` 写了
+`height: calc(100dvh - 0.6rem)`（确定值）。
+
+手机档若只靠 `@media (max-width:1059px)` 的 `flex: 0 0 auto; height: auto`，
+容器高度就由**内容**决定，而内容里的 `.mp-field` 又依赖 `100cqh`
+⇒ **循环依赖** ⇒ 球场被算成极小值。
+
+**伪装**：`slotDisplay` 是 `grid`（规则命中了）、`fieldRect.ratio` 是
+**1.374（完全正确！）**，但尺寸只有 61×44px。比例对、尺寸错，
+会让人以为是「本来就该这么小」。
+
+**修法**：显式把高度钉在**视口**上（`calc(100dvh - Npx)`），打断循环。
+实测 390 高的横屏下：61×44 → **360×262**（面积约 5.9 倍）。
+
+**N 怎么取（实测标定，不靠试错）**：
+`h` 与 `N` 呈 **1:1**（两点定线：N=96→h=238、N=56→h=278 ⇒ **`h ≈ 334 − N`**），
+球场底边 `= 116 + h = 450 − N`。要底边 `≤ 视口高 390` ⇒ **N ≥ 60**。
+取 **N=72** ⇒ `h = 262`、底边 `378`，留 12px 余量。
+⚠ N=56 时底边 394 > 390（**溢出 4px**，探针会报「球场下缘超出视口」）；
+N=60 会贴边，取整误差可能刚好越界；N=96 是安全但偏保守的一侧（只 238 高、白留 36px）。
+**复验实测 `h=262` 精确命中 `334 − 72`，公式成立。**
+
+### 坑 3：`.fm-pitch-col` 的 `max-height: min(70vh, 100%)` 会二次卡住
+`.fm-pitch-col` 基础规则里有 `max-height: min(70vh, 100%)`。
+`100%` 在父元素高度未定时解析成很小的值，`70vh` 又不到半屏。
+必须在横屏块里显式 `max-height: none` 覆盖掉。
+
+
+[5] 验证
+---------
+`scripts/mobile-pitch-adaptation-verify.mjs`（三姿态目验，含截图）：
+
+| 姿态 | 提示 | 球场 `.mp-pitch-slot` | 比例 | 溢出 |
+|---|---|---|---|---|
+| ① 竖持 390×844 | **367×282 可见** | 0×0（已藏）、`.mp-wrap` 保留 | — | 无横向滚动 |
+| ② 横持 844×390 | 隐藏 | **360×262 可见** | 1.374 ✅ | 底边 378 ≤ 390，留 12px ✅ |
+| ③ 桌面 1440×1000 | 不出现 | 1042×758 可见 | 1.374 ✅ | 无 |
+
+结果：**三姿态全部通过**（`exit=0`）。截图见 `.tmp-video/mobile-{portrait,landscape,desktop-control}.png`。
+⚠ 横屏 N 值的复验过程见 [4] 坑 2 —— 一度 N=56 导致球场下缘溢出 4px 而失败，
+改为 N=72 后通过。
+
+### 探针本身的坑
+- **不要干预 `navigator.serviceWorker`**：替换整个对象会让 `main.js` 顶层
+  `addEventListener` 抛错、模块中断 ⇒ `window.vcfmMainApi` 永不出现；
+  包装 `register` + `unregister` 会报 `Failed to update a ServiceWorker ... Not found`，
+  页面显示「启动失败：」。**完全不干预**才行。
+- `waitUntil: "networkidle"` 在手机视口下可能不达成 ⇒ 用
+  `domcontentloaded` + 显式轮询等 `window.vcfmMainApi`（90 次 ×1s）。
+- 「推进到比赛日」(`#btn-advance-matchday`) 会**真的逐场模拟整个联赛 134 场**
+  （toast：`正在运行空间比赛 95/134`），需 2~5 分钟 ⇒ 等待上限给足，
+  每轮调 `closeModalIfAny`（推进后会弹「关键事件」modal 挡住按钮）。
+- 竖屏下 `#mp-camera` **必然 hidden**（正是本方案的效果）⇒ 等它要用
+  `{ state: "attached" }`，不能用 `visible`。
+- 环境性抖动：有时首屏 `vcfmMainApi` 90s 内没出现（页面已加载、`hasInput: true`），
+  重跑即可。
+
+
+[6] 一句话总结
+--------------
+手机识别要认**输入设备**（`pointer: coarse`）而不是宽度（横持后宽度就「不像手机」了）；
+CSS 布局查错要**沿祖先链量尺寸**，不能只看「我的规则命中了吗」。
