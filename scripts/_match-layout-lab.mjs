@@ -94,7 +94,7 @@ const CANDIDATES = [
           width: auto; height: 100%; max-width: 100%; margin-inline: auto;
         }
         .match-layout.fm-match.fmm-match {
-          grid-template-columns: minmax(340px, calc((100vh - 250px) * 0.78)) minmax(300px, 1fr);
+          grid-template-columns: minmax(360px, calc((100vh - 250px) * 1.48)) minmax(300px, 1fr);
         }
       }
     `,
@@ -112,7 +112,7 @@ const CANDIDATES = [
           width: auto; height: 100%; max-width: 100%; margin-inline: auto;
         }
         .match-layout.fm-match.fmm-match {
-          grid-template-columns: minmax(340px, calc((100vh - 250px) * 0.78)) minmax(300px, 1fr);
+          grid-template-columns: minmax(360px, calc((100vh - 250px) * 1.48)) minmax(300px, 1fr);
         }
       }
     `,
@@ -147,7 +147,7 @@ const CANDIDATES = [
           width: auto; height: 100%; max-width: 100%; margin-inline: auto;
         }
         .match-layout.fm-match.fmm-match {
-          grid-template-columns: minmax(340px, calc((100vh - 250px) * 0.78)) minmax(300px, 1fr);
+          grid-template-columns: minmax(360px, calc((100vh - 250px) * 1.48)) minmax(300px, 1fr);
         }
       }
     `,
