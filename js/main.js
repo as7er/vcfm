@@ -57,8 +57,8 @@ import {
   habitLabel,
   startHabitTraining,
 } from "./player-habits.js";
-import { nationFlagHtml } from "./flags.js?v=275";
-import { clubCrestHtml } from "./club-crest.js?v=275";
+import { nationFlagHtml } from "./flags.js?v=276";
+import { clubCrestHtml } from "./club-crest.js?v=276";
 import { applyWorldClubBranding, localizedClubName } from "./branding.js";
 import { recordFinanceEntry } from "./finance-ledger.js";
 import { renderFinance as renderFinanceView } from "./ui/finance.js";
@@ -323,7 +323,7 @@ import {
   selectPlannedSaleCandidate,
   squadPlayerPlan,
   squadPositionPlan,
-} from "./squad-planning.js?v=275";
+} from "./squad-planning.js?v=276";
 import {
   TRAINING_MODES,
   ensureTrainingBoost,
@@ -390,7 +390,7 @@ import {
   staffAvatarHtml,
   avatarHtml,
   hydrateAvatarKitRecolor,
-} from "./avatar.js?v=275";
+} from "./avatar.js?v=276";
 import { attributeArchetypeLabel } from "./player-attributes.js";
 import {
   MANAGER_ONBOARDING_TAB_STEPS,
@@ -490,7 +490,7 @@ let matchViewModulePromise = null;
 
 function loadMatchViewModule() {
   if (!matchViewModulePromise) {
-    matchViewModulePromise = import("./matchview.js?v=275").then((module) => {
+    matchViewModulePromise = import("./matchview.js?v=276").then((module) => {
       matchViewApi = module;
       return module;
     });
@@ -767,6 +767,50 @@ function syncFullscreenUI() {
   const hint = on ? t("match.fullscreenExitHint") : t("match.fullscreenHint");
   btn.title = hint || label;
   btn.setAttribute("aria-label", label || hint);
+}
+
+const FULLSCREEN_HINT_KEY = "vcfm-fullscreen-hint-seen";
+
+/**
+ * 开赛后点一下全屏入口在哪。
+ * ⚠ 只在按钮真的可见时弹（iPhone Safari 不支持 ⇒ 不弹，免得指一个点了没反应的键）。
+ * ⚠ 赛后战报把控制条藏了，也不弹。点过一次或点过全屏键后不再弹。
+ * ⚠ 不能在 openMatch（进比赛界面、尚未开踢）时弹：
+ *   ① 那时用户还在看赛前简报，不一定注意到 toast；
+ *   ② 一点「进入比赛」就会被「赛前讲话：…」盖掉（toast() 只有一条，后写覆盖先写）；
+ *   ③ 更糟的是若先写 localStorage 再弹，被盖掉后也再不会弹。
+ *   所以：开赛后再弹，且 **先弹再记**；若刚弹过队内讲话，延后超过 toast 的 2200ms。
+ */
+function maybeHintFullscreenEntry({ delayMs = 0 } = {}) {
+  const btn = $("#btn-match-fullscreen");
+  if (!btn || btn.hidden) return;
+  if (!fullscreenSupported()) return;
+  const layout = document.querySelector(".match-layout");
+  if (layout?.classList.contains("match-report-only")) return;
+  try {
+    if (localStorage.getItem(FULLSCREEN_HINT_KEY) === "1") return;
+  } catch {
+    return;
+  }
+  const fire = () => {
+    const still = $("#btn-match-fullscreen");
+    if (!still || still.hidden) return;
+    if (!fullscreenSupported()) return;
+    const layoutNow = document.querySelector(".match-layout");
+    if (layoutNow?.classList.contains("match-report-only")) return;
+    const screen = document.querySelector("#screen-match");
+    if (!screen?.classList.contains("active")) return;
+    const msg = t("match.fullscreenFirstHint");
+    if (!msg) return;
+    toast(msg);
+    try {
+      localStorage.setItem(FULLSCREEN_HINT_KEY, "1");
+    } catch {
+      /* 记不住就当本场弹过 */
+    }
+  };
+  if (delayMs > 0) setTimeout(fire, delayMs);
+  else fire();
 }
 
 async function toggleMatchFullscreen() {
@@ -1956,7 +2000,14 @@ function bindMainOnce() {
   $("#btn-match-step-mode")?.addEventListener("click", () => toggleMatchStepMode());
   $("#btn-match-motion-capture")?.addEventListener("click", () => captureCurrentMotionClip());
   // 全屏观赛：按钮默认 `hidden`，由 syncFullscreenUI() 按能力检测结果决定是否露出。
-  $("#btn-match-fullscreen")?.addEventListener("click", () => toggleMatchFullscreen());
+  $("#btn-match-fullscreen")?.addEventListener("click", () => {
+    try {
+      localStorage.setItem(FULLSCREEN_HINT_KEY, "1");
+    } catch {
+      /* ignore */
+    }
+    toggleMatchFullscreen();
+  });
   // ⚠ 必须监听 `document` 而不是按钮：用户按 Esc / 系统返回手势退出时也要同步图标。
   // ⚠ 两个事件名都挂：Safari/Firefox 用标准名，Chromium 系历史上用带前缀的旧名。
   document.addEventListener("fullscreenchange", syncFullscreenUI);
@@ -10461,6 +10512,8 @@ async function runMatch(mode) {
       ? applyManagedTeamTalk(matchState, "pre")
       : applyTeamTalk(matchState, selectedPreTalk, "pre");
     if (talkRes.ok) toast(talkRes.msg);
+    // 队内讲话 toast 2200ms；被它盖掉就等于没提示，所以等它消失再指全屏键。
+    maybeHintFullscreenEntry({ delayMs: talkRes.ok ? 2600 : 400 });
     // 会话创建后阵容可能 autoLineup，刷新球场
     await ensureMatchPitch(true);
     document.querySelector(".match-layout")?.classList.remove("match-report-only");

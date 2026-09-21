@@ -1,0 +1,51 @@
+画面层运动诊断（2026-09-21）
+============================
+
+为什么要单独量这一层
+--------------------
+现有 `scripts/match-motion-integrity-audit.mjs` 喂给诊断器的是
+`monitor.record(snapshot, snapshot)` —— **引擎帧与显示帧是同一个对象**
+⇒ `display-divergence` **永远不可能触发**；且默认跑 `background` 档（0.3s 步长）。
+
+用户感知的是画面层。App 自己其实采了真显示帧
+（`js/matchview.js` `record(engineFrame, displayFrame)`，显示帧来自 `this.players[]`），
+只是没进自动化。所以这类问题会反复出现却抓不住。
+
+
+探针
+----
+`scripts/_display-layer-motion-probe.mjs`
+走真实渲染路径：进比赛 → ×4 → 读 `vcfmMainApi.matchView.getMotionDiagnosticStatus()`。
+
+踩过的坑（都写进探针注释了）：
+1. `#modal` 必须认 `hidden` class，否则遮罩挡住「进入比赛」，卡 57 次重试。
+2. 比赛在 45' 会停下等中场确认；不点 `#btn-ht-skip` 会永远停在「已跑 45'」。
+3. `status().frames / incidents / severe` 是**最近 12 秒滚动窗口**，
+   全场累计是 `totalIncidents`。第一版读窗口值报「90' / 102 帧 / 0 事件」，
+   那其实只是「最后 12 秒没有事件」，完全不可信。
+   App 徽章读窗口值是**对的**（表示「现在按下去能导出几个标记」），
+   tooltip 里另补累计数，别去"修"它。
+
+
+读数
+----
+引擎层（本次全量回归 `standard` 档 2 场）：severe 0 / warnings 0 / byType {}。
+画面层（1 场，快速高光 ×4，90'，含中场跳过）：`totalIncidents = 0`。
+
+
+这 0 不能当「瞬移已修好」
+--------------------------
+1. 只跑了 1 场。
+2. 快速高光只渲染高光段，平淡段被跳过。
+3. 诊断器在 `isMotionBoundary` 为真时**整段豁免**
+   （`dt > 0.55` / `motionContext.discontinuity` / `restartType`）。
+   用户看到的「整队瞬移」经常就发生在高光切段边界 —— 那正是被豁免的时刻。
+   所以「累计 0」只证明：被采到、且不被当边界的那些帧，没有超 12.2 m/s。
+   **它没有覆盖用户抱怨的那一类跳变。**
+
+下一步（未做）
+--------------
+要判决用户看到的瞬移，必须在**切段边界本身**量位移
+（skill `motion-artifact-diagnosis` Step 4：所有实体一起跳 = 场景切换，不是物理 bug），
+而不是只读诊断器的 `totalIncidents`。
+中场门将交叉跑那一类已在 v275 用 `_kickoff("away")` 修掉。

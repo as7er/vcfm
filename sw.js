@@ -7,7 +7,8 @@
 // v274：角球侧别（事件带 `cornerX`，表现层三条路径统一读它）+ 手机横屏适配 B 方案。
 // v275：手机全屏观赛（Android Chrome/Edge 走 `requestFullscreen`，iPhone Safari 不支持
 //       ⇒ 按钮隐藏）+ 修「外壳总高比视口多 11px ⇒ 页面永远可滚」的 `--fmm-shell-pad` 口径错。
-const CACHE = "vcfm-v275";
+// v276：全屏入口可发现性（按钮主题色高亮 + 首次进入比赛 toast 一次）。
+const CACHE = "vcfm-v276";
 const isVcfmCache = (name) => /^vcfm-v\d+$/.test(name);
 const ASSETS = [
   "./",

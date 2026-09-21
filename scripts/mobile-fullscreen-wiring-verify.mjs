@@ -158,11 +158,52 @@ console.log("\n[5] CSS 两个必踩的坑（css/style.css）");
     /-webkit-full-screen/.test(css),
     "带 `:-webkit-full-screen` 回退选择器"
   );
+  check(
+    /#btn-match-fullscreen:not\(\[hidden\]\)/.test(css),
+    "未全屏时全屏键有独立高亮（`:not([hidden])`），避免和旁边 5 个灰图标混在一起"
+  );
+}
+
+console.log("\n[5b] 首次提示（可发现性，不替代能力检测）");
+{
+  check(
+    /function maybeHintFullscreenEntry\(/.test(mainJs),
+    "存在 `maybeHintFullscreenEntry()`"
+  );
+  check(
+    /vcfm-fullscreen-hint-seen/.test(mainJs),
+    "提示只弹一次（localStorage 键 `vcfm-fullscreen-hint-seen`）"
+  );
+  check(
+    /maybeHintFullscreenEntry\(\{\s*delayMs:/.test(mainJs),
+    "开赛后调用首次提示（带 delay，躲开队内讲话 toast）"
+  );
+  check(
+    !/showScreen\("match"\);\s*maybeHintFullscreenEntry\(\);/.test(mainJs),
+    "不得在 openMatch / 进比赛界面时立刻弹（会被「赛前讲话」toast 盖掉）"
+  );
+  {
+    // ⚠ 不能用 `bodyOf(..., "function maybeHintFullscreenEntry(")`：
+    //   新签名是 `({ delayMs = 0 } = {})`，`bodyOf` 会把参数对象的 `{` 当成函数体起点，
+    //   切到空串 ⇒ 本检查恒失败。按函数名切片即可。
+    const hintIdx = mainJs.indexOf("function maybeHintFullscreenEntry");
+    const hintChunk = hintIdx >= 0 ? mainJs.slice(hintIdx, hintIdx + 1800) : "";
+    check(
+      /match-report-only/.test(hintChunk),
+      "赛后战报不弹提示（控制条被藏了）"
+    );
+  }
 }
 
 console.log("\n[6] i18n 键（两种语言都要有）");
 {
-  const keys = ["match.fullscreen", "match.fullscreenHint", "match.fullscreenExit", "match.fullscreenExitHint"];
+  const keys = [
+    "match.fullscreen",
+    "match.fullscreenHint",
+    "match.fullscreenExit",
+    "match.fullscreenExitHint",
+    "match.fullscreenFirstHint",
+  ];
   const zhBlock = i18n.slice(i18n.indexOf("const dict = {"), i18n.indexOf("  en: {"));
   const enBlock = i18n.slice(i18n.indexOf("  en: {"));
   for (const k of keys) {

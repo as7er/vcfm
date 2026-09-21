@@ -2134,6 +2134,15 @@ html[data-theme="light"] .fmm-match-bar {
    这直接关系到全屏按钮：iPhone Safari 不支持全屏，那里必须**真的看不到**它，
    否则就是一个点了没反应的按钮（用户会当成 bug）。 */
 .fmm-match-bar .btn[hidden] { display: none !important; }
+/* 全屏入口可发现性（v276）：控制条里 6 个图标键同色同尺寸，
+   用户找不到全屏按钮。未全屏时用主题色把它从灰键里拎出来；
+   进全屏后走 `.match-playback-bar .btn.active`。
+   iPhone Safari 不支持时按钮仍是 hidden，本规则因 `:not([hidden])` 不会命中。 */
+.fmm-match-bar #btn-match-fullscreen:not([hidden]) {
+  color: var(--primary);
+  border-color: var(--tab-active-border);
+  background: var(--tab-active-bg);
+}
 .fmm-match-bar #btn-match-motion-capture[data-motion-incidents]:not([data-motion-incidents="0"]) {
   position: relative;
   color: #fbbf24;

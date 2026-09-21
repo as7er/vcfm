@@ -401,10 +401,19 @@ try {
     const fsBtn = await page.evaluate(() => {
       const b = document.querySelector("#btn-match-fullscreen");
       if (!b) return { exists: false };
+      const cs = getComputedStyle(b);
+      const pause = document.querySelector("#btn-match-pause");
+      const pauseCs = pause ? getComputedStyle(pause) : null;
       return {
         exists: true,
         hidden: b.hidden,
-        display: getComputedStyle(b).display,
+        display: cs.display,
+        color: cs.color,
+        background: cs.backgroundColor,
+        pauseColor: pauseCs?.color || null,
+        inViewport:
+          b.getBoundingClientRect().bottom <= window.innerHeight + 1 &&
+          b.getBoundingClientRect().top >= -1,
         fullscreenEnabled: document.fullscreenEnabled,
       };
     });
@@ -416,6 +425,13 @@ try {
     //   `hidden` 为真但 `display` 仍是 inline-grid，按钮照样显示。
     assert.equal(fsBtn.hidden, false, "支持全屏的浏览器必须露出全屏按钮（不得 hidden）");
     assert.notEqual(fsBtn.display, "none", `全屏按钮不得被 CSS 藏掉，实测 display=${fsBtn.display}`);
+    assert.equal(fsBtn.inViewport, true, "全屏按钮必须在视口内（被挤出屏幕等于没有入口）");
+    // 可发现性：未全屏时不得和旁边暂停键同色（v276 用主题色把它拎出来）。
+    assert.notEqual(
+      fsBtn.color,
+      fsBtn.pauseColor,
+      `全屏键不得与暂停键同色（实测 color=${fsBtn.color} pause=${fsBtn.pauseColor}）`
+    );
 
     await page.click("#btn-match-fullscreen");
     await page.waitForTimeout(700);
