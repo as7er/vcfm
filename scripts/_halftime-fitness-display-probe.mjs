@@ -7,10 +7,17 @@
  *
  * 本脚本只**测量**，不改引擎、不改 UI。
  *
+ * ⚠ 2026-09-21 改造：假球员原来只给 `attrs: {}`（**同值档**），
+ *   而引擎的逐人体能差异主要来自 `attr.stamina`（`engine.js:5851`
+ *   的 `1.18 - stamina * 0.35`）⇒ **同值档会把个体差异在构造上抹掉**，
+ *   于是「引擎侧也几乎没差」这个结论是探针自己造出来的。
+ *   现在所有球员都走 `ensureFootballProfile()`（与真实存档同一条属性生成路径）。
+ *
  * 用法：node scripts/_halftime-fitness-display-probe.mjs
  */
 
-import { defaultTactics, getLineupPlayers } from "../js/models.js";
+import { defaultTactics, getLineupPlayers, ensureFootballProfile } from "../js/models.js";
+import { generatePlayerAttributes } from "../js/player-attributes.js";
 import { createMatchSession, playFirstHalf } from "../js/match.js";
 
 function player(id, pos, ovr, fitness = 90) {
@@ -25,6 +32,13 @@ function squad() {
   for (let i = 0; i < 7; i++) players.push(player(`d${i}`, "DEF", +(16 - i * 0.3).toFixed(2)));
   for (let i = 0; i < 8; i++) players.push(player(`m${i}`, "MID", +(16 - i * 0.25).toFixed(2)));
   for (let i = 0; i < 6; i++) players.push(player(`a${i}`, "ATT", +(16 - i * 0.4).toFixed(2)));
+  // ⚠ 必须补**完整**属性：`ensureFootballProfile` 只补 heading/crossing/decisions
+  //   + 位置/习惯，**不生成 stamina**（实测全员 stamina 都是默认 0.600）⇒ 仍是同值档。
+  //   完整属性要走 `generatePlayerAttributes(player, ovr)`（与新建世界同一条路径）。
+  for (const p of players) {
+    generatePlayerAttributes(p, p.ovr);
+    ensureFootballProfile(p);
+  }
   return players;
 }
 
@@ -40,13 +54,16 @@ function makeWorld() {
 const world = makeWorld();
 const club = world.clubs[0];
 
-// 记录赛前体能
+const fixture = { day: 5, home: "user", away: "opp", played: false };
+const state = createMatchSession(world, fixture);
+
+// ⚠ 基线必须在 `createMatchSession` **之后**取：
+//   `defaultTactics().lineup` 是空数组，首发是建会话时才自动挑的
+//   ⇒ 之前在这一步之前调 `getLineupPlayers()` 拿到的是**空集合**，
+//     于是下面的「差」全部以 `?? 100` 兜底 ⇒ 把「90 → 87（−3）」错读成「100 → 87（−13）」。
 const before = new Map(getLineupPlayers(club).map((p) => [p.id, p.fitness]));
 console.log("=== 赛前首发体能 ===");
 console.log([...before.entries()].map(([k, v]) => `${k}:${v}`).join(" "));
-
-const fixture = { day: 5, home: "user", away: "opp", played: false };
-const state = createMatchSession(world, fixture);
 
 // 跑完上半场（直播路径）
 await playFirstHalf(state, {});
@@ -77,11 +94,30 @@ console.log(`  若种类数很少 ⇒ 体能是「整点批量扣减」而非连
 const eng = state.simEng;
 if (eng?.agents) {
   console.log("\n--- 引擎内部 agent 的体能（面板没有读这一套）---");
-  const rows = eng.agents
-    .filter((a) => a.team === "home")
-    .slice(0, 11)
-    .map((a) => `${a.id}:${Number(a.fitness).toFixed(1)}`);
+  const home = eng.agents.filter((a) => a.team === "home");
+  const rows = home.map((a) => `${a.id}:${Number(a.fitness).toFixed(2)}`);
   console.log(rows.join(" "));
+  // ⚠ 关键读数：引擎侧**本来就有**个体差异。若这里 spread 也是 0，
+  //   说明探针又落回「同值档」（球员属性同值），必须先修探针再谈结论。
+  const fits = home.map((a) => Number(a.fitness));
+  const lo = fits.reduce((m, v) => (v < m ? v : m), Infinity);
+  const hi = fits.reduce((m, v) => (v > m ? v : m), -Infinity);
+  const mean = fits.reduce((s, v) => s + v, 0) / (fits.length || 1);
+  console.log(
+    `  min ${lo.toFixed(2)} / max ${hi.toFixed(2)} / mean ${mean.toFixed(2)} / spread ${(hi - lo).toFixed(2)}`
+  );
+  // 引擎逐人耗尽的「个体倍率」：1.18 - stamina*0.35（engine.js:5851）
+  const stam = home.map((a) => Number(a.attr?.stamina ?? NaN));
+  const sLo = stam.reduce((m, v) => (v < m ? v : m), Infinity);
+  const sHi = stam.reduce((m, v) => (v > m ? v : m), -Infinity);
+  console.log(
+    `  引擎 stamina（norm 后）min ${sLo.toFixed(3)} / max ${sHi.toFixed(3)} ⇒ 耗尽倍率 ` +
+      `${(1.18 - sHi * 0.35).toFixed(3)} ~ ${(1.18 - sLo * 0.35).toFixed(3)} ` +
+      `（比值 ${((1.18 - sLo * 0.35) / (1.18 - sHi * 0.35)).toFixed(3)}×）`
+  );
+  const fsmCount = {};
+  for (const a of home) fsmCount[a.fsm] = (fsmCount[a.fsm] || 0) + 1;
+  console.log(`  采样时刻 fsm 分布：${JSON.stringify(fsmCount)}`);
 }
 
 console.log("\n=== 角色指令面板的取数（对齐 renderHtRoleEditors）===");
