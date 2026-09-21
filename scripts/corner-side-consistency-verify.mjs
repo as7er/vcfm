@@ -7,7 +7,7 @@
  * 根因（**两层都断**）：
  *   ① `js/match.js` 的角球是**纯统计事件**（`chance(0.035 * ...)`），并不模拟
  *      球从哪条边线出底线 ⇒ 事件里没有侧别。
- *   ② 表现层因此只能掷骰子选边——而且有**两条**路径都在掷：
+ *   ② 表现层因此只能掷骰子选边——而且有**三条**路径都在掷（第三条是 2026-09-20 补修的）：
  *      · `_stageCornerSetPiece()`（sim 路径）：
  *          `Number.isFinite(ev.x) ? ev.x < 50 : (ball.x ?? 50) < 50 || Math.random() < 0.5`
  *        但 `match.js` 从来没写过 `ev.x`，所以第一分支永远进不去 ⇒ 恒走随机。
@@ -15,12 +15,12 @@
  *
  * 修法：
  *   ① `js/match.js` 产生角球时掷**一次**侧别写进事件（`cornerX`，引擎系 2/98）；
- *   ② 两条表现层路径都改读 `ev.cornerX`；
+ *   ② 三条表现层路径都改读 `ev.cornerX`；
  *   ③ 端侧（`ty` / `cy`）改用 `_attackDir` 派生，顺带修好换边档。
  *
  * 本探针验的是**修后的不变量**（数据流 + 静态防回归），不看像素：
  *   [1] 事件确实带侧别，取值合法
- *   [2] 两条表现层路径都读事件侧别、都不再用 Math.random 决定侧别
+ *   [2] 三条表现层路径都读事件侧别、都不再用 Math.random 决定侧别
  *   [3] `cornerX` → 视图 `tx` 的映射单调不翻转
  *   [4] 换边后端侧（`ty`/`cy`）跟攻方底线走
  *
@@ -86,10 +86,11 @@ console.log("\n[1] 事件源：`js/match.js` 是否给角球写了侧别");
 }
 
 // ═════════════════════════════════════════════════════════════
-console.log("\n[2] 表现层：两条角球路径都必须读事件侧别");
-console.log("    ⚠ `matchview.js` 有两条角球路径，**都曾掷骰子**：");
+console.log("\n[2] 表现层：三条角球路径都必须读事件侧别");
+console.log("    ⚠ `matchview.js` 有**三条**角球路径，**都曾掷骰子/推错侧别**：");
 console.log("      · sim 路径 → `_stageCornerSetPiece()`（摆 5v5 阵型）");
 console.log("      · 非 sim 路径 → 内联 `case \"corner\"`（`_shootBall` 一脚）");
+console.log("      · director 路径 → `prepareEvent()` 的角球分支（曾用射手 x 推侧别）");
 // ═════════════════════════════════════════════════════════════
 const viewSrc = read("js/matchview.js");
 
@@ -183,6 +184,32 @@ check(
   "`const team = attHome ? \"home\" : \"away\"` 仍在（推进攻方，与端侧无关）"
 );
 
+// —— 路径 C：`prepareEvent()` 里的角球分支（第三条，2026-09-20 补修） ——
+// ⚠ 这条路径当时**漏了**：它由 `main.js:9701/9727` 调 `prepareEvent` 进入，
+//   `needsBuildup` 集合里含 `"corner"`，非 sim 路径会真的走到。
+//   旧写法 `const left = (finisher?.x ?? this.ball.x) < 50` 用**射手/球的当前位置**
+//   推侧别 —— 与「球从哪条边线出底线」没有必然关系 ⇒ 画面从另一侧角旗开球。
+const prep = bodyOf(viewSrc, "async prepareEvent(ev, snap, fixture, opts = {})");
+const prepLogic = stripComments(prep);
+check(prep.length > 0, "定位到 `prepareEvent()`", `长度 ${prep.length}`);
+check(/\bev\.cornerX\b/.test(prepLogic), "`prepareEvent` 的角球分支引用 `ev.cornerX`");
+check(
+  /Number\.isFinite\(\s*ev\.cornerX\s*\)/.test(prepLogic),
+  "`prepareEvent` 优先判 `ev.cornerX` 是否有限"
+);
+check(
+  /_attackDir\(\s*side\s*\)/.test(prepLogic),
+  "`prepareEvent` 用 `_attackDir(side)` 派生端侧（换边安全）"
+);
+check(
+  !/\(\s*finisher\?\.x\s*\?\?\s*this\.ball\.x\s*\)\s*<\s*50/.test(prepLogic),
+  "不再用 `(finisher?.x ?? this.ball.x) < 50` 推角球侧别"
+);
+check(
+  !/attHome\s*\?\s*6\s*:\s*94/.test(prepLogic),
+  "不再用 `attHome ? 6 : 94` 决定角球端侧"
+);
+
 // ═════════════════════════════════════════════════════════════
 console.log("\n[3] 引擎侧别 → 视图 tx 的映射");
 // ═════════════════════════════════════════════════════════════
@@ -225,6 +252,6 @@ check(
 // ═════════════════════════════════════════════════════════════
 console.log(
   `\n${failures === 0 ? "✅ 全部通过" : `❌ ${failures} 项失败`}——` +
-    "角球侧别：事件带侧别、两条路径都照读、映射单调、换边端侧正确。\n"
+    "角球侧别：事件带侧别、三条路径都照读、映射单调、换边端侧正确。\n"
 );
 process.exit(failures === 0 ? 0 : 1);

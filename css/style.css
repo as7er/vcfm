@@ -1531,15 +1531,31 @@ html[data-theme="light"] #screen-match {
   display: flex;
   align-items: stretch;
   justify-content: center;
-  padding: 0.65rem;
+  padding: var(--fmm-shell-pad);
+}
+/* 比赛外壳的上下内边距。
+   🔴 **必须与横屏档的高度公式共用同一个变量**，否则会各算各的：
+   2026-09-20 实测（`scripts/mobile-pitch-adaptation-verify.mjs` ②b，800×295）——
+   `#screen-match` 实际高 **306px**，而视口只有 **295px** ⇒ 页面永远可滚 11px。
+   原因：`.match-layout` 的 `max-height: calc(100dvh - 0.6rem)` **只减了一次** 0.6rem，
+   而 `#screen-match.active` 的 padding **上下各占一次**（2 × 0.65rem = 20.8px）
+   ⇒ 外壳总高 = 10.4 + 285.4 + 10.4 ≈ 306。
+   ⚠ 这个溢出**用「扫所有元素 rect」都量不到**：页面此时已经滚到底
+   （`window.scrollY = 11`），所有 `rect.y` 被整体上移 ⇒ 看起来「什么都没超界」。
+   只有把 `#screen-match` 自己的 rect（y=-11 h=306）打出来才看得见。 */
+:root {
+  --fmm-shell-pad: 0.65rem;
 }
 .match-layout.fm-match {
   width: min(520px, 100%);
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
-  max-height: calc(100vh - 0.6rem);
-  max-height: calc(100dvh - 0.6rem);
+  /* ⚠ 减 **2 × `--fmm-shell-pad`**（外壳上下 padding 各占一次），
+     不是「0.6rem」（只减一次）—— 后者会让外壳总高比视口多 ~11px ⇒ 页面可滚。
+     2026-09-20 在 1440×1000 与 800×295 两处都实测到这个 11px，见 `:root` 注释。 */
+  max-height: calc(100vh - 2 * var(--fmm-shell-pad));
+  max-height: calc(100dvh - 2 * var(--fmm-shell-pad));
   /* 赛前简报+讲话变高后必须可滚，否则底栏/下拉被裁切 */
   overflow-x: hidden;
   overflow-y: auto;
@@ -1563,9 +1579,15 @@ html[data-theme="light"] #screen-match {
     width: min(1680px, 100%);
     /* 高度必须是确定值：1fr 行与列内 height:100% 的百分比链都从它解析。
        只写 max-height 时 grid 视可用空间为不定，1fr 退化为内容高，
-       球场组件按固有尺寸撑出容器（实测 dock 溢出球场区 265px）。 */
-    height: calc(100vh - 0.6rem);
-    height: calc(100dvh - 0.6rem);
+       球场组件按固有尺寸撑出容器（实测 dock 溢出球场区 265px）。
+
+       🔴 减的是 **2 × `--fmm-shell-pad`**，不是「0.6rem」：
+       2026-09-20 实测 1440×1000 —— 原来写 `calc(100dvh - 0.6rem)` 时
+       `#screen-match` 实际高 **1011px**（视口 1000），页面可滚 11px。
+       原因与手机横屏档完全同源：外壳 padding 上下各占一次（0.65rem × 2 = 20.8px），
+       公式却只减了一次 ⇒ 差 ≈ 11px。见 `:root` 处 `--fmm-shell-pad` 的注释。 */
+    height: calc(100vh - 2 * var(--fmm-shell-pad));
+    height: calc(100dvh - 2 * var(--fmm-shell-pad));
     display: grid;
     /* 球场列宽 ≈ 可用行高 × 1.374。横向后看台在上下，盒比是
        105/68 ÷ 0.89 = 1.374 = 93.45/68。1.48 留一点余量：球场按行高反推
@@ -2106,6 +2128,12 @@ html[data-theme="light"] .fmm-match-bar {
   line-height: 1;
 }
 .fmm-match-bar .btn.icon-btn.is-muted .mtb-glyph { opacity: 0.5; }
+/* ⚠ 上面 `.fmm-match-bar .btn.icon-btn { display: inline-grid }`（特异性 0,3,0）
+   会**压掉** UA 样式表里 `[hidden] { display: none }`（0,1,0）。
+   所以「隐藏」的按钮照样会显示——必须显式声明。
+   这直接关系到全屏按钮：iPhone Safari 不支持全屏，那里必须**真的看不到**它，
+   否则就是一个点了没反应的按钮（用户会当成 bug）。 */
+.fmm-match-bar .btn[hidden] { display: none !important; }
 .fmm-match-bar #btn-match-motion-capture[data-motion-incidents]:not([data-motion-incidents="0"]) {
   position: relative;
   color: #fbbf24;
@@ -7110,6 +7138,23 @@ html[data-theme="light"] .badge-chip {
    但 fieldRect 是 0×0——极易误判成「规则没生效」）。
    这里显式把高度钉在本视口上，打断循环。 */
 @media (pointer: coarse) and (orientation: landscape) {
+  /* 上下内边距压到最小：0.65rem × 2 = 20.8px 全还给球场（横屏每一像素都值钱）。
+     ⚠ 改这里必须靠 `--fmm-shell-pad`，不能直接写 `padding`——
+     下面的高度公式引用的是同一个变量，写死就会出现「公式与 padding 各算各的」
+     那类 11px 溢出（见 `:root` 处的注释）。 */
+  #screen-match.active {
+    --fmm-shell-pad: 0.15rem;
+  }
+  /* `.match-layout` 的 `max-height: calc(100dvh - 0.6rem)` 是**桌面/竖屏**口径
+     （那时外壳 padding 只减一次刚好够）。横屏档必须减**两次** padding。 */
+  .match-layout.fm-match.fmm-match.live-kick,
+  .match-layout.fm-match.fmm-match.ht-kick,
+  .match-layout.fm-match.fmm-match.pre-kickoff {
+    max-height: calc(100dvh - 2 * var(--fmm-shell-pad));
+    /* 高度已按公式算好，不需要任何滚动。留着 `auto` 会让偶发 1~2px 取整差
+       变成一条可拖动的内滚条（触摸端尤其难看）。 */
+    overflow: hidden;
+  }
   /* 球场区高度 = 视口高 − chrome。这里**必须**给一个「由视口算出」的确定值：
      `container-type: size` 的 `100cqh/100cqw` 要求容器有确定尺寸。桌面档之所以
      能工作，是因为 `.match-layout` 写了 `height: calc(100dvh - 0.6rem)`。
@@ -7118,18 +7163,23 @@ html[data-theme="light"] .badge-chip {
      ⇒ **循环依赖** ⇒ 球场被算成极小值（实测一度只有 61×44px，比例还是对的
      1.374——比例对、尺寸错，最容易误判成「本来就该这么小」）。
 
-     N 的取值由实测标定（**h 与 N 呈 1:1**，两点定线：N=96→h=238、N=56→h=278，
-     ⇒ `h ≈ 334 − N`，底边 `= 116 + h = 450 − N`）。要 `底边 ≤ 视口高 390`
-     ⇒ **N ≥ 60**。取 **N=72** ⇒ h≈262、底边≈378，留 12px 余量。
-     ⚠ 别再往下压：N=56 时底边 394 > 390（**溢出 4px**，探针会报
-     「球场下缘超出视口」）；N=60 会贴边，取整误差可能刚好越界。
-     N=96 是安全但偏保守的一侧（球场只 238 高、底部白留 36px）。 */
+     N 的取值由实测标定。**旧值 N=72 是错的**：它假设计分条+控制条只占 72px，
+     但 844×390 实测计分条 115px、控制条 57px ⇒ 布局被挤爆（解说栏掉出视口、
+     控制条压到球场上，见下方注释）。
+     现在计分条已改成**浮层**（见下），所以 body 只需给控制条让位：
+     控制条 51 + 间隙 7 ⇒ **N=58**。
+     `h 与 N 呈 1:1`（球场高度 = 视口高 − N − dock 高），故 N 每减 1，球场就高 1px。
+
+     🔴 还要再减**外壳上下 padding**（`2 * var(--fmm-shell-pad)`）：
+     上面 `.match-layout` 的 max-height 是「外壳内容盒」的高度，body 在里面，
+     所以 body 的可用高度 = 外壳内容盒高 − 控制条。2026-09-20 之前这里只减 58
+     ⇒ body 比容器还高 20.8px ⇒ 溢出（详见 `:root` 处 `--fmm-shell-pad` 的注释）。 */
   .match-layout.fm-match.fmm-match.live-kick .fmm-match-body,
   .match-layout.fm-match.fmm-match.ht-kick .fmm-match-body,
   .match-layout.fm-match.fmm-match.pre-kickoff .fmm-match-body {
     flex: 0 0 auto;
-    height: calc(100vh - 72px);
-    height: calc(100dvh - 72px);
+    height: calc(100vh - 58px - 2 * var(--fmm-shell-pad));
+    height: calc(100dvh - 58px - 2 * var(--fmm-shell-pad));
     min-height: 0;
     max-height: none;
   }
@@ -7172,13 +7222,90 @@ html[data-theme="light"] .badge-chip {
     place-self: center;
     margin-inline: auto;
   }
-  /* 横屏手机屏幕极矮（390px）：把解说栏收成一条，高度全让给球场。
-     用户横持手机时想看的是**全场跑位**，解说文字可以回看/赛后看。 */
+  /* 横屏手机屏幕极矮：把「非球场」的三块都压到最小，高度全让给球场。
+     2026-09-20 实测（844×390，`mobile-pitch-adaptation-verify.mjs` 的 stack 分解）：
+       计分条 y=0..115（**115px！**）· body y=115 h=318（底边 433 **溢出视口 43px**）
+       · dock y=381 h=51 · 解说栏 y=440 h=70（**完全在视口外**）· 控制条 y=323 h=57（**与球场重叠**）
+     ⇒ 旧实现只写了 `height: calc(100dvh - 72px)`，而真实 chrome 远超 72px，
+        于是布局被挤爆：解说栏掉出视口、控制条压到球场上。 */
+  /* 解说栏：横屏本来就在视口外，显式藏掉（否则它继续参与布局、把 body 顶出去） */
   .match-layout.fm-match.fmm-match.live-kick .fmm-commentary,
   .match-layout.fm-match.fmm-match.ht-kick .fmm-commentary,
   .match-layout.fm-match.fmm-match.pre-kickoff .fmm-commentary {
-    max-height: 4.4rem;
-    flex: 0 0 auto;
+    display: none;
+  }
+  /* 计分条：改成**浮层**（横屏可用高度只有 ~295px，它占 62px 就是 21%）。
+     绝对定位到球场上方、半透明 + 模糊 ⇒ 这 62px 全部还给球场。
+     代价：遮住球场盒顶部约 62px —— 那里是**看台装饰带**（`.mp-stands.top`），
+     不是比赛区域，所以观感损失很小。
+     实测收益（844×390）：球场高 262 → 310（+18%）；
+     真机等效 800×295：167 → 215（+29%）。 */
+  .match-layout.fm-match.fmm-match.live-kick,
+  .match-layout.fm-match.fmm-match.ht-kick,
+  .match-layout.fm-match.fmm-match.pre-kickoff {
+    position: relative;
+  }
+  .match-layout.fm-match.fmm-match.live-kick .fmm-scoreboard,
+  .match-layout.fm-match.fmm-match.ht-kick .fmm-scoreboard,
+  .match-layout.fm-match.fmm-match.pre-kickoff .fmm-scoreboard {
+    /* ⚠ 必须 `!important`：`index.html:1219` 给这个 header 写了内联
+       `style="position:relative"`，**内联样式优先级高于任何样式表规则**，
+       不加 `!important` 这条 `position: absolute` 会被静默忽略
+       （伪装成「规则没生效」）。 */
+    position: absolute !important;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 30;
+    padding: 0.18rem 0.5rem;
+    border-radius: 0 0 8px 8px;
+    background: rgba(13, 19, 28, 0.62);
+    backdrop-filter: blur(6px);
+  }
+  .match-layout.fm-match.fmm-match.live-kick .fmm-scoreboard .fmm-stats-toggle,
+  .match-layout.fm-match.fmm-match.ht-kick .fmm-scoreboard .fmm-stats-toggle,
+  .match-layout.fm-match.fmm-match.pre-kickoff .fmm-scoreboard .fmm-stats-toggle {
+    display: none;
+  }
+  .match-layout.fm-match.fmm-match.live-kick .fmm-scoreboard .fm-sb-name,
+  .match-layout.fm-match.fmm-match.ht-kick .fmm-scoreboard .fm-sb-name,
+  .match-layout.fm-match.fmm-match.pre-kickoff .fmm-scoreboard .fm-sb-name {
+    font-size: 0.86rem;
+    line-height: 1.1;
+  }
+  .match-layout.fm-match.fmm-match.live-kick .fmm-scoreboard .fm-sb-short,
+  .match-layout.fm-match.fmm-match.ht-kick .fmm-scoreboard .fm-sb-short,
+  .match-layout.fm-match.fmm-match.pre-kickoff .fmm-scoreboard .fm-sb-short {
+    display: none;
+  }
+  .match-layout.fm-match.fmm-match.live-kick .fmm-scoreboard .fm-sb-clock,
+  .match-layout.fm-match.fmm-match.ht-kick .fmm-scoreboard .fm-sb-clock,
+  .match-layout.fm-match.fmm-match.pre-kickoff .fmm-scoreboard .fm-sb-clock {
+    font-size: 1.05rem;
+    line-height: 1.1;
+  }
+  /* 底栏里的「替补席条」在横屏是纯装饰，藏掉让 dock 从 51px 降到 ~24px */
+  .match-layout.fm-match.fmm-match.live-kick .mp-bench-strip,
+  .match-layout.fm-match.fmm-match.ht-kick .mp-bench-strip,
+  .match-layout.fm-match.fmm-match.pre-kickoff .mp-bench-strip {
+    display: none;
+  }
+  .match-layout.fm-match.fmm-match.live-kick .mp-fmm-dock,
+  .match-layout.fm-match.fmm-match.ht-kick .mp-fmm-dock,
+  .match-layout.fm-match.fmm-match.pre-kickoff .mp-fmm-dock {
+    min-height: 0;
+    padding: 0.16rem 0.45rem;
+    margin-top: 0.12rem;
+    grid-template-rows: auto;
+  }
+  /* 控制条：压薄 */
+  .match-layout.fm-match.fmm-match.live-kick .fmm-match-bar,
+  .match-layout.fm-match.fmm-match.ht-kick .fmm-match-bar,
+  .match-layout.fm-match.fmm-match.pre-kickoff .fmm-match-bar {
+    padding: 0.22rem 0.4rem;
+    padding-bottom: max(0.22rem, env(safe-area-inset-bottom, 0px));
+    border-radius: 8px;
+    gap: 0.25rem 0.4rem;
   }
 }
 /* 竖持手机：不渲染小球场，给「请横持」提示。
@@ -7237,6 +7364,44 @@ html[data-theme="light"] .badge-chip {
     flex: 1 1 auto;
     min-height: 8rem;
   }
+}
+
+/* ── 全屏观赛 `:fullscreen`（2026-09-20）────────────────────────────────
+   为什么这条最重要：手机横持时视口高只有 ~390px，浏览器工具栏（地址栏）
+   还要吃掉 ~95px ⇒ `100dvh ≈ 295px`。**这才是「手机横屏看比赛还是太小」
+   的根因**——CSS 里再怎么调 padding 也补不回那 95px。
+   进全屏后工具栏消失，`dvh` 直接等于屏幕高（295 → 390，**+32%**）。
+   上面的横屏档写的是 `height: calc(100dvh - 58px)`，`dvh` 变大 ⇒ 高度公式
+   **一个字都不用改**，球场自动变大。这里只处理「全屏外壳」的观感。
+
+   支持面（2026-09 查证）：Android Chrome/Edge、桌面 Chrome/Edge/Firefox、
+   iPadOS Safari ✅；**iPhone Safari ❌ 不支持任意元素全屏**（只有 <video>）。
+   不支持时 JS 会把按钮 `hidden`，用户看不到这个入口。
+
+   ⚠ 必须显式写 `position: fixed; inset: 0`，**不能只依赖 UA 的 `:fullscreen` 样式**：
+   横屏档给 `.match-layout.….live-kick` 写了 `position: relative`（特异性 0,4,0），
+   author 样式优先于 UA 样式 ⇒ 会把 UA 的 `position: fixed` 顶掉，
+   而 `position: relative` 下 `width/height: 100%` 的百分比基准不再是视口
+   ⇒ 全屏元素可能只有内容那么高。所以这里用 `!important` 钉死。 */
+.match-layout.fm-match.fmm-match:fullscreen,
+.match-layout.fm-match.fmm-match:-webkit-full-screen {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none;
+  /* `.match-layout.fm-match` 有 `max-height: calc(100dvh - 0.6rem)` 与
+     `overflow-y: auto`：全屏时必须去掉，否则留下 0.6rem 黑边、还多出滚动条 */
+  max-height: none;
+  overflow: hidden;
+  margin: 0;
+  border-radius: 0;
+  /* 横屏全屏时刘海/圆角屏在**左右**也有安全区；不处理球场会贴进切角里。
+     只加左右内边距 ⇒ 不影响上面 `100dvh - 58px` 的纵向计算。 */
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  /* UA 给全屏元素铺黑底；换成应用底色，与页面其余部分一致 */
+  background: var(--bg, #0d131c);
 }
 .mp-rotate-hint {
   flex-direction: column;

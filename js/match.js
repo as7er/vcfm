@@ -1406,6 +1406,27 @@ function applyHalfTimeSwap(state, fromMin) {
   // 幂等：以 state 为准回灌引擎（新建的引擎也能自愈）
   if (state._endsSwappedApplied) eng.endsSwapped = true;
   resyncSimAfterHalfTime(state);
+  // 🔴 换边后**必须重新开球**（2026-09-20 修用户报的「门将换位太慢/被进空门」）。
+  //
+  // `resyncSimAfterHalfTime` 只改阵型锚点 `a.baseX/a.baseY`，**不吸附球员实际坐标
+  // `a.x/a.y`**；而门将的目标位 `ty` 由 `clampGkY` 围绕 `ownGoalY(team)` 给出，
+  // `ownGoalY` 随 `endsSwapped` **瞬间翻转**。⇒ 换边那一刻门将的目标跳到对面球门、
+  // 身体却还在原地，只能自己跑过去。
+  //
+  // 实测（`scripts/_halftime-gk-swap-probe.mjs`，8 场，45 分钟处换边）：
+  //   换边瞬间两名门将距**新**己方球门 **96.0~102.2m**（均值 97.7 / 99.0），
+  //   要 **3.0~17.6s**（均值 13.4s）才回到门前 ≤15m。这段窗口球门是空的。
+  //   观察窗内 4 次射门 0 进球 —— 样本小，但暴露是真实的。
+  //
+  // `_kickoff` 会把所有 agent 吸附到新的 `baseX/baseY`（`a.x = a.baseX` 等），
+  // 正是开场/进球后用的那套已测代码；顺带把球放回中圈，符合「下半场从开球开始」
+  // 的真实规则（上半场由主队开球 ⇒ 下半场客队开球，见 `_kickoff("home")` 的初值）。
+  //
+  // ⚠ 只在 `fromMin === 46` 这一条路径开球。另一条触发路径 `state._simNeedsResync`
+  //   （换人/换阵）**不能**开球 —— 否则用户在 60 分钟换个阵型会当场重新开球。
+  // ⚠ 顺序不能反：必须**先** `resyncSimAfterHalfTime` 把 baseX/baseY 镜像到新半场，
+  //   `_kickoff` 吸附的才是换边后的位置。
+  if (fromMin === 46) eng._kickoff("away");
 }
 
 /**

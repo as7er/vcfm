@@ -63,7 +63,7 @@ DOM（`js/matchview.js`，插在 `.mp-pitch-slot` 之后、`.mp-fmm-dock` 之前
 `min(100cqw, calc(100cqh * 93.45 / 68))` 取最大等比矩形。
 
 ```css
-.fmm-match-body { flex: 0 0 auto; height: calc(100dvh - 72px); min-height: 0; max-height: none; }
+.fmm-match-body { flex: 0 0 auto; height: calc(100dvh - 58px - 2 * var(--fmm-shell-pad)); min-height: 0; max-height: none; }
 .fmm-match-body .fm-pitch-col { flex: 1 1 auto; height: 100%; min-height: 0; max-height: none; }
 .fmm-match-body .mp-wrap { flex: 1 1 auto; height: 100%; min-height: 0; }
 .fmm-match-body .mp-pitch-slot { flex: 1 1 0%; width: 100%; height: 100%; display: grid; place-items: center; container-type: size; }
@@ -77,6 +77,11 @@ DOM（`js/matchview.js`，插在 `.mp-pitch-slot` 之后、`.mp-fmm-dock` 之前
 /* 横屏手机屏幕极矮：解说栏收成一条，高度全让给球场 */
 .fmm-commentary { max-height: 4.4rem; flex: 0 0 auto; }
 ```
+
+⚠ **`2 * var(--fmm-shell-pad)` 是 2026-09-20 补的**（v275）。
+原来只写 `- 58px`，而 `.match-layout` 的 `max-height` 是「外壳内容盒」高度、
+外壳自己还有上下 padding ⇒ body 比容器还高 20.8px ⇒ **页面稳定可滚 11px**。
+详见 `docs/measurements/mobile-fullscreen-2026-09-20.txt` 的 [5] 节。
 
 
 [4] ⚠ 踩过的三个坑（都极易误判成「CSS 没生效」）
@@ -115,30 +120,53 @@ DOM（`js/matchview.js`，插在 `.mp-pitch-slot` 之后、`.mp-fmm-dock` 之前
 **N 怎么取（实测标定，不靠试错）**：
 `h` 与 `N` 呈 **1:1**（两点定线：N=96→h=238、N=56→h=278 ⇒ **`h ≈ 334 − N`**），
 球场底边 `= 116 + h = 450 − N`。要底边 `≤ 视口高 390` ⇒ **N ≥ 60**。
-取 **N=72** ⇒ `h = 262`、底边 `378`，留 12px 余量。
 ⚠ N=56 时底边 394 > 390（**溢出 4px**，探针会报「球场下缘超出视口」）；
 N=60 会贴边，取整误差可能刚好越界；N=96 是安全但偏保守的一侧（只 238 高、白留 36px）。
 **复验实测 `h=262` 精确命中 `334 − 72`，公式成立。**
+
+⚠ **N 后来从 72 改成了 58**（2026-09-20 同轮）：上面那轮标定时计分条还在**文档流里**
+（占 62px），后来改成**浮层**（`position: absolute`）⇒ 这 62px 全部还给球场，
+body 只需给控制条（51 + 间隙 7 = 58）让位 ⇒ **N=58**。
+两轮之间 `mobile4.log`（N=92）与 `mobile6.log`（N=58）的实测对比：
+② 844×390 球场 **374×272 → 421×306**。
+⚠ 但 N=58 那版**仍然溢出 11px**（见 [4] 坑 4），把 `--fmm-shell-pad` 一并修掉后
+最终落在 **414×301**（`scrollY = 0`）。
 
 ### 坑 3：`.fm-pitch-col` 的 `max-height: min(70vh, 100%)` 会二次卡住
 `.fm-pitch-col` 基础规则里有 `max-height: min(70vh, 100%)`。
 `100%` 在父元素高度未定时解析成很小的值，`70vh` 又不到半屏。
 必须在横屏块里显式 `max-height: none` 覆盖掉。
 
+### 坑 4：高度公式「只减一次」，而外壳 padding **上下各占一次**
+`#screen-match.active { padding: 0.65rem }`（上下各 10.4px），
+而 `.match-layout` 的 `max-height` 写的是 `calc(100dvh - 0.6rem)`（只减一次）
+⇒ 外壳总高 = 10.4 + 285.4 + 10.4 ≈ **306**，视口 **295** ⇒ **页面稳定可滚 11px**。
+桌面同源（`#screen-match` 1011 vs 视口 1000）。
+
+**修法**：抽 `--fmm-shell-pad` 让 padding 与所有高度公式**同源**；
+横屏档只改这一个值（`0.65rem → 0.15rem`），把 20.8px 还给球场。
+完整说明 + **「扫全文档 rect 也量不到溢出」的坐标系坑** 见
+`docs/measurements/mobile-fullscreen-2026-09-20.txt` 的 [5] 节。
+
 
 [5] 验证
 ---------
-`scripts/mobile-pitch-adaptation-verify.mjs`（三姿态目验，含截图）：
+`scripts/mobile-pitch-adaptation-verify.mjs`（五用例目验，含截图）：
 
-| 姿态 | 提示 | 球场 `.mp-pitch-slot` | 比例 | 溢出 |
-|---|---|---|---|---|
-| ① 竖持 390×844 | **367×282 可见** | 0×0（已藏）、`.mp-wrap` 保留 | — | 无横向滚动 |
-| ② 横持 844×390 | 隐藏 | **360×262 可见** | 1.374 ✅ | 底边 378 ≤ 390，留 12px ✅ |
-| ③ 桌面 1440×1000 | 不出现 | 1042×758 可见 | 1.374 ✅ | 无 |
+| 用例 | 姿态 | 提示 | 球场 | 比例 | `scrollX/Y` |
+|---|---|---|---|---|---|
+| ① | 竖持 390×844 | **367×282 可见** | 0×0（已藏）、`.mp-wrap` 保留 | — | 0 / 0 |
+| ② | 横持 844×390 | 隐藏 | **414×301** | 1.374 ✅ | 0 / **0** |
+| ②b | 横持矮屏 800×295 | 隐藏 | **283×206**（占视口高 69.8%） | 1.374 ✅ | 0 / **0** |
+| ②c | ② 的页进全屏 | 隐藏 | **414×301**、控制条仍在视口内 | 1.374 ✅ | 0 / **0** |
+| ③ | 桌面 1440×1000 | 不出现 | 1042×758 | 1.374 ✅ | 0 / **0** |
 
-结果：**三姿态全部通过**（`exit=0`）。截图见 `.tmp-video/mobile-{portrait,landscape,desktop-control}.png`。
-⚠ 横屏 N 值的复验过程见 [4] 坑 2 —— 一度 N=56 导致球场下缘溢出 4px 而失败，
-改为 N=72 后通过。
+结果：**五用例全部通过**（`exit=0`）。
+截图见 `.tmp-video/mobile-{portrait,landscape,landscape-short,landscape-fullscreen,desktop-control}.png`。
+⚠ N 值的复验过程见 [4] 坑 2 —— 一度 N=56 导致球场下缘溢出 4px 而失败；
+⚠ 11px 纵向滚动的定位与修复见 [4] 坑 4 —— **②/②b/③ 三处同时中招**，
+修前 `scrollY` 全是 11（整块界面能被上下拖）。
+⚠ 用例过滤：`VCFM_MOBILE_CASES=2b`（每个用例要真跑 134 场联赛 ~2.5 分钟，全跑 ~13 分钟）。
 
 ### 探针本身的坑
 - **不要干预 `navigator.serviceWorker`**：替换整个对象会让 `main.js` 顶层

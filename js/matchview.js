@@ -2811,16 +2811,39 @@ export class MatchView {
 
       // 角球：球从当前滚向角旗，人再堆禁区
       if (ev.type === "corner") {
-        const left = (finisher?.x ?? this.ball.x) < 50;
+        // 🔴 角球侧别：**必须读事件带的 `cornerX`**（2026-09-20 补修）。
+        //
+        // 旧实现是 `const left = (finisher?.x ?? this.ball.x) < 50` —— 用
+        // **射手/球的当前位置**推角旗侧别。但射手此刻站在哪，与「球从哪条边线出
+        // 底线」**没有必然关系**（角球是球被防守方碰出底线造成的，射手可能在
+        // 另一侧甚至回追中）⇒ 画面会从**另一侧角旗**开球。
+        //
+        // ⚠ 这是**第三条**角球路径（另两条：`:7288` 的内联 `case "corner"`、
+        //   `_stageCornerSetPiece()`）。前两条 2026-09-20 已修，这一条当时漏了 ——
+        //   它由 `main.js:9701/9727` 调 `prepareEvent` 进入，`needsBuildup`
+        //   集合里含 `"corner"`，**非 sim 路径会真的走到这里**。
+        //   三处现在共用同一事实源：事件源 `js/match.js` 掷一次的 `cornerX`。
+        //
+        // 端侧同样改由 `_attackDir(side)` 派生（与另两条一致），
+        // 不再用 `attHome ? 6 : 94` —— 那个写法在换边档会把角旗摆到自己半场。
+        const sideEngX = Number.isFinite(ev.cornerX)
+          ? ev.cornerX
+          : finisher?.x ?? this.ball.x;
+        const left = sideEngX < 50;
         const cx = left ? 6 : 94;
-        const cy = attHome ? 6 : 94;
+        const cornerAttacksUp = this._attackDir(side) < 0;
+        const cy = cornerAttacksUp ? 6 : 94;
         this._clearCarrier();
         this._beginFlight({ x: cx, y: cy, kind: "pass", ms: live ? 420 : 180 });
         this._addTrail(this.ball.x, this.ball.y, cx, cy, "pass", 0.45);
         for (const pl of this.players.filter((p) => p.team === side && p.pos !== "GK")) {
           if (Math.random() < 0.55) {
             pl.tx = clamp(30 + Math.random() * 40, 14, 86);
-            pl.ty = clamp(attHome ? 12 + Math.random() * 14 : 88 - Math.random() * 14, 6, 94);
+            pl.ty = clamp(
+              cornerAttacksUp ? 12 + Math.random() * 14 : 88 - Math.random() * 14,
+              6,
+              94
+            );
           }
         }
         await wait(live ? 520 : 160);

@@ -1416,6 +1416,13 @@
               <button type="button" id="btn-match-motion-capture" class="btn small icon-btn" disabled data-i18n-title="match.motionCaptureHint" title="保存并检查最近比赛片段" aria-label="保存并检查最近比赛片段" data-motion-incidents="0">
                 <span class="mtb-glyph" aria-hidden="true">↓</span>
               </button>
+              <!-- 全屏观赛（手机横持时把浏览器工具栏也藏起来）。
+                   ⚠ 默认 hidden：只有 `document.fullscreenEnabled` 为真时 JS 才摘掉。
+                   iPhone Safari **不支持**任意元素全屏 ⇒ 按钮在那里必须保持隐藏，
+                   否则点了没反应，用户会以为是坏按钮。 -->
+              <button type="button" id="btn-match-fullscreen" class="btn small icon-btn" hidden data-i18n-title="match.fullscreenHint" title="全屏观赛" aria-label="全屏观赛" aria-pressed="false">
+                <span class="mtb-glyph" aria-hidden="true">⛶</span>
+              </button>
             </div>
             <div class="match-speed-bar" role="group" aria-label="match speed">
               <button type="button" class="btn small" data-match-speed="0.5" title="慢放 ×0.5" aria-label="×0.5">0.5</button>
@@ -1512,7 +1519,7 @@
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {
         // 清理历史版本缓存，范围与 sw.js 保持一致。
-        var CURRENT_CACHE = "vcfm-v274";
+        var CURRENT_CACHE = "vcfm-v275";
         if (window.caches && caches.keys) {
           caches.keys().then(function (keys) {
             return Promise.all(
@@ -1523,7 +1530,7 @@
           }).catch(function () {});
         }
         // 本地开发：若 SW 异常可导致旧坏缓存；注册失败不阻断游戏
-        navigator.serviceWorker.register("./sw.js?v=274").then(function (reg) {
+        navigator.serviceWorker.register("./sw.js?v=275").then(function (reg) {
           try { reg.update(); } catch (e) {}
           if (reg.waiting) reg.waiting.postMessage({ type: "SKIP_WAITING" });
         }).catch(function () {});
@@ -1532,8 +1539,8 @@
           if (refreshing) return;
           refreshing = true;
           try {
-            if (!sessionStorage.getItem("vcfm-sw-reloaded-v274")) {
-              sessionStorage.setItem("vcfm-sw-reloaded-v274", "1");
+            if (!sessionStorage.getItem("vcfm-sw-reloaded-v275")) {
+              sessionStorage.setItem("vcfm-sw-reloaded-v275", "1");
               location.reload();
             }
           } catch (e) {

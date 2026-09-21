@@ -712,6 +712,88 @@ function updateMatchSfxUI() {
   if (glyph) glyph.textContent = muted ? "🔇" : "🔊";
 }
 
+/* ============================================================
+   全屏观赛（2026-09-20）
+   ------------------------------------------------------------
+   为什么需要：手机横持时视口高只有 ~390px，浏览器工具栏（地址栏/导航栏）
+   还要吃掉 ~95px ⇒ `100dvh ≈ 295px`。球场按 contain 只能拿到
+   「295 − 控制条」的高度。进全屏后工具栏消失，`dvh` 直接等于屏幕高
+   ⇒ 球场多出近 1/4 高度。**这才是「手机横屏看比赛还是太小」的根因**，
+   不是 CSS 没调好——再怎么调 padding 也补不回那 95px。
+
+   支持面（2026-09 查证，见 docs/measurements/mobile-fullscreen-2026-09-20.txt）：
+   - ✅ Android Chrome/Edge、桌面 Chrome/Edge/Firefox、iPadOS Safari
+   - ❌ **iPhone Safari 不支持任意元素全屏**（只有 <video> 能全屏）。
+     ⇒ `document.fullscreenEnabled` 为假时按钮保持 `hidden`：
+       宁可没有按钮，也不要给一个点了没反应的按钮。
+
+   ⚠ 故意**不做** `screen.orientation.lock("landscape")`：那会把竖持的手机
+     强行转过去，属于「用户没要求的动作」，且锁屏方向在部分系统上会失败。
+     竖持进全屏时页面本来就会显示「请横持手机」提示，用户自己转过去即可。
+   ============================================================ */
+function fullscreenSupported() {
+  try {
+    const el = document.documentElement;
+    return !!(
+      document.fullscreenEnabled &&
+      (el.requestFullscreen || el.webkitRequestFullscreen)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function currentFullscreenElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+
+/**
+ * 全屏按钮的显隐 / 文案 / 高亮。
+ * ⚠ 全部由**真实全屏状态**推导，不维护本地布尔标志位 ——
+ *   用户按 Esc、系统返回手势、切后台都可能退出全屏，本地标志位会失真。
+ */
+function syncFullscreenUI() {
+  const btn = $("#btn-match-fullscreen");
+  if (!btn) return;
+  if (!fullscreenSupported()) {
+    btn.hidden = true;
+    return;
+  }
+  btn.hidden = false;
+  const on = !!currentFullscreenElement();
+  btn.classList.toggle("active", on);
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  const label = on ? t("match.fullscreenExit") : t("match.fullscreen");
+  const hint = on ? t("match.fullscreenExitHint") : t("match.fullscreenHint");
+  btn.title = hint || label;
+  btn.setAttribute("aria-label", label || hint);
+}
+
+async function toggleMatchFullscreen() {
+  if (!fullscreenSupported()) return;
+  // 全屏的是**整块比赛界面**（含底部控制条），不是单块球场：
+  // 若只全屏球场，进了全屏就点不到暂停/退出，用户会被困在里面。
+  const host =
+    document.querySelector(".match-layout.fmm-match") ||
+    document.querySelector("#screen-match");
+  if (!host) return;
+  try {
+    if (currentFullscreenElement()) {
+      const exit = document.exitFullscreen || document.webkitExitFullscreen;
+      await exit.call(document);
+    } else {
+      const req = host.requestFullscreen || host.webkitRequestFullscreen;
+      await req.call(host, { navigationUI: "hide" });
+    }
+  } catch {
+    /* 用户拒绝 / 被策略拒绝：保持现状即可。静默比弹错干扰更小。 */
+  }
+  syncFullscreenUI();
+  // 全屏改变的是**可用高度** ⇒ 画布必须重测。浏览器一般会补发 window resize，
+  // 但补一帧显式重测成本极低，且能躲开「resize 与 flex 布局落稳」的时序差。
+  requestAnimationFrame(() => matchView?.refreshLayout?.());
+}
+
 function trimGoalReplayFrames(frames, climaxAt) {
   if (!Array.isArray(frames) || frames.length < 4) return [];
   const firstT = Number(frames[0]?.t);
@@ -883,6 +965,17 @@ const screens = {
 function showScreen(name) {
   Object.values(screens).forEach((el) => el.classList.remove("active"));
   screens[name].classList.add("active");
+  // 离开比赛界面必须退出全屏：否则用户会停在一块满屏的比赛界面上，
+  // 看不到任何返回入口（全屏把浏览器 UI 也藏了，连刷新/返回都没了）。
+  if (name !== "match" && currentFullscreenElement()) {
+    const exit = document.exitFullscreen || document.webkitExitFullscreen;
+    try {
+      exit?.call(document);
+    } catch {
+      /* ignore */
+    }
+  }
+  syncFullscreenUI();
 }
 
 const motionReviewState = {
@@ -1862,6 +1955,13 @@ function bindMainOnce() {
   $("#btn-match-step")?.addEventListener("click", () => requestMatchStep());
   $("#btn-match-step-mode")?.addEventListener("click", () => toggleMatchStepMode());
   $("#btn-match-motion-capture")?.addEventListener("click", () => captureCurrentMotionClip());
+  // 全屏观赛：按钮默认 `hidden`，由 syncFullscreenUI() 按能力检测结果决定是否露出。
+  $("#btn-match-fullscreen")?.addEventListener("click", () => toggleMatchFullscreen());
+  // ⚠ 必须监听 `document` 而不是按钮：用户按 Esc / 系统返回手势退出时也要同步图标。
+  // ⚠ 两个事件名都挂：Safari/Firefox 用标准名，Chromium 系历史上用带前缀的旧名。
+  document.addEventListener("fullscreenchange", syncFullscreenUI);
+  document.addEventListener("webkitfullscreenchange", syncFullscreenUI);
+  syncFullscreenUI();
   $("#btn-motion-review-close")?.addEventListener("click", () => closeMotionDiagnostic());
   $("#btn-motion-review-play")?.addEventListener("click", () => toggleMotionReviewPlayback());
   $("#btn-motion-review-prev")?.addEventListener("click", () => {
