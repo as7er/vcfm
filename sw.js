@@ -8,7 +8,9 @@
 // v275：手机全屏观赛（Android Chrome/Edge 走 `requestFullscreen`，iPhone Safari 不支持
 //       ⇒ 按钮隐藏）+ 修「外壳总高比视口多 11px ⇒ 页面永远可滚」的 `--fmm-shell-pad` 口径错。
 // v276：全屏入口可发现性（按钮主题色高亮 + 首次进入比赛 toast 一次）。
-const CACHE = "vcfm-v276";
+// v277：切段淡场三处（峰值 0.72→1 并保全遮曲段；reduced-motion 静态全遮；
+//       开球 `_segLastEndSimT` 初值 null 不再被 Number() 成 0 而多闪一次）。
+const CACHE = "vcfm-v277";
 const isVcfmCache = (name) => /^vcfm-v\d+$/.test(name);
 const ASSETS = [
   "./",

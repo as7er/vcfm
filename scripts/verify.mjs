@@ -35,6 +35,13 @@ const checks = [
   // ⚠ 浏览器级验证在 `scripts/mobile-pitch-adaptation-verify.mjs` 的 ②c 用例，
   //   它要跑 134 场联赛（~3 分钟/上下文）⇒ 只能手动跑，未常驻本套件。
   "scripts/mobile-fullscreen-wiring-verify.mjs",
+  // 切段淡场（2026-09-21 v277）：用户报「整队瞬移」已判决为场景切换，
+  // 但遮罩峰值 72%、reduced-motion 下完全透明、开球因 Number(null)===0 多闪一次。
+  // 本检查只做**静态 + 替身行为**（1 秒）：守 `== null` 守卫、keyframes 峰值 1 + 保持曲段、
+  // reduced-motion 静态全遮、`_playSegmentCut` 到时摘 class。
+  // ⚠ 跳变帧真实 fadeOpacity 由 `scripts/_segment-boundary-displacement.mjs` 量，
+  //   要 Playwright，未常驻本套件。
+  "scripts/segment-cut-fade-verify.mjs",
   // 中场体能「按跑动距离占比分摊」（2026-09-21）：用户已拍板的
   // 「读引擎 agent.fitness 回写」实测修不好「中场全队同值」（个体 spread 只有 0.39），
   // 改成用引擎累计的**真实跑动距离**分摊。本检查守：`runMetres` 在 engine.js 里

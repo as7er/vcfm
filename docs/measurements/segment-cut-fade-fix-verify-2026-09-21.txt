@@ -1,0 +1,175 @@
+切段淡场修复 · 修后复测（2026-09-21，v277）
+==========================================
+
+## 这份文档回答什么
+
+`docs/handoff-2026-09-21b.md` §6 给了三条动作，并写明**完成判据**：
+
+> 修完必须**再跑一次** `_segment-boundary-displacement.mjs`，确认 `fadeOpacity`
+> 在跳变帧 ≥ 0.9；并跑 `_segment-cut-verify.mjs 45` 确认仍 `stuckRuns=0`。
+
+本文是该判据的**执行记录 + 读数归档**，另含同一轮里查出的
+**检查脚本自身缺陷**（它一度让 `verify.mjs` 必红）与**变异测试**证据。
+
+判决依据（修前）见 `docs/measurements/segment-boundary-displacement-2026-09-21.txt`。
+
+
+## 修了哪三处
+
+全部在**表现层**，`js/sim/engine.js` 零改动。
+
+| # | 缺陷 | 位置 | 改法 |
+|---|---|---|---|
+| 1 | 淡场峰值只到 0.72，跳变帧仍 28% 可见 | `css/style.css:3770` `@keyframes mp-seg-cut-fade` | `0% { opacity: 1 }` + 新增 `35% { opacity: 1 }`，再 `100% { opacity: 0 }` |
+| 2 | `prefers-reduced-motion` 下遮罩被完全去掉（一跳 76 m 原样裸露） | `css/style.css:3778` 的 reduce 块（规则在 `:3782`） | 由 `animation:none; opacity:0` 改为 `animation:none; opacity:1`（静态全遮，仍由 `_playSegmentCut` 的定时器到时摘 class） |
+| 3 | 每场开球多闪一次淡场 | `js/matchview.js:1244` 的守卫（初值在 `:277` / `:1717` 设为 `null`） | 先留原始值 `const prevEndRaw = this._segLastEndSimT`（`:1221`），守卫加 `prevEndRaw == null` —— `Number(null) === 0` 会穿过 `isFinite` |
+| — | 缓存版本 | `sw.js` / `index.html` 等 | v276 → **vcfm-v277**（`node scripts/cache-audit.mjs` 退出码 0） |
+
+缺陷 3 的语义边界：拦的是**初值 `null`**，不是数值 `0`。
+`prevEnd = 0`（真的播过一段、上一段结束在第 0 秒）**仍走 `cut`** —— 静态检查里有一条专门钉这个区别。
+
+
+## 探针 1：切段边界位移（`_segment-boundary-displacement.mjs 75 live`）
+
+**修后读数**（1 场 × 75 秒直播，采样 3854 个 sim 帧，3 次切段）：
+
+普通帧基线：最大单实体位移 **中位 0.08 m / P99 1.22 m / 最大 24.1 m**。
+
+| # | gap | t0 | sceneCut | **fadeOpacity** | >6m 实体 | max | 中位 | 球 |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 68.9 s | 82.9 | true | **1** | 24 / 26 | 34.82 m | 16.13 m | 31.31 m |
+| 2 | 46.2 s | 148.1 | true | **1** | 23 / 26 | 51.23 m | 20.19 m | 51.23 m |
+| 3 | 610.3 s | 777.4 | true | **1** | 13 / 26 | 37.45 m | 6.79 m | 21.02 m |
+
+`NOTES []` / `ERRORS []`。脚本判决行（原文）：
+
+```
+全队一起跳（中位 >6m）：3 次 ｜ 个别实体跳（中位 ≤6m 但有 >6m）：0 次 ｜ 无明显跳：0 次
+⇒ 签名符合**场景切换（剪辑）**，不是物理 bug（skill Step 4）。
+淡场在跳变瞬间遮罩足够（opacity ≥ 0.9）。
+```
+
+**修前 → 修后**：`fadeOpacity` 恒为 **0.72 → 1**（每次 ≥ 0.9，判据达成）。
+
+⚠ **两次运行的比赛不同**（修前 4 次切段，t0 = 0.1 / 125.0 / 238.8 / 243.3；
+修后 3 次，t0 = 82.9 / 148.1 / 777.4）⇒ 位移分布**不能逐行对照**，
+唯一可比的是**遮罩不透明度**这个与随机流无关的量。
+
+⚠ 本次修复只改**遮罩**，**不改场景切换产生的位移本身**：
+上表 16 / 20 / 7 m 的中位位移与修前同量级，这是设计预期，不是回归。
+
+
+## 探针 2：切段淡场行为（`_segment-cut-verify.mjs 45`）
+
+**修后**（原文）：
+
+```
+ENTRIES [{"mode":"first","gapSec":null,"t0":0.1,"hasClass":false},
+         {"mode":"cut","gapSec":11.7,"t0":25.700000000000095,"hasClass":true}]
+CLASS   {"framesWithCutClass":19,"totalFrames":2407,"pct":0.8,"stuckRuns":0}
+MODES   {"first":1,"cut":1,"ease":0}
+NOTES [] / ERRORS []
+```
+
+**修前**（`docs/measurements/segment-cut-verify-2026-09-21.txt`）：
+
+```
+ENTRIES: cut gap=0.1s t0=0.1 hasClass=true
+         cut gap=25.7s t0=39.7 hasClass=true
+CLASS:   39/2329 帧 (1.7%)  stuckRuns=0
+MODES:   first=0  cut=2  ease=0
+```
+
+⇒ **缺陷 3 在真实浏览器里消失了**：`t0 = 0.1` 那条开球从
+`mode=cut / hasClass=true` 变成 **`mode=first / gapSec=null / hasClass=false`**，
+`MODES` 的 `first` 计数 **0 → 1**。这正是修复要达成的效果。
+
+⇒ 判据 2 达成：**`stuckRuns=0`**（class 不粘；切段淡场该出就出、该摘就摘）。
+`ease=0` 仍为 0 —— 缓动分支依旧是死路（真实段间隔 ≫ 一帧），与既有结论一致。
+
+
+## 静态检查：`scripts/segment-cut-fade-verify.mjs`（26 项，1 秒）
+
+已挂进 `scripts/verify.mjs`。修后 **26/26 通过**：
+
+- `[1]` 守卫：`prevEndRaw` 先于 `Number()`；`== null` 在 `isFinite(prevEnd)` **之前**（短路）；
+- `[2]` 行为（替身 `this` 真调 `MatchView.prototype._enterSegmentTransition`）15 例：
+  初值 `null` / `undefined` / `NaN` / 非 finite `t0` / 空帧表 → `first`；
+  跨段 125 → 238.8 → `cut`（`gapSec = 113.8`）；倒带 243.3 → 231.8 → `cut`（`gapSec < 0`）；
+  两窗相接 `gap === 0` → `first`；**`prevEnd = 0` 仍 → `cut`**；
+- `[3]` `@keyframes` 峰值 1 + 35% 仍全遮 + 100% 归零；
+- `[4]` reduced-motion 下 `animation:none` 且 `opacity:1`（且不再是 `0`）；
+- `[5]` `_playSegmentCut` 加 class / `SEGMENT_CUT_MS + 40` 到时摘 class。
+
+### 变异测试（证明这些断言有判别力，不是装饰）
+
+方法：改坏产品代码 → 断言应变红 → 恢复并**校验 sha256 逐字节一致**。
+（脚本是一次性的，不入库；做法按 `AGENTS.md` 里「把 `return;` 注释掉让断言全红」的先例。）
+
+| 变异 | 预期影响 | 实测 | 恢复一致 |
+|---|---|---|---|
+| 去掉 `prevEndRaw == null`（回到 v276 守卫） | `[1]` + `[2]` | **exit 1，4 项红** | ✅ |
+| `@keyframes` 峰值改回 `0.72` | `[3]` | **exit 1，2 项红** | ✅ |
+
+第一条变异的行为用例红在：
+
+```
+✗ 初值 null + t0=0.1 → mode first（开球不闪）  —— {"mode":"cut","gapSec":0.1}
+```
+
+`{"mode":"cut","gapSec":0.1}` **正是 v276 的病征原文** ⇒ 断言复现的是真缺陷，不是自说自话。
+
+
+## 🔴 同一轮修掉的检查脚本自身缺陷（一度让 `verify.mjs` 必红）
+
+首版 `segment-cut-fade-verify.mjs` 报 **7 项失败**，而当时**产品代码是对的**。
+根因在检查自己的辅助函数：
+
+```js
+// 首版（错）
+const start = src.indexOf(signature);      // ← 命中的是**调用点**
+```
+
+`_enterSegmentTransition` 在 `js/matchview.js:892` 被调用，**定义在 `:1212`**；
+`_playSegmentCut` 在 `:1252` 被调用，**定义在 `:1257`**。
+`indexOf` 命中调用点后，往后找的第一个 `{` 落在**别人**的方法上 ⇒ 断言去数了别人的花括号
+（`[1]` 甚至报出「定义体长度 15 字符」）。
+
+**修法**：锚在**行首缩进 + 签名 + `{`** 上（`/^[ \t]*<signature>[ \t]*\{/m`），
+调用点以 `this.` / `=` 起头，天然被排除；并加「体长落在预期区间」**双保险**
+（`> 500 && < 20000`），太小 = 抓错块，太大 = 吞了后文。修后定义体长度实测 **1949**（`_playSegmentCut` 为 399）。
+
+**可迁移教训**：用 `indexOf(签名)` 定位**定义**不可靠 ——
+「名字第一次出现的地方」几乎总是**调用点**。
+先例见 `AGENTS.md` 里那条「用固定长度窗口截源码做断言 = 假通过的常见来源」：
+同一个坑还有**假红**这一面，而假红同样有害 —— 它挂在 `verify.mjs` 上，
+下一个人要跑 43~57 分钟才发现红的是检查自己。
+
+
+## 未覆盖 / 下一步
+
+- 探针 1 只跑了 **1 场 × 75 秒**、**3 次切段**，样本不足以定「30 分钟内每次都这么大」的分布。**快速高光档（`fast`）未跑**。
+- 遮罩够浓 ≠ 观感就好：`0% 全遮 → 35% 全遮 → 100% 透明` 这条**节奏**尚未在真机 / 录屏上确认
+  （`docs/handoff-2026-09-21b.md` §4 缺陷 1 已提示「不要只看数字」）。
+- `_playSegmentCut` 的时长（`SEGMENT_CUT_MS + 40 = 300ms`）未随峰值改动调整。
+- **B 线（体能经济量级）仍未开始**：方向二选一（调总量 / 延长结算间隔）待用户拍板，见 `docs/handoff-2026-09-21b.md` §5。
+- **C 线（同步路径补 `weather.pace` extra）**：结论仍是「先不要改」。
+
+
+## 可复现命令
+
+```bash
+# 1) 静态 + 替身行为（1 秒，已挂进 verify.mjs）
+node scripts/segment-cut-fade-verify.mjs
+
+# 2) 跳变帧真实 fadeOpacity（Playwright，约 3~5 分钟，含推进比赛日）
+node scripts/_segment-boundary-displacement.mjs 75 live
+
+# 3) 淡场该出就出 / class 不粘（Playwright，约 3~4 分钟）
+node scripts/_segment-cut-verify.mjs 45
+
+# 4) 缓存版本号一致性（含 index.html 的 vcfm-sw-reloaded-vN）
+node scripts/cache-audit.mjs
+```
+
+判据：① 每次切段 `fadeOpacity ≥ 0.9`；② `stuckRuns = 0`；③ 4) 退出码 0。

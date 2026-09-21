@@ -1211,7 +1211,15 @@ export class MatchView {
    */
   _enterSegmentTransition(frames) {
     const t0 = Number(frames?.[0]?.t);
-    const prevEnd = Number(this._segLastEndSimT);
+    // ⚠ 必须留住**原始值**再归一：`Number(null) === 0` 且 `Number.isFinite(0)` 为真，
+    //   而 `_segLastEndSimT` 的初值正是 `null`（构造函数与 `_build` 两处都设 null），
+    //   于是初值会**直接穿过**下面的 finite 守卫，开球那一次算出
+    //   `gap = t0 - 0 = 0.1 ≠ 0` 被判成 `cut` ⇒ **每场开球凭空多闪一次淡场**。
+    //   （`undefined` / `NaN` 才会被拦住，`null` 不会 —— 已实测。）
+    //   显式判定「没有上一段」用 `== null`，同时覆盖 `null` 与 `undefined`，
+    //   与上面 `_relocLastSimT` 的写法保持同一惯例。
+    const prevEndRaw = this._segLastEndSimT;
+    const prevEnd = Number(prevEndRaw);
     // 上一段结束的比赛秒。没有则说明是本场第一次入场（开球），
     // 那是「比赛开始」而不是「跳过了内容」，不需要剪辑提示。
     //
@@ -1233,7 +1241,7 @@ export class MatchView {
     //
     //   注意：**不给段首加缓动**。倒带时球是从「进球后」缓动回「5.5 秒前」，
     //   那是倒着飞回去，比硬切更怪；正确解法是让淡场把它讲成换镜头。
-    if (!Number.isFinite(prevEnd) || !Number.isFinite(t0)) {
+    if (prevEndRaw == null || !Number.isFinite(prevEnd) || !Number.isFinite(t0)) {
       return { mode: "first", gapSec: null };
     }
     const gapSec = t0 - prevEnd;

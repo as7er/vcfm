@@ -3768,12 +3768,18 @@ html[data-theme="dark"] .mp-fmm-dock {
   animation: mp-seg-cut-fade 260ms ease-out both;
 }
 @keyframes mp-seg-cut-fade {
-  0% { opacity: 0.72; }
+  /* 跳变发生在 0% 那一帧。峰值必须接近全遮，否则观众仍能看见整队位移
+     （v276 实测 0.72 ⇒ 跳变帧仍有 28% 可见，用户报的就是这个「瞬移」）。
+     先全遮住一小段再淡出：否则一跳完立刻变透，后半程仍会漏。 */
+  0% { opacity: 1; }
+  35% { opacity: 1; }
   100% { opacity: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
-  /* 尊重系统设置：不做淡入，直接切 */
-  .mp-field.mp-seg-cut::before { animation: none; opacity: 0; }
+  /* 用户要的是少动，不是少遮。animation:none 会停在初始 opacity；
+     写成 0 等于完全没有遮罩，「一跳 76 m」原样裸露。
+     改成静态全遮罩，由 `_playSegmentCut` 的定时器（SEGMENT_CUT_MS+40）到时摘 class。 */
+  .mp-field.mp-seg-cut::before { animation: none; opacity: 1; }
 }
 .mp-lines {
   position: absolute;

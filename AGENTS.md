@@ -5,17 +5,36 @@
 > 仓库：https://github.com/as7er/vcfm.git · `master`（**2026-09-14 起规范地址为小写 `vcfm`**；
 > 大写 `VCFM` 仍可用但会走重定向，`origin` 已更新为小写）  
 > 预览：`python -m http.server 8765 --bind 127.0.0.1`  
-> **换机交接（2026-09-21 晚，第二次）**：`HEAD = 7916a6c`（已推送）。缓存 **vcfm-v276**。
-> 完整文档 [docs/handoff-2026-09-21b.md](docs/handoff-2026-09-21b.md)
-> （上一份：[docs/handoff-2026-09-21.md](docs/handoff-2026-09-21.md)）。
-> 一句话：**瞬移已判决** —— 那是**场景切换**（全队一起跳，非物理 bug），
-> 但遮住它的淡场**峰值只到 72% opacity**，跳变帧仍 28% 可见（缺陷已定位到
-> `css/style.css:3770` 的 `@keyframes` 与 `:3774` 的 reduced-motion 分支，**未修**）；
-> 顺带查出真 bug：**每场开球多闪一次淡场**（`_segLastEndSimT` 初值 `null` 被
-> `Number()` 变成 `0`，绕过 `js/matchview.js:1236` 的 finite 守卫）。
+> **本轮（2026-09-21 v277）**：修切段淡场三处（表现层，引擎零改动），**修后复测已按交接判据通过**。
+> 1. `@keyframes mp-seg-cut-fade` 峰值 0.72 → 1，并保 0%~35% 全遮再淡出；
+> 2. `prefers-reduced-motion` 下改为静态全遮（`animation:none; opacity:1`），不再裸露；
+> 3. `_enterSegmentTransition` 用 `prevEndRaw == null` 拦 `_segLastEndSimT` 初值，
+>    修「每场开球多闪一次」（`Number(null)===0` 穿过 `isFinite`）。
+> **修后复测**（`docs/handoff-2026-09-21b.md` §6 的完成判据）：
+> `_segment-boundary-displacement.mjs 75 live` 3 次切段 `fadeOpacity` 全 **1**（修前恒 **0.72**）；
+> `_segment-cut-verify.mjs 45` **`stuckRuns=0`**，且 `t0=0.1` 那条开球由
+> `cut / hasClass=true` 变成 `first / gapSec=null / hasClass=false`（`MODES.first` **0 → 1**）。
+> 缓存 **vcfm-v277**（`node scripts/cache-audit.mjs` 退出码 0）。
+> 判决依据 [docs/handoff-2026-09-21b.md](docs/handoff-2026-09-21b.md)；
+> 复测 + 变异测试读数 [docs/measurements/segment-cut-fade-fix-verify-2026-09-21.txt](docs/measurements/segment-cut-fade-fix-verify-2026-09-21.txt)
+> （修前基线 [docs/measurements/segment-boundary-displacement-2026-09-21.txt](docs/measurements/segment-boundary-displacement-2026-09-21.txt)）。
+> 🔴 **同一轮里 `scripts/segment-cut-fade-verify.mjs` 自己红了 7 项，而产品代码是对的** ——
+> 根因是它的 `bodyOf` 用 `src.indexOf(签名)` 定位，命中的是**调用点**而不是定义
+> （`_enterSegmentTransition` 在 `js/matchview.js:892` 被调用、**定义在 `:1212`**；
+> `_playSegmentCut` 在 `:1252` 被调用、**定义在 `:1257`**），
+> 于是断言去数了**别人的花括号**（甚至报出「定义体长度 15 字符」）。
+> 已改为锚「行首缩进 + 签名 + `{`」并加「体长落在预期区间」双保险。
+> **可迁移铁律：`indexOf(名字)` 找到的第一处几乎总是调用点，不是定义。**
+> 变异测试证明断言有判别力（不是装饰）：去掉 `== null` 守卫 → 4 项红，行为用例复现 v276 病征
+> `{"mode":"cut","gapSec":0.1}`；`@keyframes` 峰值改回 0.72 → 2 项红；两次都逐字节复原（sha256 一致）。
 > 体能「补 extra 会 1→2」仍被实测推翻（先不要改引擎）。
-> 测量归档 [docs/measurements/segment-boundary-displacement-2026-09-21.txt](docs/measurements/segment-boundary-displacement-2026-09-21.txt)。
-> 缓存：**vcfm-v276**（**全屏入口可发现性**：控制条全屏键用主题色从灰图标里拎出来，
+>
+> **上一份交接（2026-09-21 晚，第二次）**：`HEAD = 7916a6c`。当时缓存 **vcfm-v276**，
+> 三处都已定位**未修**。完整文档 [docs/handoff-2026-09-21b.md](docs/handoff-2026-09-21b.md)
+> （再上一份：[docs/handoff-2026-09-21.md](docs/handoff-2026-09-21.md)）。
+> 一句话（当时）：**瞬移已判决** —— 那是**场景切换**（全队一起跳，非物理 bug），
+> 但遮住它的淡场**峰值只到 72% opacity**，跳变帧仍 28% 可见。
+> 缓存（历史 v276，**全屏入口可发现性**：控制条全屏键用主题色从灰图标里拎出来，
 > 首次进入可观看的比赛 toast 一次「点右侧蓝色全屏键」；iPhone Safari 不支持时不弹。
 > v275 的手机全屏观赛 + 修「外壳总高比视口多 11px ⇒ 页面永远可滚」
 > 的 `--fmm-shell-pad` 口径错；v274 的手机横屏适配 B 方案继续有效：
