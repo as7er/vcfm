@@ -10,6 +10,7 @@
     "test:calendar-browser": "node scripts/browser-calendar-audit.mjs",
     "test:officials-browser": "node scripts/_officials-visual-verify.mjs",
     "test:matchview-browser": "node scripts/matchview-audit-in-simdrive.mjs --browser",
+    "test:reopen-browser": "node scripts/reopened-match-notice-browser-check.mjs",
     "benchmark": "node scripts/performance-benchmark.mjs",
     "benchmark:spatial": "node scripts/performance-benchmark.mjs --spatial",
     "benchmark:browser": "node scripts/browser-performance-audit.mjs"

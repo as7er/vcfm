@@ -198,3 +198,68 @@ const decisionTemp = clamp(
 3. **`decisions` 的评估需要新判据**（直接测被选选项的权重分布）。
 4. **④ 的修法 A/B/D/E** 待拍板；另需向用户确认"退出"的具体操作。
 5. `roles`/`duties` 的进攻端影响仍未量。
+
+
+## 附：④-B（真正的「继续看」）的可行配方 —— 已查实，约 15 行
+
+**这是本轮最有价值的发现**，写下来免得下一轮重新啃。
+
+### 依据 1：渲染与副作用是**分离**的（`js/match.js:1663-1695`）
+
+`simulatePeriodWithSim` 把整段的**渲染**交给 `opts.playHighlightPlan`，然后在它返回后有一段
+**兜底循环**：
+
+```js
+await playHighlightPlan({ segments, fromMin, toMin, tStart, tEnd, onSimT, onSkip });
+for (; cueIdx < cues.length; cueIdx++) {           // ① flush 所有剩余线索（进球/flavor）
+  if (c.kind === "goal") addSimGoal(...); else pushSimFlavor(state, c.item);
+}
+for (let m = fromMin; m <= toMin; m++) finishMinuteSideEffects(m, { silent: true });  // ② 每个分钟都跑
+```
+
+⇒ **即使一个段都没渲染，进球、事件、体能结算、分钟提示也全都会照常发生。**
+跳过渲染**不会丢状态**。
+
+### 依据 2：桥接器**已经**有「不渲染、只记账」的分支（`js/main.js:9652-9677`）
+
+```js
+for (const seg of segs) {
+  if (seg.kind === "skip") {
+    spec.onSkip?.(seg);                    // ← 记账
+    refreshLiveHudFromState(seg.toMin, seg.t1);
+    …banner「⏩ 跳过平淡 X'→Y'」…
+    continue;                              // ← 不渲染
+  }
+  …playSimTimeline(seg.frames)…
+}
+```
+
+### ⇒ 配方（**不需要改 `js/match.js`**）
+
+桥接器就在 `js/main.js`，所以它可以直接读一个 `main.js` 模块级变量：
+
+1. 加 `let matchResumeSimT = null;`（模块级，main.js）。
+2. 桥接器的 `for (const seg of segs)` **开头**插一句：
+
+```js
+if (matchResumeSimT != null && seg.t1 <= matchResumeSimT) {
+  spec.onSkip?.(seg);                 // 复用现成的跳过路径：记账 + HUD +（可选的）banner
+  refreshLiveHudFromState(seg.toMin, seg.t1);
+  continue;
+}
+```
+3. 第一次**真正渲染**之后把 `matchResumeSimT = null`（避免影响下一批 `playHighlightPlan` 调用）。
+4. `runMatch` 之前按存档里的 `simT` 设 `matchResumeSimT`；banner 文案改成
+   「⏩ 快进到你上次看到的位置（N′）」，与现成的「跳过平淡」区分开。
+
+### 仍需注意（下一轮要验的）
+
+- **跨半场**：`playFirstHalf`（`fromMin=1`）与 `playSecondHalf`（`fromMin=46/61/76`）是两次独立调用。
+  若续播点在 H2，H1 会整段跳过 ⇒ 仍会停在**中场面板**等一次确认（这未必是坏事：用户可顺手调整），
+  但要在文案里说清，或显式跳过 HT 面板。
+- **`applyHalfTimeSwap` 只在 `fromMin === 46` 触发**（`js/match.js:1510`）。
+  整段跳过**不会**影响它（它由 `fromMin` 决定，不由渲染决定）—— 但这条必须在实现后**实测**，
+  因为 v279 刚修完换边，别在这里引入回归。
+- **验证方式**：`scripts/_live-visual-audit.mjs` 已经能驱动一场真实直播（含联赛开局），
+  可以复用它来断言「续播后第一帧的 `simT ≈ resume 点」且比分/事件数与不续播时一致。
+- `_segLastEndSimT` / 切段淡场：跳过段不调 `playSimTimeline`，所以不会触发淡场 —— 符合预期。

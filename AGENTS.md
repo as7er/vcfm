@@ -5,7 +5,20 @@
 > 仓库：https://github.com/as7er/vcfm.git · `master`（**2026-09-14 起规范地址为小写 `vcfm`**；
 > 大写 `VCFM` 仍可用但会走重定向，`origin` 已更新为小写）  
 > 预览：`python -m http.server 8765 --bind 127.0.0.1`  
-> **本轮（2026-09-22 v280）**：**战术层摸底 + 两项落地**（用户诉求「让球员读懂战术」）。
+> **本轮（2026-09-22 v281）**：**「重开直播画面一样」= 设计，已改成「提示 + 替代动作」**（用户报）。
+> 查清：`openMatch` 无条件重置（`matchState=null` / `setMatchMinute(0,{reset})`）+ `runMatch` 新建会话
+> + `playFirstHalf` 硬编码 `fromMin=1`，而 `matchSeed` 随存档保留 ⇒ 随机流相同 ⇒ **重放逐位相同**。
+> 本轮只做两件事：`js/main.js` 用 sessionStorage 记进度（钩在 `setMatchMinute` 里，**`reset` 那次不记**，
+> 否则 `openMatch` 的 0′ 会覆盖进度；去重到整分钟，免得直播每帧都写盘）+ `openMatch` 末尾弹双语提示
+> （「从头重看」只关弹窗 /「直接出战报」→ `runMatch("instant")`）。
+> **续播仍未实现**（`fromMin` 仍只有硬编码 1/46/61/76）⇒ 弹窗里**不给**任何续播按钮，避免假承诺。
+> 新增 `scripts/reopened-match-notice-audit.mjs`（纯静态 12 项 + 7 项变异测试，瞬时，已挂 `verify.mjs`）；
+> 🔴 另加**浏览器层** `npm run test:reopen-browser`（`scripts/reopened-match-notice-browser-check.mjs`，
+> 146 秒）—— 走用户那条路：新游戏→推进比赛日→直播 25 秒→**F5**→再进比赛，
+> 断言弹窗**真的可见**、按钮都在、且不含假承诺。**静态断言证明不了「弹窗会出现」**，
+> 本仓库有「单测全绿但画面上什么都没发生」的血例（见 ③ 进场动画）。缓存 **vcfm-v281**。
+> 详见 [docs/measurements/tactics-layer-four-items-2026-09-22.txt](docs/measurements/tactics-layer-four-items-2026-09-22.txt)（④ 段）。
+> **上一轮（2026-09-22 v280）**：**战术层摸底 + 两项落地**（用户诉求「让球员读懂战术」）。
 > 先摸底（新增 `scripts/_tactics-understanding-probe.mjs`，配对 A/B：同一 seed、只改一个旋钮、
 > 客队恒默认作对照，4 种子 × 30 分钟）。**结论：旋钮大体读得懂，但有缺口**：
 > - ✅ `width` → 横向 **+44%**（12.7→18.3 m，10~20σ）；`defensiveLine` → DEF 无球纵深

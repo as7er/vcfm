@@ -16,7 +16,9 @@
 //       两名门将站进球网、越位基本吹不出、前场任意球整队摆到另一端；
 //       根因是引擎里一整类「按队名取端」的写法（`team === "home" ? … : …`）。
 //       同批还修了：越位线取反、庆祝/入网端别、阶段阵型锚点、赛后 xG 与热区归一化。
-const CACHE = "vcfm-v280";
+// v281：重开直播不再静默重演 —— `openMatch` 按 sessionStorage 记下的进度弹双语提示，
+//       并给「直接出战报」作为替代动作；**续播仍未实现**（本轮只做提示，不是功能）。
+const CACHE = "vcfm-v281";
 const isVcfmCache = (name) => /^vcfm-v\d+$/.test(name);
 const ASSETS = [
   "./",

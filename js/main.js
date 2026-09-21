@@ -57,8 +57,8 @@ import {
   habitLabel,
   startHabitTraining,
 } from "./player-habits.js";
-import { nationFlagHtml } from "./flags.js?v=280";
-import { clubCrestHtml } from "./club-crest.js?v=280";
+import { nationFlagHtml } from "./flags.js?v=281";
+import { clubCrestHtml } from "./club-crest.js?v=281";
 import { applyWorldClubBranding, localizedClubName } from "./branding.js";
 import { recordFinanceEntry } from "./finance-ledger.js";
 import { renderFinance as renderFinanceView } from "./ui/finance.js";
@@ -323,7 +323,7 @@ import {
   selectPlannedSaleCandidate,
   squadPlayerPlan,
   squadPositionPlan,
-} from "./squad-planning.js?v=280";
+} from "./squad-planning.js?v=281";
 import {
   TRAINING_MODES,
   ensureTrainingBoost,
@@ -390,7 +390,7 @@ import {
   staffAvatarHtml,
   avatarHtml,
   hydrateAvatarKitRecolor,
-} from "./avatar.js?v=280";
+} from "./avatar.js?v=281";
 import { attributeArchetypeLabel } from "./player-attributes.js";
 import {
   MANAGER_ONBOARDING_TAB_STEPS,
@@ -487,10 +487,57 @@ let selectedPreTalk = "encourage";
 let matchView = null;
 let matchViewApi = null;
 let matchViewModulePromise = null;
+// ---------- 重开直播的进度记账（只服务提示，不参与播放逻辑） ----------
+/** 上一场直播看到的进度。只用来「提醒用户重开会从 0′ 重演」，不参与播放逻辑。
+ *  用 sessionStorage：刷新（F5）后仍在 —— 那正是用户走的那条路；关标签页即失效，
+ *  不会把陈旧进度带到别的存档里。记账键含赛季/天/场次，换场次自然不匹配。 */
+const MATCH_PROGRESS_KEY = "vcfm-match-progress";
+
+/** 记账键：赛季 + 天数 + 场次 id ⇒ 换天/换场次自然不匹配，不会张冠李戴。 */
+function matchProgressKey(fixture) {
+  return `${world?.season}:${world?.day}:${fixture?.id ?? ""}`;
+}
+
+/** @returns {null | { key: string, minute: number, at: number }} 读不到或坏 JSON 都返回 null */
+function readMatchProgress() {
+  try {
+    const raw = sessionStorage.getItem(MATCH_PROGRESS_KEY);
+    if (!raw) return null;
+    const rec = JSON.parse(raw);
+    return rec && typeof rec === "object" ? rec : null;
+  } catch (_) {
+    /* 隐私模式 / 坏 JSON：当作没有记录，不能因此打断进比赛 */
+    return null;
+  }
+}
+
+/** @returns {boolean} 是否写入成功（配额或隐私模式失败时为 false） */
+function writeMatchProgress(rec) {
+  try {
+    sessionStorage.setItem(MATCH_PROGRESS_KEY, JSON.stringify(rec));
+    return true;
+  } catch (_) {
+    /* 存不下只是少一次提醒，绝不能影响比赛 */
+    return false;
+  }
+}
+
+/** 已写入的 { key, minute }。直播时 `refreshLiveHudFromState` 每帧都会调 `setMatchMinute`，
+ *  而 sessionStorage 是同步 API ⇒ 不去重就是每帧一次写盘；去重后每场只写 ~90 次。 */
+let lastMatchProgressWrite = { key: "", minute: 0 };
+
+function clearMatchProgress() {
+  lastMatchProgressWrite = { key: "", minute: 0 };
+  try {
+    sessionStorage.removeItem(MATCH_PROGRESS_KEY);
+  } catch (_) {
+    /* ignore */
+  }
+}
 
 function loadMatchViewModule() {
   if (!matchViewModulePromise) {
-  matchViewModulePromise = import("./matchview.js?v=280").then((module) => {
+  matchViewModulePromise = import("./matchview.js?v=281").then((module) => {
       matchViewApi = module;
       return module;
     });
@@ -10162,6 +10209,8 @@ async function openMatch() {
     return;
   }
   pendingMatch = next;
+  // 已完赛的场次不必再提示「重开会从 0′ 重演」
+  if (next.played) clearMatchProgress();
   matchState = null;
   pendingSubs = [];
   document.querySelector(".match-layout")?.classList.remove("match-report-only");
@@ -10226,6 +10275,49 @@ async function openMatch() {
   }
   matchPlayback.reviewMode = false;
   showScreen("match");
+  // 提示放在最后：赛前简报已渲染完，弹窗不会盖住「还在渲染」的中间态。
+  maybeWarnReopenedMatch(next);
+}
+
+/**
+ * 重开同一场比赛前，把「会从 0′ 重演」说清楚，并给一个替代动作。
+ *
+ * 为什么需要这条提示：`matchSeed` 随存档保留，而进比赛永远是**新建**会话
+ * （`openMatch` 无条件重置 + `runMatch` 新建会话 + `playFirstHalf` 从 fromMin=1 起算），
+ * 同一个随机流 ⇒ 重放逐位相同 ⇒ 用户看到「重开之后画面一模一样」，像是没反应。
+ * 本轮只提示，**不实现续播** —— 所以不给「接着看」这类按钮，避免假承诺。
+ */
+function maybeWarnReopenedMatch(fixture) {
+  if (!fixture || fixture.played) return;
+  const rec = readMatchProgress();
+  if (!rec || rec.key !== matchProgressKey(fixture) || !(rec.minute >= 1)) return;
+  const en = getLang() === "en";
+  const minute = Math.floor(rec.minute);
+  const body = $("#modal-body");
+  if (!body) return;
+  $("#modal-card")?.classList.remove("wide", "search-modal");
+  body.innerHTML = `
+    <h2>${escapeHtml(en ? "You already watched this match" : "这场比赛你已经看过一段")}</h2>
+    <p>${
+      en
+        ? `You watched up to <b>${minute}'</b>. Reopening restarts from <b>0'</b> — the engine replays the whole match from the beginning (it is identical every time, so it can look like nothing happened).`
+        : `上次你看到 <b>${minute}′</b>。重开直播会 <b>从 0′ 重演</b> —— 引擎会把整场从头再演一遍（每次都一样，所以看起来像"没反应"）。`
+    }</p>
+    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.75rem">
+      <button type="button" class="btn primary" id="btn-reopened-match-replay">${escapeHtml(
+        en ? "Replay from 0'" : "从头重看"
+      )}</button>
+      <button type="button" class="btn ghost" id="btn-reopened-match-instant">${escapeHtml(
+        en ? "Skip to report" : "直接出战报"
+      )}</button>
+    </div>`;
+  openSharedModal();
+  // 「从头重看」只关弹窗：用户随后自己点直播/快速按钮，这里不替他做决定。
+  $("#btn-reopened-match-replay")?.addEventListener("click", () => closeModal());
+  $("#btn-reopened-match-instant")?.addEventListener("click", () => {
+    closeModal();
+    runMatch("instant");
+  });
 }
 
 /** 开赛后收起赛前简报卡片（评论流仍保留） */
@@ -10282,6 +10374,20 @@ function setMatchMinute(min, { reset = false } = {}) {
   const el = $("#match-minute");
   if (el) el.textContent = `${Math.floor(displayedMatchMinute)}'`;
   matchView?.setBroadcastState?.({ minute: displayedMatchMinute });
+  // 进度记账：只服务「重开直播会从 0′ 重演」这条提醒，不参与任何播放逻辑。
+  // ① `reset` 那次是时钟边界或「刚进比赛界面」，不代表用户看过 —— 尤其 openMatch 的
+  //    setMatchMinute(0, { reset: true })，真记了就会把进度写成 0′。
+  // ② 已完赛场次不再提示（openMatch 里另有 clearMatchProgress）。
+  // ③ 只记整分钟：直播时 onSimT 每帧都走到这里，而 sessionStorage 是同步 API。
+  if (!reset && min >= 1 && pendingMatch && !pendingMatch.played) {
+    const key = matchProgressKey(pendingMatch);
+    const minute = Math.floor(min);
+    if (key !== lastMatchProgressWrite.key || minute > lastMatchProgressWrite.minute) {
+      if (writeMatchProgress({ key, minute, at: Date.now() })) {
+        lastMatchProgressWrite = { key, minute };
+      }
+    }
+  }
 }
 
 /**
