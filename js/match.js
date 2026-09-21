@@ -3078,18 +3078,70 @@ function applyResult(world, f) {
   }
 }
 
+/**
+ * 终场体能结算（每场一次，`finalizeMatch` 调用）。
+ *
+ * 🔴 口径（2026-09-21 改，方案 E）：**球队总量不变，改为按本场跑动距离占比分摊到个人**。
+ * 旧实现 `const drain = 4 + Math.floor(rng() * 6) + ...` 是**逐人掷骰子**，
+ * 与跑动距离完全无关 ⇒ 「跑了 13km 的人」可能比「跑了 8km 的人」扣得更少。
+ * 这是用户最初报的「各队员体能显示不对」的另一半：中场那 6 点已由方案 D
+ * （`settleFitnessDrain`）改成按跑动分摊，而终场这 4~9 点（均值 6.5）**比它还大**，
+ * 却仍是掷骰子。实测（`scripts/_fitness-finalize-drain-probe.mjs`，8 场）：
+ *   · 这一笔与跑动的 Spearman 只有 **-0.007**（即与噪声无异）；
+ *   · 整场总扣减与跑动的相关性因此被稀释到 **0.481**（中场结算那半是 0.890）；
+ *   · 改成按跑动分摊后，总量偏差 **1.4e-14**（精确守恒），队内极差 8.00 → **13.47** 点。
+ *     ⚠ 这两轮是**独立采样、不是受控 A/B**（探针当前不可逐位复现，见归档 §9）；
+ *     受控证据是**同一轮内**的「实际 vs 按跑动反事实」配对。
+ *
+ * ⚠ 三条不变量：
+ *  1. **球队总量与旧实现同分布**：仍是 `xi.length` 次独立骰子之和
+ *     ⇒ 场均扣减、赛季体能经济、换人阈值/伤病率/评分的标定**都不需要动**。
+ *  2. **rng 消耗次数与旧实现相同**（两边都是「非罚下球员各一次」）
+ *     ⇒ 不会平移后续的全局随机流。回退分支更是与旧实现**逐字相同**。
+ *  3. 拿不到引擎数据（概率引擎路径 / 读档后 `ensureSimEngine` 重建 ⇒ `runMetres` 全 0）
+ *     ⇒ **回退到旧的等额掷骰**，行为不变。
+ *
+ * ⚠ 分摊值**保留小数**，不再 `Math.round` —— 与 `settleFitnessDrain` 同一理由：
+ *   `perPlayer` 量级只有个位数，整数分辨率装不下队内 3.9× 的跑动差异。
+ *   面板/提示读到的都是 `Math.round(...)`，显示不受影响。
+ * ⚠ 触到 35 下限的球员会少扣 ⇒ 此时球队总量不再精确守恒（与方案 D 的 30 下限同理）。
+ */
 function drainFitness(club, isHome, state) {
   const sk = club.id === state.home.id ? "home" : "away";
   const sent = state.sentOff[sk];
   const fitW = state._fitW?.[sk] || fitnessMultOf(club.tactics);
-  for (const p of getLineupPlayers(club)) {
-    if (sent.has(p.id)) continue;
-    const drain = 4 + Math.floor(rng() * 6) + Math.round((fitW - 1) * 4);
-    p.fitness = Math.round(Math.max(35, p.fitness - drain));
+  const xi = getLineupPlayers(club).filter((p) => p && !sent.has(p.id));
+
+  // 引擎每帧累加的真实跑动距离（方案 D 建好的纯计数器，只写不读于物理）
+  const runById = new Map();
+  for (const a of state.simEng?.agents || []) {
+    if (a?.id != null) runById.set(a.id, Number(a.runMetres) || 0);
   }
-  const xi = new Set(club.tactics.lineup);
+  const work = xi.map((p) => runById.get(p.id) ?? 0);
+  const sumWork = work.reduce((s, v) => s + v, 0);
+
+  if (xi.length && sumWork > 0) {
+    // 球队总量：与旧实现同分布（每人一次骰子，再求和），只改分配方式
+    let teamTotal = 0;
+    for (let i = 0; i < xi.length; i += 1) {
+      teamTotal += 4 + Math.floor(rng() * 6) + Math.round((fitW - 1) * 4);
+    }
+    for (let i = 0; i < xi.length; i += 1) {
+      const p = xi[i];
+      p.fitness = Math.max(35, (Number(p.fitness) || 100) - (work[i] / sumWork) * teamTotal);
+    }
+  } else {
+    // 回退：与旧实现逐字相同（含 rng 调用顺序）
+    for (const p of getLineupPlayers(club)) {
+      if (sent.has(p.id)) continue;
+      const drain = 4 + Math.floor(rng() * 6) + Math.round((fitW - 1) * 4);
+      p.fitness = Math.round(Math.max(35, p.fitness - drain));
+    }
+  }
+
+  const xiIds = new Set(club.tactics.lineup);
   for (const p of club.players) {
-    if (!xi.has(p.id)) {
+    if (!xiIds.has(p.id)) {
       p.fitness = Math.round(Math.min(100, p.fitness + 3));
     }
   }

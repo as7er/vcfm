@@ -713,8 +713,10 @@ function addNationResult(competition, home, away, ga, gb) {
 /**
  * 征召的俱乐部代价：整场出战的球员消耗体能并承担一次伤病判定。
  *
- * 体能消耗与 `match.js` 的 `drainFitness` 同量级（4–9），另加长途奔波的
- * 固定项；下限与俱乐部比赛一致取 35。伤病沿用 `injuries.js` 既有的诊断与
+ * ⚠ 体能消耗口径是**逐人 4–9 点的掷骰**。俱乐部赛的终场那笔已在 v278 改成
+ * 「按本场跑动距离占比分摊球队总量」（见 `match.js` 的 `drainFitness`），
+ * 所以这里与它**只同量级、不同分配方式**；征召没有跑动距离数据，维持掷骰。
+ * 另加长途奔波的固定项；下限与俱乐部比赛一致取 35。伤病沿用 `injuries.js` 既有的诊断与
  * 复发风险，不新增伤病类型，也不写入任何能力或胜率修正。
  *
  * @returns {Array<{player: Object, injury: Object}>} 本场因征召受伤的球员

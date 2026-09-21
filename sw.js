@@ -10,7 +10,9 @@
 // v276：全屏入口可发现性（按钮主题色高亮 + 首次进入比赛 toast 一次）。
 // v277：切段淡场三处（峰值 0.72→1 并保全遮曲段；reduced-motion 静态全遮；
 //       开球 `_segLastEndSimT` 初值 null 不再被 Number() 成 0 而多闪一次）。
-const CACHE = "vcfm-v277";
+// v278：终场体能改为按本场跑动距离占比分摊（`match.js` 的 `drainFitness`）——
+//       原先是逐人掷骰子 4~9 点，与跑动无关；球队总量口径不变。
+const CACHE = "vcfm-v278";
 const isVcfmCache = (name) => /^vcfm-v\d+$/.test(name);
 const ASSETS = [
   "./",
