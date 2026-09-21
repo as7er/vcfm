@@ -16,7 +16,8 @@
 // Usage: node scripts/_segment-cut-verify.mjs [seconds]
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
@@ -26,8 +27,36 @@ const baseUrl = "http://127.0.0.1:" + port + "/";
 const seconds = Math.max(20, Number(process.argv[2]) || 60);
 
 const PROGRESS = root + ".tmp-continuity/cut-progress.log";
+mkdirSync(dirname(PROGRESS), { recursive: true });
 const mark = (s) => { try { appendFileSync(PROGRESS, new Date().toISOString() + " " + s + "\n"); } catch { /* ignore */ } };
 mark("start");
+
+async function closeModalIfAny(page) {
+  // ⚠ 必须认 `#modal` 的 `hidden` class，只查 `.modal.open/.show` 会漏。
+  const closed = await page
+    .evaluate(() => {
+      const m = document.querySelector("#modal");
+      if (!m) return false;
+      const vis = getComputedStyle(m);
+      if (vis.display === "none" || vis.visibility === "hidden" || m.classList.contains("hidden")) {
+        return false;
+      }
+      const btn =
+        m.querySelector("#modal-close, [data-close], .modal-close, .modal-x, button.close") ||
+        [...m.querySelectorAll("button")].find((b) =>
+          /关闭|确定|继续|知道了|OK|×/i.test(b.textContent || "")
+        );
+      if (btn) {
+        btn.click();
+        return true;
+      }
+      m.click();
+      return true;
+    })
+    .catch(() => false);
+  if (closed) await page.waitForTimeout(400);
+  return closed;
+}
 
 const server = spawn("python", ["-m", "http.server", String(port), "--bind", "127.0.0.1"], {
   cwd: root, stdio: "ignore", windowsHide: true,
@@ -85,31 +114,39 @@ try {
   page.on("console", (m) => { if (m.type() === "error") errors.push("console: " + m.text()); });
   page.on("dialog", async (d) => { await d.accept(); });
 
-  await page.goto(baseUrl, { waitUntil: "networkidle" });
-  await page.waitForFunction(() => (
-    !("serviceWorker" in navigator) ||
-    Object.keys(sessionStorage).some((k) => k.startsWith("vcfm-sw-reloaded-"))
-  ));
-  await page.waitForLoadState("networkidle");
-  await page.waitForFunction(() => !!window.vcfmMainApi, null, { timeout: 120_000 });
+  // ⚠ 不要等 `vcfm-sw-reloaded-*`：headless 下 SW 可能不写这条，30s 就超时。
+  //   已验证路径（`_display-layer-motion-probe.mjs`）：domcontentloaded + 轮询 vcfmMainApi。
+  await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 90_000 });
+  let apiReady = false;
+  for (let i = 0; i < 90 && !apiReady; i++) {
+    apiReady = await page.evaluate(() => !!window.vcfmMainApi).catch(() => false);
+    if (!apiReady) await page.waitForTimeout(1000);
+  }
+  assert.ok(apiReady, "首屏未就绪：window.vcfmMainApi 未出现");
   mark("booted");
   await page.fill("#input-manager", "Cut Verify");
   await page.click("#btn-new-game");
   await page.waitForSelector("#screen-main.active", { timeout: 150_000 });
   mark("main-screen");
 
-  for (let day = 0; day < 40; day++) {
-    if (await page.locator("#btn-play-match").isEnabled().catch(() => false)) break;
-    const before = await page.evaluate(() => (document.querySelector("#next-match")?.innerText || ""));
-    await page.click("#btn-advance").catch(() => {});
-    await page.waitForFunction(
-      (prev) => (document.querySelector("#next-match")?.innerText || "") !== prev,
-      before, { timeout: 8000 }
-    ).catch(() => {});
+  // ⚠ 旧循环点 `#btn-advance` 等 `#next-match` 文案变化，实测卡在 main-screen。
+  //   已验证可用的路径：`#btn-advance-matchday` + 轮询 `#btn-play-match`.disabled。
+  await page.locator("#btn-advance-matchday").click();
+  let kicked = false;
+  for (let i = 0; i < 360 && !kicked; i++) {
+    await page.waitForTimeout(2000);
+    await closeModalIfAny(page);
+    const st = await page.evaluate(() => {
+      const b = document.querySelector("#btn-play-match");
+      return { disabled: b ? b.disabled : null };
+    });
+    kicked = st.disabled === false;
+    if (i % 15 === 0) mark("advance i=" + i + " disabled=" + st.disabled);
   }
-  assert.ok(await page.locator("#btn-play-match").isEnabled(), "match never became playable");
+  assert.ok(kicked, "推进到比赛日后仍无「进入比赛」可点");
   mark("matchday");
-  await page.click("#btn-play-match");
+  await closeModalIfAny(page);
+  await page.locator("#btn-play-match").click();
   await page.waitForSelector("#screen-match.active", { timeout: 60_000 });
   await page.evaluate(INSTALL, seconds * 1000);
   mark("installed");

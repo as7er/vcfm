@@ -769,6 +769,16 @@
 > 实际是 **4** 处 —— 还有一处是**概率引擎路径**（`runMinutesSync`，
 > 非空间模拟时走它）。写替换脚本时用 `assert count === 1` 才暴露出来
 > （样式匹配到 2 次）。**复制粘贴的实现数量，永远比你以为的多一个。**
+>
+> 🔴 **`round()` 阈值 ≠ 线性增量**（2026-09-21）。
+> 直播路径 `wetExtra = weather.pace < 0.92 ? 0.5 : 0` **确实接线了**，
+> 但 `perPlayer = max(1, round(fitW + extra))` 只有 `fitW + extra ≥ 1.5`
+> 才会从 1 变成 2。默认战术实测 fitW=1.0165；雨/热的
+> `weatherTeamImpact.fatigue` 反而把 fitW 压到 0.99 / 0.95，
+> `round(1.49)` / `round(1.45)` 仍是 1。live45 晴/雨/热 meanD **都是 −3**。
+> **先打印实际 fitW 再谈「补 extra」**；默认档的 0 差不能当「没接线」。
+> 要验证 extra 本身必须显式构造高压迫 / attack 档。归档：
+> `docs/measurements/weather-pace-fitness-2026-09-21.txt`。
 
 > **另外两条未开工的**（正文 09-17 交接「用户报告的中场面板问题」小节末的
 > **同轮发现的独立问题（未修，已诊断）** 与 **另一未修** 两段）：

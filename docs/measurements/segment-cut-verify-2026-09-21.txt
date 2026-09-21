@@ -1,0 +1,43 @@
+切段淡场复验（2026-09-21）
+==========================
+
+探针
+----
+`scripts/_segment-cut-verify.mjs 45`
+钩 `_enterSegmentTransition`，看 `.mp-field` 是否挂上 `.mp-seg-cut`。
+
+本轮修了探针自己的启动路径（不是修产品）：
+1. 旧循环点 `#btn-advance` 等 `#next-match` 文案变化 ⇒ 卡在 main-screen。
+   改为 `#btn-advance-matchday` + 轮询 `#btn-play-match`.disabled
+   （照抄 `_display-layer-motion-probe.mjs`）。
+2. `#modal` 必须认 `hidden` class。
+3. 不要等 `vcfm-sw-reloaded-*`：headless 下 SW 可能不写这条，30s 超时。
+   改为 `domcontentloaded` + 轮询 `window.vcfmMainApi`。
+
+
+读数（45s 采样，直播）
+----------------------
+ENTRIES:
+  { mode:"cut", gapSec:0.1,  t0:0.1,  hasClass:true }
+  { mode:"cut", gapSec:25.7, t0:39.7, hasClass:true }
+CLASS: framesWithCutClass=39 / totalFrames=2329 (1.7%)  stuckRuns=0
+MODES: first=0  cut=2  ease=0
+ERRORS: []
+
+判据与结论
+----------
+- **淡场会触发**：两次切段都挂了 `.mp-seg-cut`。
+- **不会卡住**：stuckRuns=0（class 没留在场上把球场涂黑）。
+- **缓动分支仍是死的**：ease=0。真实间隔 25.7s ≫ 一帧，走 cut，与
+  `_segment-gap-census.mjs` 的 129.5~956.8 比赛秒一致。
+- **`first=0` 不能当「开球闪了一下」**：钩子是在 `#screen-match` 已经
+  active 之后才打上的，开球那一次 `_enterSegmentTransition` 没采到。
+  第一条 gapSec=0.1 是直播开始后探针看到的第一段，不是真正的 kick-off。
+
+未覆盖
+------
+本探针只证明「切段入口会淡场、class 不粘」。
+**没有**在切段边界本身量 22 人 / 球 / 裁判的位移。
+用户视频里的「整队瞬移」要靠那一步才能判决
+（skill `motion-artifact-diagnosis` Step 4：所有实体一起跳 = 场景切换）。
+画面层 `totalIncidents=0` 仍然不能结案。

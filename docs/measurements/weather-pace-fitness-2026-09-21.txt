@@ -1,0 +1,74 @@
+weather.pace 对体能的实际效应（2026-09-21）
+============================================
+
+问题
+----
+同步路径 `simulateMatchSync` 的 15 分钟结算历来不带
+`wetExtra = weather.pace < 0.92 ? 0.5 : 0`（两个直播路径带）。
+先前判断：默认战术 fitW ≈ 1.0 ⇒ extra 0.5 把
+`perPlayer = max(1, round(fitW + extra))` 从 1 推到 2
+⇒ 上半场 3 次结算 −3 vs −6，整场 −6 vs −12。
+这是实质性行为改动，必须先量再改。本轮**只测量、不改引擎**。
+
+
+探针
+----
+`scripts/_weather-pace-fitness-probe.mjs`
+对照 `playFirstHalf`（直播 45'，无 finalize）与 `simulateMatchSync`
+（同步 90' + finalize 的 `drainFitness`）× clear / rain / heat。
+
+⚠ 假 world 必须带 `table: { user, opp }` 与 `clubs[].form = []`。
+  `finalizeMatch` → `applyResult` 读 `world.table[f.home]`，缺了会
+  `TypeError: Cannot read properties of undefined (reading 'user')`。
+  这是探针构造问题，不是引擎问题。
+
+⚠ `simulateMatchSync` 完赛还会再走一次 `drainFitness`
+  （每人再扣 4~9 点，与 15 分钟结算是另一笔）。
+  所以 sync90 的 meanD **不能**和 live45 的 −3/−6 直接比；
+  隔离天气项的是「雨−晴 / 热−晴」的差。
+
+
+fitW 分解（开赛后、第一次结算前）
+--------------------------------
+默认战术：style=balanced, pressing=3, defensiveLine=3
+  styleFit = 1.0000
+  roleFit  = 1.0165   （4-3-3 默认角色平均后再 ×0.55）
+  晴：fatigue=1.0000  ⇒ fitW=1.0165  extra=0    round(1.0165)=1
+  雨：fatigue=0.9741  ⇒ fitW=0.9902  extra=0.5  round(1.4902)=1
+  热：fatigue=0.9390  ⇒ fitW=0.9545  extra=0.5  round(1.4545)=1
+
+判据：`fitW + extra ≥ 1.5` 才会把 perPlayer 从 1 推到 2。
+三档都没跨过。雨/热的 fatigue **把 fitW 压到 1 以下**，
+extra 0.5 反而更够不着 1.5。
+
+
+读数
+----
+live45  晴 meanD=−3  雨 −3  热 −3     雨−晴=0  热−晴=0
+sync90  晴 meanD=−12.55  雨 −12.55  热 −12.91
+        雨−晴=0  热−晴=−0.36
+        （−12.55 = 6 次 15 分钟结算 ×1 点 + finalize drainFitness；
+          热的 −0.36 落在 drainFitness 的 4~9 点噪声里，不能当 extra 生效）
+
+判决：live 雨/热是否把 perPlayer 从 1 推到 2 = **否**。
+先前「补 extra 会让坏天气扣减翻倍」**在默认战术下不成立**。
+extra 被 `round()` 吃掉；疲劳间接项（weatherTeamImpact.fatigue）
+也只把 fitW 从 1.0165 挪到 0.95~0.99，round 之后仍是 1。
+
+
+这意味着什么
+------------
+1. 同步路径「缺 extra」在默认战术下**观测不到差异**。
+   把它补上也不会让面板从 −3 变成 −6。
+2. extra 要生效，必须先让 fitW 本身靠近 1.5
+   （高压迫 / 高防线 / attack 风格 / 角色 fit 叠加）。
+   那是另一档战术，不是「补一行 extra」就能在默认档看到的。
+3. 体能经济量级（面板极差只有 3 点 / 上半场只扣 3 点）
+   与这条无关：那是 `perPlayer` 的绝对值，不是天气项。
+
+
+未做
+----
+- 不改引擎。同步路径继续不带 extra。
+- 未测「高压迫 + attack」档是否能跨过 1.5 —— 要验证 extra 本身
+  必须显式构造那一档，不能拿默认档的 0 当「extra 没接线」。
