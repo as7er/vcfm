@@ -34,6 +34,16 @@ ERRORS: []
   active 之后才打上的，开球那一次 `_enterSegmentTransition` 没采到。
   第一条 gapSec=0.1 是直播开始后探针看到的第一段，不是真正的 kick-off。
 
+  🔴 **勘误（2026-09-21 晚，见 `segment-boundary-displacement-2026-09-21.txt`）**：
+  上面这条解释**被推翻**。真因不是「钩子打晚了」——
+  `scripts/_segment-boundary-displacement.mjs` 在点 `#btn-sim-live` **之前**就装了钩子，
+  仍然抓到开球那次 `t0=0.1` 被判成 `cut` 并闪了淡场。
+  真因是 `js/matchview.js:1236` 的 finite 守卫失效：
+  `_segLastEndSimT` 初值 **`null`**，而 `Number(null) === 0`、`Number.isFinite(0) === true`
+  ⇒ 守卫拦不住初值 ⇒ `gapSec = 0.1 − 0 = 0.1 ≠ 0` ⇒ 判 `cut`。
+  **即：每场开球都会多闪一次淡场（真 bug，未修）。**
+  `MODES: first=0` 正是这个 bug 的读数，不是探针的问题。
+
 未覆盖
 ------
 本探针只证明「切段入口会淡场、class 不粘」。

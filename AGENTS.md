@@ -5,10 +5,16 @@
 > 仓库：https://github.com/as7er/vcfm.git · `master`（**2026-09-14 起规范地址为小写 `vcfm`**；
 > 大写 `VCFM` 仍可用但会走重定向，`origin` 已更新为小写）  
 > 预览：`python -m http.server 8765 --bind 127.0.0.1`  
-> **换机交接（2026-09-21 晚）**：`HEAD = f70b40b`（已推送）。缓存 **vcfm-v276**。
-> 完整文档 [docs/handoff-2026-09-21.md](docs/handoff-2026-09-21.md)。
-> 一句话：全屏入口已验收；体能「补 extra 会 1→2」被实测推翻（先不要改引擎）；
-> 瞬移仍未结案（下一步是切段边界量位移，不是再读 `totalIncidents=0`）。
+> **换机交接（2026-09-21 晚，第二次）**：`HEAD = 7916a6c`（已推送）。缓存 **vcfm-v276**。
+> 完整文档 [docs/handoff-2026-09-21b.md](docs/handoff-2026-09-21b.md)
+> （上一份：[docs/handoff-2026-09-21.md](docs/handoff-2026-09-21.md)）。
+> 一句话：**瞬移已判决** —— 那是**场景切换**（全队一起跳，非物理 bug），
+> 但遮住它的淡场**峰值只到 72% opacity**，跳变帧仍 28% 可见（缺陷已定位到
+> `css/style.css:3770` 的 `@keyframes` 与 `:3774` 的 reduced-motion 分支，**未修**）；
+> 顺带查出真 bug：**每场开球多闪一次淡场**（`_segLastEndSimT` 初值 `null` 被
+> `Number()` 变成 `0`，绕过 `js/matchview.js:1236` 的 finite 守卫）。
+> 体能「补 extra 会 1→2」仍被实测推翻（先不要改引擎）。
+> 测量归档 [docs/measurements/segment-boundary-displacement-2026-09-21.txt](docs/measurements/segment-boundary-displacement-2026-09-21.txt)。
 > 缓存：**vcfm-v276**（**全屏入口可发现性**：控制条全屏键用主题色从灰图标里拎出来，
 > 首次进入可观看的比赛 toast 一次「点右侧蓝色全屏键」；iPhone Safari 不支持时不弹。
 > v275 的手机全屏观赛 + 修「外壳总高比视口多 11px ⇒ 页面永远可滚」
