@@ -365,6 +365,76 @@ function fitnessMultOf(tactics) {
   return (mod.fitness || 1) * press * line;
 }
 
+/**
+ * 结算一次「15 分钟整点」的体能消耗。
+ *
+ * 🔴 口径（2026-09-21 改）：**球队总量不变，按本窗口的跑动距离占比分摊到个人**。
+ * 旧实现是「每人固定扣 `perPlayer`」⇒ 中场面板 11 人**完全同值**（实测全员 87），
+ * 用户报的「各队员体能显示不对」就是这个。而引擎侧那份逐人体能几乎没有个体差异
+ * （实测队内 spread 只有 0.39 / 总耗 4.84；`stamina` 被 `norm()` 压到 1.064×，
+ * `pressing` 是球队级，`workRate` 只区分三个瞬时状态）⇒
+ * **「读引擎 `agent.fitness` 回写」修不好它**，见
+ * `docs/measurements/halftime-fitness-per-player-2026-09-21.txt`。
+ *
+ * 现在用**引擎每帧本来就有的真实位移**（`agent.runMetres`）作为个体负荷：
+ * 实测队内 max/min 跑动比值 **3.889**（比赛级 SD 0.287，48 场标定），
+ * 与现实足球一致（中场 ~10km / 中卫 ~9km / 门将 ~3km）。
+ *
+ * ⚠ 三条不变量：
+ *  1. **球队总量精确守恒**：每人名义扣减 `perPlayer` × 人数 = 球队总量，
+ *     用**最大余数法**取整分摊 ⇒ `Σ drain_i` **精确等于**球队总量
+ *     ⇒ 未触 30 下限时，全队 `Σ fitness` 的轨迹与旧实现**逐位相同**。
+ *  2. 只改**队内分布**，不改球队均值 ⇒ **零重标定**。
+ *  3. 没有引擎数据 / 本窗口无人跑动（含读档后引擎重建）⇒ **回退到旧的等额扣减**。
+ *
+ * ⚠ 三处调用点的 `extra` 保持各自原语义（两个直播路径带 `weather.pace` 项、
+ *   同步路径不带）。这个不一致是**既有的、未测量的**，本次不动它。
+ */
+function settleFitnessDrain(state, club, sk, extra = 0) {
+  const fitW = state._fitW?.[sk] || fitnessMultOf(club.tactics);
+  const perPlayer = Math.max(1, Math.round(fitW + extra));
+  const xi = activeXi(state, club);
+  if (!xi.length) return;
+  const teamTotal = perPlayer * xi.length;
+
+  // 每个球员的**本场累计跑动距离**（米），直接作为分摊权重。
+  //
+  // ⚠ 为什么不用「本窗口增量」：**引擎在分钟循环开始前就把整段跑完了**
+  //   （`runSimPeriodRaw` 一次性推进到 `toMin`），所以 minute 15 那次结算读到的
+  //   已经是整段的累计值，而 30/45 两次的增量恒为 **0** ⇒ 会退化成「等额扣减」。
+  //   （实测日志：min15 work 有值、min30/45 全是 0。）
+  //   ⇒ 改用累计值分摊。这是安全的：分摊只取决于**队内分布**，而分布在同一场里
+  //     是稳定的（48 场标定 max/min 3.889，比赛级 SD 0.287）。
+  //   附带好处：不需要任何额外状态 ⇒ 读档后引擎重建（`runMetres` 全 0）自动走回退。
+  const agents = state.simEng?.agents;
+  let work = null;
+  if (Array.isArray(agents) && agents.length) {
+    const runById = new Map();
+    for (const a of agents) if (a && a.id != null) runById.set(a.id, Number(a.runMetres) || 0);
+    if (xi.every((p) => runById.has(p.id))) work = xi.map((p) => runById.get(p.id));
+  }
+  const sumWork = work ? work.reduce((s, v) => s + v, 0) : 0;
+
+  if (!work || sumWork <= 0) {
+    for (const p of xi) p.fitness = Math.round(Math.max(30, (p.fitness || 100) - perPlayer));
+    return;
+  }
+
+  // 🔴 分摊值**保留小数，不取整**。
+  // 为什么：`perPlayer` 实测只有 **1 点**（`max(1, round(fitW))`，默认战术 fitW < 1.5），
+  // 球队总量 11 摊到 11 人 ⇒ 平均每人 1 点。而队内跑动差异是 3.7×，
+  // 落在整数上只有 {0,1,2} —— **实测取整后 11 人全是 1**，机制等于没生效
+  // （连「最大余数法」也救不了：那是保总量，不是保分辨率）。
+  // ⇒ 保留小数。`Σ drain` 仍精确等于 `teamTotal`（实数运算）⇒ 球队均值仍逐位不变，
+  //   只是「队内分布」终于表达得出来。面板/提示读到的都是 `Math.round(...)`，
+  //   所以显示不受影响，而 3 次结算累积后差异变成可见的 86~89。
+  const exact = work.map((w) => (w / sumWork) * teamTotal);
+  for (let i = 0; i < xi.length; i++) {
+    const p = xi[i];
+    p.fitness = Math.max(30, (p.fitness || 100) - exact[i]);
+  }
+}
+
 function formScore(club, n = 5) {
   const f = club.form || [];
   const slice = f.slice(-n);
@@ -1532,17 +1602,10 @@ async function simulatePeriodWithSim(state, fromMin, toMin, { onEvent, playHighl
       // 用户场犯规/卡片/伤病均由空间引擎涌现（adapt.js 翻译 → pushSimFlavor 落账），不再概率掷骰。
       midMatchCoachPrompt(state, minute);
       if (minute % 15 === 0) {
-        for (const club of [state.home, state.away]) {
-          const sk = club === state.home ? "home" : "away";
-          const fitW = state._fitW?.[sk] || fitnessMultOf(club.tactics);
-          for (const p of activeXi(state, club)) {
-            const drain = Math.max(
-              1,
-              Math.round(fitW + (state.weather.pace < 0.92 ? 0.5 : 0))
-            );
-            p.fitness = Math.round(Math.max(30, (p.fitness || 100) - drain));
-          }
-        }
+        // 体能结算：球队总量不变，按本窗口跑动距离占比分摊（见 settleFitnessDrain）
+        const wetExtra = state.weather.pace < 0.92 ? 0.5 : 0;
+        settleFitnessDrain(state, state.home, "home", wetExtra);
+        settleFitnessDrain(state, state.away, "away", wetExtra);
         recomputeSides(state);
       }
       if (onEvent) {
@@ -1657,17 +1720,10 @@ async function simulatePeriodWithSim(state, fromMin, toMin, { onEvent, playHighl
     midMatchCoachPrompt(state, minute);
 
     if (minute % 15 === 0) {
-      for (const club of [state.home, state.away]) {
-        const sk = club === state.home ? "home" : "away";
-        const fitW = state._fitW?.[sk] || fitnessMultOf(club.tactics);
-        for (const p of activeXi(state, club)) {
-          const drain = Math.max(
-            1,
-            Math.round(fitW + (state.weather.pace < 0.92 ? 0.5 : 0))
-          );
-          p.fitness = Math.round(Math.max(30, (p.fitness || 100) - drain));
-        }
-      }
+      // 体能结算：球队总量不变，按本窗口跑动距离占比分摊（见 settleFitnessDrain）
+      const wetExtra = state.weather.pace < 0.92 ? 0.5 : 0;
+      settleFitnessDrain(state, state.home, "home", wetExtra);
+      settleFitnessDrain(state, state.away, "away", wetExtra);
       recomputeSides(state);
     }
 
@@ -1743,14 +1799,11 @@ function simulatePeriodWithSimSync(state, fromMin, toMin) {
     // 用户场犯规/卡片/伤病均由空间引擎涌现（pushSimFlavor 落账）。
     midMatchCoachPrompt(state, minute);
     if (minute % 15 === 0) {
-      for (const club of [state.home, state.away]) {
-        const sk = club === state.home ? "home" : "away";
-        const fitW = state._fitW?.[sk] || fitnessMultOf(club.tactics);
-        for (const p of activeXi(state, club)) {
-          const drain = Math.max(1, Math.round(fitW));
-          p.fitness = Math.round(Math.max(30, (p.fitness || 100) - drain));
-        }
-      }
+      // 体能结算：球队总量不变，按本窗口跑动距离占比分摊（见 settleFitnessDrain）。
+      // ⚠ 本路径（同步）**历来不带** `weather.pace` 项（两个直播路径带）——这是既有的
+      //   不一致，本次保持原语义不动，避免引入未测量的行为变化。
+      settleFitnessDrain(state, state.home, "home");
+      settleFitnessDrain(state, state.away, "away");
       recomputeSides(state);
     }
   }
@@ -3535,14 +3588,10 @@ function runMinutesSync(state, fromMin, toMin) {
     tryInjury(state, minute);
     midMatchCoachPrompt(state, minute);
     if (minute % 15 === 0) {
-      for (const club of [state.home, state.away]) {
-        const sk = club === state.home ? "home" : "away";
-        const fitW = state._fitW?.[sk] || fitnessMultOf(club.tactics);
-        for (const p of activeXi(state, club)) {
-          const drain = Math.max(1, Math.round(fitW));
-          p.fitness = Math.round(Math.max(30, (p.fitness || 100) - drain));
-        }
-      }
+      // 概率引擎路径（非空间模拟）：没有 `state.simEng` ⇒ settleFitnessDrain
+      // 内部自动回退到等额扣减 ⇒ **行为与旧实现逐位相同**，这里只是统一入口。
+      settleFitnessDrain(state, state.home, "home");
+      settleFitnessDrain(state, state.away, "away");
       recomputeSides(state);
     }
   }

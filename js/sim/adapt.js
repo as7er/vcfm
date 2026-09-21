@@ -84,6 +84,10 @@ export function resyncSimAfterHalfTime(state) {
   const eng = state.simEng;
   if (!eng) return;
   const priorFitness = new Map(eng.agents.map((agent) => [agent.id, agent.fitness]));
+  // ⚠ 累计跑动距离也必须按 **id** 搬过去：下面按**槽位序号**重新绑定 `a.id = p.id`，
+  //   若不搬，接替同一槽位的另一名球员会继承前者的跑动距离
+  //   ⇒ 体能分摊会算到错的人头上。
+  const priorRun = new Map(eng.agents.map((agent) => [agent.id, Number(agent.runMetres) || 0]));
   for (const isHome of [true, false]) {
     const club = isHome ? state.home : state.away;
     ensureTactics(club);
@@ -125,6 +129,8 @@ export function resyncSimAfterHalfTime(state) {
       }
       a.habits = new Set(p?.playingHabits || []);
       a.fitness = priorFitness.has(p.id) ? priorFitness.get(p.id) : p.fitness ?? 100;
+      // 同上：按 id 取回，新人（priorRun 里没有）从 0 起算
+      a.runMetres = priorRun.has(p.id) ? priorRun.get(p.id) : 0;
       const attrs = p.attrs || {};
       const n = (v) => {
         const raw = Math.max(0.05, Math.min(1, (v ?? 10) / 20));

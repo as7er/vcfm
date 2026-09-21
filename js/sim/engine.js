@@ -745,6 +745,9 @@ export class SimEngine {
         fsm: "home",
         shapePhase: TEAM_SHAPE_PHASES.OUT_OF_POSSESSION,
         fitness: p?.fitness ?? 100,
+        // 本场累计跑动距离（米）。累加处在 `_stepOnce` 的位移更新之后，
+        // 消费方只有 `match.js` 的体能结算（`settleFitnessDrain`）——不参与物理/决策。
+        runMetres: 0,
         // 核心球员：战术指定，享有进攻绝对权（梅西/C罗式）
         isCore: false,
         isCaptain: false,
@@ -5840,8 +5843,21 @@ export class SimEngine {
         a.vy += dvy;
       }
     }
+    const prevX = a.x;
+    const prevY = a.y;
     a.x = clamp(a.x + a.vx * dt, 1, 99);
     a.y = clamp(a.y + a.vy * dt, 1, 99);
+    // ── 本场累计跑动距离（米）──────────────────────────────────────────
+    // 为什么需要它：真实足球里球员体能消耗的差异**主要来自跑动距离**
+    // （中场 ~10km / 中卫 ~9km / 门将 ~3km，实测队内 max/min 比值 3.889×，
+    //  48 场标定，比赛级 SD 0.287），而下面的耗能公式只区分 press/carry
+    // 三个**瞬时**状态、`pressing` 是**球队级**、`stamina` 又被 `norm()` 压到
+    // 1.064× ⇒ 队内个体 spread 只有 0.39（总耗 4.84），个体差异被抹平。
+    //
+    // 这里累加的是**引擎每帧本来就有的真实位移**，不是新造的隐藏指标；
+    // 它**不参与任何物理或决策**，只被 `match.js` 的体能结算读取。
+    // 换算与 `pitchDistanceMetres` 完全一致（内部 100×100 ↔ 球场 68m × 105m）。
+    a.runMetres = (a.runMetres || 0) + pitchDistanceMetres(a.x - prevX, a.y - prevY);
     // 引擎内体能只影响本场运动；正式球员体能记账仍由 match.js 负责。
     const workRate = a.fsm === "press" ? 1.35 : a.fsm === "carry" ? 1.12 : 1;
     const drain =
@@ -6756,6 +6772,9 @@ export class SimEngine {
     a.preferredFoot = player.preferredFoot || "right";
     a.habits = new Set(player.playingHabits || []);
     a.fitness = player.fitness ?? 100;
+    // 换上的球员用**新球员的身体**，跑动距离必须从 0 重新累计
+    // （否则他会继承被换下者的跑动距离 ⇒ 体能扣减分摊错人）。
+    a.runMetres = 0;
     a.sentOff = false;
     a.injuredOff = false;
     a._yellows = 0;
