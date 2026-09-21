@@ -108,6 +108,12 @@ export function teamShapeProfile(tactics = {}) {
   const tempo = level(tactics, "tempo");
   const width = level(tactics, "width");
 
+  // ⚠ 2026-09-22：「反击」的**持球期**纵深层试过改成 −2.5（与 defend 同档），
+  //   实测被推翻：穿透球占比不升反降（0.0691 → 0.0275）。
+  //   原因是这个 `depthShift` 作用在**持球期**，全队压深 2.5 格后
+  //   前插的跑动者反而越不过越位线 ⇒ `advance > 0.20` 门槛失效。
+  //   ⇒ 反击的「深」应该体现在**丢球后回收**（见下面 `regroup`），不是持球期压深。
+  //   （原值 0 保持不变；行保留是因为它现在是「反击」语义的唯一入口。）
   const styleAttackDepth =
     style === "attack" ? 3 :
       style === "counter" ? 0 :
@@ -123,6 +129,10 @@ export function teamShapeProfile(tactics = {}) {
         style === "balanced" ? 0.06 : 0.03;
 
   const counterPress = pressing >= 4 && style !== "defend";
+  // ⚠ 2026-09-22：**试过**让「反击」也 regroup，**已撤回**（与 `collective-defense.js`
+  //   同一处、同一理由）：① 推翻 `team-shapes-audit.mjs:75` 的既有钉定断言；
+  //   ② 实测穿透球占比只从 0.0691±0.0226 变到 0.0782±0.0206（≈0.43σ，噪声内）。
+  //   ⇒ 留作待拍板的问题：引擎里「反击」只有"转换期猛冲"、没有"防守深"那一半。
   const regroup = style === "defend" || pressing <= 2;
 
   return Object.freeze({

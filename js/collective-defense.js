@@ -35,6 +35,12 @@ export function collectiveDefenseProfile(tactics = {}) {
   const style = tactics.style || "balanced";
   const counterPress = pressing >= 4 && style !== "defend";
   const regroup = style === "defend" || pressing <= 2;
+  // 2026-09-22 记录：**试过**让「反击」也 regroup（丢球后回收、不就地反抢），**已撤回**。
+  // 理由两条：一是它推翻 scripts/team-shapes-audit.mjs:75 的既有钉定断言
+  // （counter + pressing>=4 必须 counterPress=true），说明该行为是有意设计；
+  // 二是实测效果在噪声内（反击的穿透球占比 0.0691±0.0226 → 0.0782±0.0206，约 0.43σ）。
+  // 若将来要做，先定方向再动：引擎里「反击」目前只有"转换期猛冲"，
+  // 没有"防守深"那一半（_defLineY 不读 style）。
 
   return Object.freeze({
     version: 1,

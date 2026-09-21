@@ -5,7 +5,35 @@
 > 仓库：https://github.com/as7er/vcfm.git · `master`（**2026-09-14 起规范地址为小写 `vcfm`**；
 > 大写 `VCFM` 仍可用但会走重定向，`origin` 已更新为小写）  
 > 预览：`python -m http.server 8765 --bind 127.0.0.1`  
-> **本轮（2026-09-22 v279）**：**换边（下半场）方向/端别大修** —— 一次审计查出引擎里有
+> **本轮（2026-09-22 v280）**：**战术层摸底 + 两项落地**（用户诉求「让球员读懂战术」）。
+> 先摸底（新增 `scripts/_tactics-understanding-probe.mjs`，配对 A/B：同一 seed、只改一个旋钮、
+> 客队恒默认作对照，4 种子 × 30 分钟）。**结论：旋钮大体读得懂，但有缺口**：
+> - ✅ `width` → 横向 **+44%**（12.7→18.3 m，10~20σ）；`defensiveLine` → DEF 无球纵深
+>   **+11.4 格（≈12 m）**，且 **ATT 基本不动**（「后卫守线、前锋不跟」= 现实的样子）；
+>   `tempo` → 持球时长 **−15%**（3.60→3.05 s，6σ）；`style` 纵深与代码预期吻合（4.4 vs 5.5 格）。
+> - ⚠ `pressing` **本来完全不推防线**（1/3/5 = 20.8/21.6/20.6，圈内平）⇒ **已修**：
+>   `_defLineY` 加 `pressPush`，写成 `(pressLevel - 3)` ⇒ **默认档逐位不变**；
+>   改后 18.9/21.6/23.1（单调，+4.2 格）。
+> - ❌ 「反击」= 丢球后回收：**试了两版都撤回**（v1 让穿透球占比反降 0.069→0.028；
+>   v2 只有 0.43σ，且推翻 `team-shapes-audit.mjs:75` 的既有钉定断言）⇒ **留作产品问题，不是缺陷**。
+> 🔴 **方法论（本轮第二次证明）**：**判据要量「旋钮代码里直接改的那个量」**。
+> 第一版用「传球数」判 `tempo` 得出「tempo 是死的」——错；换成**持球时长**立刻 6σ。
+> 快档探针同样栽过一次：行为量把 `defensiveLine`/`pressing` 的信号稀释成 3.4/1.2 格，
+> 改成**直接调 `_defLineY()`**（受控局面）后零噪声、−15.2/−11.2 格、与代码逐位吻合。
+> **验证**：新增 `scripts/tactics-response-verify.mjs`（已挂 `verify.mjs`，**9 秒**）7/7；
+> 默认档 4000 帧逐位相同；回归 10 项全过。缓存 **vcfm-v280**。
+> 依据 [docs/measurements/tactics-layer-four-items-2026-09-22.txt](docs/measurements/tactics-layer-four-items-2026-09-22.txt)
+> 与 [docs/measurements/tactics-understanding-baseline-2026-09-22.txt](docs/measurements/tactics-understanding-baseline-2026-09-22.txt)。
+> ⚠ **顺带查清「重开直播画面一样」（用户报）**：**不是 bug，是设计** —— `openMatch` 无条件重置
+> （`matchState=null` / `setMatchMinute(0,{reset})`），`runMatch` 新建会话从 `fromMin=1` 起算；
+> **全仓没有任何「续播」状态**（`fromMin` 只有硬编码 1/46/61/76）。而 `matchSeed` 随存档保留
+> ⇒ 随机流相同 ⇒ **重放逐位相同**；且**赛中不落盘** ⇒ F5 读到的就是开赛前的 world。
+> 修法候选 A~E（赛中存档+续播 / 确定性快进 / 确认框 / 直接出报告）**未实施，待拍板**。
+> ⚠ **未做**：`vision` 的穿透球被 5 道硬门槛 + `value *= 0.72` 吃掉（改它会牵动「直塞第 2 门」标定，
+> AGENTS.md 有禁令）；`decisions` 的作用经查**本来就很弱**（温度只变 1.26×，且被 `core`/`isWing` 项压过）
+> —— 属量级问题不是缺陷。
+>
+> **上一轮（2026-09-22 v279）**：**换边（下半场）方向/端别大修** —— 一次审计查出引擎里有
 > **一整类**「用队名隐式表达方向」的写法（`restartTeam === "home" ? 5 : 95` 之类）：
 > `endsSwapped=false` 时恰好正确，**一下半场就成批失效**。用户报的「下半场开角球错误」只是其中一个。
 > 逐条实测确认的后果：

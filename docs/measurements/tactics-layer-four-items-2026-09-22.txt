@@ -1,0 +1,200 @@
+战术层四项推进（2026-09-22，v280）
+==================================
+
+接 `docs/measurements/tactics-understanding-baseline-2026-09-22.txt`（上一轮的摸底）。
+用户对摸底结论选了「都选」（①修 ②查 ③常驻 ④查「重开画面一样」）。本文是这四项的结果。
+
+---
+
+## ① 改了两处，**撤回一处**
+
+### ✅ 落地：`pressing` 现在会轻推防线
+
+**问题**（实测）：`pressing` 1→5 时 DEF 无球纵深 20.8 / 21.6 / 20.6（**圈内平，非单调**）。
+代码里 `pressing` 不进 `teamShapeProfile` 的纵深项，只改「何时/几人去逼」
+（触发距离、反抢 2→5 人、转换窗口 2.2~6.5 s）。⇒ 用户在战术板把压迫拉满，**防线不动**。
+
+**改法**（`js/sim/engine.js` 的 `_defLineY`）：加一项 `pressPush`，写成 `(pressLevel - 3)`
+⇒ **`pressing=3`（默认档）时与改前逐位相同**（已用 4000 帧逐位对比验证，见「验证」）。
+幅度刻意小于防线旋钮本身（DEF 2.8/级 vs 防线 3.8/级），不喧宾夺主。
+
+**改后实测**（4 种子 × 30 分钟）：
+
+| pressing | DEF/out | DEF/att-trans |
+|---|---|---|
+| 1 | 18.9±1.3 | 23.6±0.6 |
+| 3 | 21.6±0.8 | 28.7±1.4 |
+| 5 | **23.1±0.2** | **30.9±1.8** |
+
+⇒ **单调 ↑，跨度 4.2 格（4.4 m）**，远超跨种子 SD。直接量（`_defLineY`，受控局面）跨度 **11.2 格**，
+与代码 `±2.8 × 2` 逐位吻合。
+
+### ❌ 撤回：「反击」= 丢球后回收
+
+**动机**：实测「反击」风格在**持球期**站得比 balanced 还高（DEF/in 54.0 vs 50.5），
+穿透球占比也更低（0.069 vs 0.103）—— 与「反击」语义相悖。
+引擎里「反击」当时只有「转换期猛冲」（`attackDepthShift +4`），**没有「防守深」那一半**。
+
+**试了两版，都撤回：**
+
+| 版本 | 改法 | 实测 | 判定 |
+|---|---|---|---|
+| v1 | `inPossession.depthShift` 0 → −2.5（与 defend 同档） | 穿透球占比 **0.0691 → 0.0275**（**反降**） | ❌ 方向错 |
+| v2 | `regroup` 加上 `style === "counter"`、`counterPress` 排除 counter | 穿透球占比 0.0691±0.0226 → 0.0782±0.0206（**≈0.43σ，噪声内**） | ❌ 证据不足 |
+
+**v1 为什么反了**：`depthShift` 作用在**持球期**。全队压深 2.5 格后，前插的跑动者
+反而越不过越位线 ⇒ `advance > 0.20` 那道门槛失效 ⇒ 直塞更少。
+**教训：反弹一个"位置"参数前，先确认它作用在哪个阶段。**
+
+**v2 为什么撤回**：
+- 它推翻 `scripts/team-shapes-audit.mjs:75` 的**既有钉定断言**（`counter + pressing≥4 ⇒ counterPress`）
+  ⇒ 那条断言说明该行为是**有意设计**，不是漏网。要改得先有正面证据。
+- 而正面证据只有 0.43σ。
+
+**⇒ 「反击」要不要有「防守深」那一半，是待拍板的产品问题，不是缺陷。**
+（现状已连同两条撤回理由写进 `team-shapes.js` / `collective-defense.js` 的注释，避免下一个人重走。）
+
+---
+
+## ② 查了两条：`vision` 与 `decisions` 为什么"量不出来"
+
+### `vision` 提不高穿透球占比 —— 找到了两个抑制器
+
+代码（`js/sim/engine.js:3515-3521`）：直塞要**同时**过 5 道硬门槛，然后才掷骰：
+
+```js
+if (aheadOfBall && advance > 0.20 && lineGap < 11 &&
+    receiverGoalDist < 44 && safety > 0.28 &&
+    this.random() < throughIntent && …)
+```
+
+`throughIntent = clamp(0.34 + vision*0.24 + decisions*0.1 + habit*0.2 + passRisk*0.12 − pressure*0.12, 0.2, 0.82)`
+⇒ vision 0.30→0.92 只把掷骰概率抬高 **0.072 → 0.221**。
+
+**两个抑制器**：
+1. **5 道硬门槛是先决条件**。绝大多数传球根本进不到掷骰那一步 ⇒ vision 的贡献**没机会体现**。
+2. **直塞选项本身被价值惩罚**：`value *= 0.72`（:3535）——即它要在 `value` 排序里
+   **带着 28% 的劣势**跟普通传球竞争。vision 抬的是「生成意图的概率」，不是「被选中的概率」。
+
+⇒ **不是"vision 没用"**（它确实让被断球率降了 26%，那是真的），
+而是**"视野好 ⇒ 更爱打穿透球"这条因果被门槛与价值惩罚吃掉了**。
+要不要改属于**数值/产品决策**（动门槛会牵动 AGENTS.md 记的「直塞第 2 门」标定，那里明确写着
+⛔ 动它之前先读那一节），本轮**未动**。
+
+### `decisions` 量不出来 —— 因为它的作用**本来就很弱**
+
+代码（`js/sim/engine.js:3194-3199`）：
+
+```js
+const decisionTemp = clamp(
+  (core ? 0.28 : isWing ? 0.3 : 0.35) - ((a.attr.decisions || 0.58) - 0.58) * 0.14,
+  0.22, 0.38
+);
+```
+
+把 decisions 从引擎级 0.30 拉到 0.92：`(d − 0.58) × 0.14` 只从 −0.039 变到 +0.048
+⇒ 温度从 **0.38（含夹取）→ 0.302**，**比例只有 1.26×**。
+而在同一行里，`core` / `isWing` 把基准从 0.35 挪到 0.28/0.30 —— **角色项比 decisions 项强得多**。
+
+⇒ **`decisions` 确实在改"选择的随机度"，但幅度是三者里最小的**，
+所以上一轮用穿透球占比 / 传中占比 / 被断率三个代理量都测不出。
+**这不是缺陷，是量级问题**；真要评估它，得直接测「被选中选项的权重分布」，
+本轮的代理量做不到（已记进未覆盖项）。
+
+---
+
+## ③ 已常驻：`scripts/tactics-response-verify.mjs`（9 秒）
+
+挂进 `scripts/verify.mjs`。7 项断言，全绿：
+
+```
+[1] 静态：写法与一致性
+  ✓ `_defLineY` 的 pressPush 写成 `(pressLevel - 3)` ⇒ 默认档为零
+  ✓ `collective-defense` 与 `team-shapes` 的 regroup / counterPress 彼此一致
+  ✓ `balanced` 默认档两个标志都不变
+[2] 旋钮 → 它直接改的那个量
+  ✓ width 1→5 ⇒ 横向 +3.39 m（行为量）
+  ✓ defensiveLine 1→5 ⇒ `_defLineY` −15.2 格（直接量，零噪声）
+  ✓ pressing 1→5 ⇒ `_defLineY` −11.2 格（本轮新加）
+  ✓ tempo 1→5 ⇒ 持球时长 −0.383 s（行为量）
+```
+
+🔴 **快档自己踩了两次"判据选错"，都记在文件里**：
+1. 第一版 1/3/5 三档 × 2 种子 ⇒ `defensiveLine` / `pressing` 假红（跨度只 3.4 / 1.2 格）
+   ⇒ 改成**只比两端 1 vs 5 + 3 种子**（预算花在重复上，不花在档位密度上）。
+2. 改完仍偏小 ⇒ 换成**直接调 `_defLineY()`**（受控局面，零噪声），立刻 −15.2 / −11.2 格，
+   与代码逐位吻合。**这就是「量旋钮直接改的那个量」的第二次证明。**
+
+---
+
+## ④ 「重开直播画面一样」—— 已定位，**结论：不是 bug，是设计**
+
+### 机制（已确认，链条完整）
+
+`js/main.js:10154 openMatch()` **无条件重置**：`matchState = null`（:10165）、
+`setMatchMinute(0, { reset: true })`（:10173）、`resetMatchPlayback()`（:10178）。
+`runMatch` 随后 `createMatchSession(...)` **新建会话**（:10509），`playFirstHalf` 从
+`simulatePeriodWithSim(state, 1, 45, …)` 起算（`js/match.js:2202`，`fromMin` **硬编码 1**）
+⇒ `tStart = 0` ⇒ 首个高光窗 `t0 = 0` ⇒ `playSimTimeline(seg.frames)` 从 `frames[0]` 起播。
+
+**全仓没有任何「续播」状态**：`simulatePeriodWithSim` / `…Sync` / `runMinutesSync` 的 `fromMin`
+只有硬编码的 `1 / 46 / 61 / 76`，**没有一处读 `state.minute` 或墙钟**。
+
+### 为什么"看起来一样"直到逐位相同
+
+- 随机源可复现：`ensureMatchSeed` 由 `(season, day, fixture.id, home, away, competition)`
+  哈希（`js/random.js:30-44`），而 **`matchSeed` 会随存档保留**（`save-schema.js:275`）
+  ⇒ 两次运行**随机流完全相同** ⇒ 引擎行为逐位相同。
+- **赛中不落盘**：所有 `autosave(...)` 调用点没有一处在赛中触发，`autosave("menu")` 的按钮在
+  `#screen-main` 顶栏、比赛屏看不到 ⇒ **F5 读到的是开赛前的 world** ⇒ 重放**逐位相同**。
+
+⚠ **一处例外**（唯一的非逐位相同）：`settleFitnessDrain` 在 15/30/45′ 直接改
+`world.clubs[].players[].fitness`。若**不刷新**、只是离开界面再进来（同一页会话），
+第二遍的引擎初始体能已被第一遍扣低 ⇒ **0–15′ 仍逐位相同**，15′ 之后可能分叉 ——
+观感仍然是"前面一模一样"。
+
+### 用户报的「两种重开」都指向同一条路
+
+| 用户操作 | 实际发生 |
+|---|---|
+| 退出比赛界面 → 再进 | ⚠ 比赛屏**没有退出按钮**（`index.html:1216-1445`）。能"退出去"的只有：被解雇 / 赛后继续 / 刷新 / 关闭标签页 ⇒ 都走 `openMatch` 重置 |
+| F5 刷新 → 再进 | `tryAutoResume()`（`js/main.js:12531`）只回主界面，**不恢复任何比赛进程** ⇒ 同上，从 0′ 重播 |
+
+### 修法候选（**未实施**，待拍板）
+
+| # | 一句话 | 风险 |
+|---|---|---|
+| **A** | 赛中存档 + 续播（`world.liveMatch = {fixtureId, minute, watchedSimT, …}`，`openMatch` 检测到就走「继续」） | 中高：要保证「确定性快进」与 `applyHalfTimeSwap`（仅 46′ 触发）、换人次数、淘汰赛点球一致 |
+| **B** | 确定性快进原语：新会话后先**静默** `runSimPeriodRaw(eng, 1, X)` 把 `eng.t` 推到 X，再从 X 建窗播放 | 中：**必须按 `fromMin` 顺序推进**（`eng.t` 是唯一进度源）；跨 46′ 要显式复刻换边 + 开球，否则下半场端别错（见 v279） |
+| C | 只改播放层跳过老段 | **高（不推荐）**：帧与窗都来自那一次 `runSimPeriodRaw`，`eng.t` 与 `fromMin` 必须同步 |
+| **D** | 承认语义：检测到"本场播过"就给确认框「继续 / 从头重看 / 一键战报」 | **低**：只解决误解，可立即止血 |
+| E | 重开直接出报告（不重播） | 低-中：与「直播」按钮语义冲突 |
+
+**统一前提**：任何续播都可以**靠重算**（不必真存引擎状态）——
+因为「同种子 + 同 world ⇒ 逐位可复现」已确认；但必须重算到 `eng.t === 目标分钟 × 60` 之后再建窗。
+
+⚠ **未确认的一点**：用户说的"退出比赛界面"具体是哪种操作（比赛屏没有返回键）。
+若是浏览器**后退**（bfcache 恢复），JS 状态还在，`runMatch` 会被 `liveRunning` 挡回、
+**画面上什么都不会重播**。⇒ 下一步要么问用户复述操作序列，要么在 Console 看
+`performance.getEntriesByType("navigation")[0].type`。
+
+---
+
+## 验证
+
+- **默认档逐位等价（铁律）**：`git show HEAD` 取改前基线，4000 帧对比 ——
+  `endsSwapped=false` **全部相同**；`endsSwapped=true` 也**全部相同**
+  （本轮唯一落地的改动 `pressPush` 在 `pressing=3` 时为零，所以两组都应相同）。
+- **`scripts/tactics-response-verify.mjs`**：7/7，9 秒。
+- **回归**：`team-shapes-audit` / `collective-defense-audit` / `defensive-plan-state-audit` /
+  `defensive-spacing-audit` / `press-shadow-geometry-audit` / `manager-phase-shapes-audit` /
+  `cb-line-height-e2e-audit` / `attack-shape-compaction-audit` / `ends-swap-verify` / `cache-audit`
+  全过（`team-shapes-audit` 在撤回 v2 后恢复绿灯）。
+
+## 未覆盖 / 下一步
+
+1. **「反击」要不要有「防守深」那一半** —— 产品决策（见 ①）。
+2. **`vision` 的穿透球门槛**要不要放开 —— 会牵动「直塞第 2 门」标定（AGENTS.md 有禁令），需先读那一节。
+3. **`decisions` 的评估需要新判据**（直接测被选选项的权重分布）。
+4. **④ 的修法 A/B/D/E** 待拍板；另需向用户确认"退出"的具体操作。
+5. `roles`/`duties` 的进攻端影响仍未量。

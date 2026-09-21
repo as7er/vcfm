@@ -16,7 +16,7 @@
 //       两名门将站进球网、越位基本吹不出、前场任意球整队摆到另一端；
 //       根因是引擎里一整类「按队名取端」的写法（`team === "home" ? … : …`）。
 //       同批还修了：越位线取反、庆祝/入网端别、阶段阵型锚点、赛后 xG 与热区归一化。
-const CACHE = "vcfm-v279";
+const CACHE = "vcfm-v280";
 const isVcfmCache = (name) => /^vcfm-v\d+$/.test(name);
 const ASSETS = [
   "./",

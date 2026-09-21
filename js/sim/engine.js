@@ -5466,10 +5466,18 @@ export class SimEngine {
     const lineLevel = this._tacticLevel(a.team, "defensiveLine");
     const linePush =
       (lineLevel - 3) * (a.role === "DEF" ? 3.8 : a.role === "MID" ? 2.8 : 1.8);
+    // 「高位逼抢」在现实里是「防线高度 + 压迫」的**打包概念**：压迫拉满而防线不动，
+    // 阵型会被前后拉长（前场逼、后场不跟）。所以压迫**也**轻推防线，
+    // 但幅度明显小于防线旋钮本身（DEF 1.4/级 vs 3.8/级），不喧宾夺主。
+    // ⚠ 写成 `(pressLevel - 3)` ⇒ **pressing=3（默认档）时与改前逐位相同**。
+    const pressLevel = this._tacticLevel(a.team, "pressing");
+    const pressPush =
+      (pressLevel - 3) * (a.role === "DEF" ? 2.8 : a.role === "MID" ? 2.0 : 0.9);
     // 角色「前插/回收」倾向极小幅修正本层防线：克制到约 1 码内，
     // 让明确指派进攻/防守职责时才可感知，默认角色基本不偏离 v208 基线。
     const roleDepth = this._roleBehavior(a, "depth") * (a.role === "DEF" ? 3.5 : a.role === "MID" ? 2 : 0);
-    const layer = (a.role === "DEF" ? 20 : a.role === "MID" ? 38 : 55) + linePush + roleDepth;
+    const layer =
+      (a.role === "DEF" ? 20 : a.role === "MID" ? 38 : 55) + linePush + pressPush + roleDepth;
     // 球到己方球门的距离（0=贴门，越大越远）
     const dBallGoal = this._ballDistanceToOwnGoal(a.team, b);
     // 威胁度：球越逼近己方球门越接近 1（非线性——进入约 35 范围才急剧上升）
