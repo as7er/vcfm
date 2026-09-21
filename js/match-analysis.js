@@ -20,10 +20,15 @@ function finite(value, fallback = 50) {
 }
 
 /** Normalize both teams so they attack from y=0 toward y=100. */
-function attackCoordinates(team, x, y) {
+function attackCoordinates(team, x, y, endsSwapped = false) {
   const px = clamp(finite(x), 0, 100);
   const py = clamp(finite(y), 0, 100);
-  return team === "away" ? { x: 100 - px, y: py } : { x: px, y: 100 - py };
+  // ⚠ 2026-09-22 修：原式 `team === "away" ? {100-px, py} : {px, 100-py}` 把
+  //   「主队朝 y=0 攻」写死了 ⇒ 下半场换边后热区/传球网络会整体镜像错。
+  //   改看该事件发生时的半场（`event.endsSwapped` 由引擎 `_emit` 写入；
+  //   缺省 false ⇒ 与旧行为逐位一致）。
+  const attacksLow = endsSwapped ? team === "away" : team === "home";
+  return attacksLow ? { x: px, y: 100 - py } : { x: 100 - px, y: py };
 }
 
 /**
@@ -37,7 +42,11 @@ export function estimateShotXg(shot) {
   const team = shot.team === "away" ? "away" : "home";
   const x = clamp(finite(shot.x), 0, 100);
   const y = clamp(finite(shot.y), 0, 100);
-  const goalY = team === "home" ? 0 : 100;
+  // ⚠ 2026-09-22 修：原式是 `team === "home" ? 0 : 100`，把「主队朝 y=0 攻」写死了
+  //   ⇒ 下半场换边后 xG 会拿**错误的球门**算距离与角度。改看该事件发生时的半场
+  //   （`shot.endsSwapped` 由引擎 `_emit` 写入；缺省 false ⇒ 与旧行为逐位一致）。
+  const attacksLow = shot.endsSwapped ? team === "away" : team === "home";
+  const goalY = attacksLow ? 0 : 100;
   const distance = Number.isFinite(Number(shot.distance))
     ? Math.max(1, Number(shot.distance))
     : Math.hypot(x - 50, y - goalY);
@@ -108,8 +117,8 @@ function playerName(options, team, playerId) {
   return club?.players?.find((player) => player.id === playerId)?.name || String(playerId);
 }
 
-function addHeat(side, team, x, y, playerId, nodeBag, weight = 1) {
-  const pos = attackCoordinates(team, x, y);
+function addHeat(side, team, x, y, playerId, nodeBag, weight = 1, endsSwapped = false) {
+  const pos = attackCoordinates(team, x, y, endsSwapped);
   const col = clamp(Math.floor(pos.x / (100 / side.heatmap.cols)), 0, side.heatmap.cols - 1);
   const row = clamp(Math.floor(pos.y / (100 / side.heatmap.rows)), 0, side.heatmap.rows - 1);
   side.heatmap.cells[row * side.heatmap.cols + col] += weight;
@@ -209,11 +218,11 @@ export function deriveMatchAnalysis(rawEvents, options = {}) {
     away: { left: 0, center: 0, right: 0, height: 0 },
   };
 
-  const noteAction = (team, x, y, playerId, weight = 1) => {
+  const noteAction = (team, x, y, playerId, weight = 1, endsSwapped = false) => {
     if (!TEAMS.includes(team)) return null;
     const pos = compact
-      ? attackCoordinates(team, x, y)
-      : addHeat(result[team], team, x, y, playerId, nodeBags[team], weight);
+      ? attackCoordinates(team, x, y, endsSwapped)
+      : addHeat(result[team], team, x, y, playerId, nodeBags[team], weight, endsSwapped);
     const zone = pos.x < 34 ? "left" : pos.x > 66 ? "right" : "center";
     actionZones[team][zone] += weight;
     actionZones[team].height += pos.y * weight;
@@ -227,8 +236,8 @@ export function deriveMatchAnalysis(rawEvents, options = {}) {
     const side = result[team];
 
     if (event.type === "pass") {
-      const start = noteAction(team, event.x, event.y, event.agentId, 1);
-      const end = attackCoordinates(team, event.toX, event.toY);
+      const start = noteAction(team, event.x, event.y, event.agentId, 1, event.endsSwapped);
+      const end = attackCoordinates(team, event.toX, event.toY, event.endsSwapped);
       const pass = { event, start, end, completed: false, receiverId: null };
       pendingPasses[team].push(pass);
       side.progression.passesAttempted++;
@@ -246,7 +255,7 @@ export function deriveMatchAnalysis(rawEvents, options = {}) {
           break;
         }
       }
-      const end = noteAction(team, event.x, event.y, event.agentId, 1);
+      const end = noteAction(team, event.x, event.y, event.agentId, 1, event.endsSwapped);
       if (!match || !end) continue;
       match.completed = true;
       match.receiverId = event.agentId || null;
@@ -277,7 +286,7 @@ export function deriveMatchAnalysis(rawEvents, options = {}) {
     }
 
     if (event.type === "shot") {
-      const pos = noteAction(team, event.x, event.y, event.agentId, 1.5);
+      const pos = noteAction(team, event.x, event.y, event.agentId, 1.5, event.endsSwapped);
       const xg = estimateShotXg(event);
       const shot = {
         minute: clamp(Math.floor(finite(event.t, 0) / 60) + 1, 1, 90),
@@ -297,7 +306,7 @@ export function deriveMatchAnalysis(rawEvents, options = {}) {
     }
 
     if (event.type === "pressure") {
-      const pos = noteAction(team, event.x, event.y, event.agentId, 0.6);
+      const pos = noteAction(team, event.x, event.y, event.agentId, 0.6, event.endsSwapped);
       side.pressing.pressures++;
       if (pos?.y >= 66.7) side.pressing.highPressures++;
       if (successfulPressure(events, i, event)) side.pressing.pressureSuccesses++;
@@ -305,13 +314,13 @@ export function deriveMatchAnalysis(rawEvents, options = {}) {
     }
 
     if (event.type === "tackle" || event.type === "intercept") {
-      const pos = noteAction(team, event.x, event.y, event.agentId, 1);
+      const pos = noteAction(team, event.x, event.y, event.agentId, 1, event.endsSwapped);
       side.pressing.regains++;
       if (pos?.y >= 66.7) side.pressing.highRegains++;
       continue;
     }
 
-    if (event.type === "foul") noteAction(team, event.x, event.y, event.agentId, 0.5);
+    if (event.type === "foul") noteAction(team, event.x, event.y, event.agentId, 0.5, event.endsSwapped);
   }
 
   for (const team of TEAMS) {

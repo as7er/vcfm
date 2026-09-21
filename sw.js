@@ -12,7 +12,11 @@
 //       开球 `_segLastEndSimT` 初值 null 不再被 Number() 成 0 而多闪一次）。
 // v278：终场体能改为按本场跑动距离占比分摊（`match.js` 的 `drainFitness`）——
 //       原先是逐人掷骰子 4~9 点，与跑动无关；球队总量口径不变。
-const CACHE = "vcfm-v278";
+// v279：换边（下半场）**方向/端别大修** —— 进球记给错队（还会被判成乌龙）、
+//       两名门将站进球网、越位基本吹不出、前场任意球整队摆到另一端；
+//       根因是引擎里一整类「按队名取端」的写法（`team === "home" ? … : …`）。
+//       同批还修了：越位线取反、庆祝/入网端别、阶段阵型锚点、赛后 xG 与热区归一化。
+const CACHE = "vcfm-v279";
 const isVcfmCache = (name) => /^vcfm-v\d+$/.test(name);
 const ASSETS = [
   "./",

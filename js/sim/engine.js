@@ -1197,8 +1197,12 @@ export class SimEngine {
     const targetIndex = slotMap[a.shapeSlotIndex];
     const targetSlot = FORMATIONS[targetFormationId]?.slots?.[targetIndex];
     if (!targetSlot) return false;
-    const targetX = a.isHome ? targetSlot.x : 100 - targetSlot.x;
-    const targetY = a.isHome ? targetSlot.y : 100 - targetSlot.y;
+    // ⚠ 2026-09-22 修：原来按 `a.isHome` 决定镜像，**没有** `endsSwapped`
+    //   ⇒ 下半场换边后阶段阵型锚点会镜像错。规则与 `adapt.js:163` 同源：
+    //   `mirrored = isHome ? endsSwapped : !endsSwapped`。
+    const mirrored = a.isHome ? !!this.endsSwapped : !this.endsSwapped;
+    const targetX = mirrored ? 100 - targetSlot.x : targetSlot.x;
+    const targetY = mirrored ? 100 - targetSlot.y : targetSlot.y;
     const club = a.team === "home" ? this.home : this.away;
     const coachPlanned = !!tactics.coachPhaseIdentityId
       && tactics.coachPhaseIdentityId === club?.staff?.coach?.id;
@@ -1287,7 +1291,9 @@ export class SimEngine {
       );
       for (const agent of this.agents) {
         if (agent.team !== team || agent.sentOff) continue;
-        const position = team === "home"
+        // 归一化到「两队都朝 y→100 攻」：朝 y 小攻的队翻 y、朝 y 大攻的队翻 x。
+        // ⚠ 2026-09-22 修：原来用 `team === "home"` 选分支 ⇒ 下半场换边后 y 翻反了。
+        const position = this.attackDir(team) < 0
           ? { x: agent.x, y: 100 - agent.y }
           : { x: 100 - agent.x, y: agent.y };
         const current = side.positions.get(agent.id) || {
@@ -2321,8 +2327,14 @@ export class SimEngine {
     // 就站在线上。收到 1 格（1.05m），下面的兜底分支才可能真的贴线。
     // `goalY + facing * d` 中 facing = 进攻方向 ⇒ 该式一律表示「离门线 d 格、
     // 在场地内侧」，主客同式，换边后自动跟着 `ownGoalY` 一起翻。
+    // ⚠ 2026-09-22 修：原来按**队名**分支（`a.team === "home" ? … : …`）。`goalY` 已随
+    //   `endsSwapped` 翻转，钳位窗口却仍按队名取「内侧」⇒ 下半场两名门将都被钳到门线外
+    //   （实测 swap 下 home GK ty=-1.00、away GK ty=+101.00，整半场站在球网里）。
+    //   下面 :2322-2323 的注释本来就写的是这个式子：`facing` = 进攻方向 ⇒
+    //   `goalY + facing*d` 一律表示「离门线 d 格、在场地内侧」，主客同式、换边自动跟随。
+    //   `endsSwapped=false` 下与旧实现逐位等价（home: facing<0；away: facing>0）。
     const clampGkY = (ty) =>
-      a.team === "home"
+      facing < 0
         ? clamp(ty, goalY - maxAdvance, goalY - 1)
         : clamp(ty, goalY + 1, goalY + maxAdvance);
 
@@ -4547,7 +4559,12 @@ export class SimEngine {
   _isOffsidePosition(team, player, lineY = this._offsideLineY(team), ballY = this.ball.y) {
     if (!player || lineY == null || !Number.isFinite(ballY)) return false;
     const tol = 0.45;
-    if (team === "home") {
+    // ⚠ 2026-09-22 修：原来按队名分支（`team === "home"` 要求 `player.y < 50`）——
+    //   「在对方半场」被写死成 y<50。下半场换边后主队的对方半场是 y>50，
+    //   于是**整场基本吹不出越位**。改由 `attackDir` 派生方向；
+    //   三个比较的运算顺序保持原样（不用纵深换算，避免浮点差异）。
+    const dir = this.attackDir(team);
+    if (dir < 0) {
       return player.y < 50 && player.y < ballY - tol && player.y < lineY - tol;
     }
     return player.y > 50 && player.y > ballY + tol && player.y > lineY + tol;
@@ -5468,15 +5485,21 @@ export class SimEngine {
   /** 越位线 Y（倒数第二名防守者），无则 null */
   _offsideLineY(attTeam) {
     const defTeam = attTeam === "home" ? "away" : "home";
-    let first = attTeam === "home" ? Infinity : -Infinity;
+    // ⚠ 2026-09-22 修：原来用 `attTeam === "home"` 判断「哪边更靠前」——
+    //   那是把「主队朝 y=0 攻」写死了。下半场换边后方向反转，这条线会取到
+    //   **反方向**那两个人（实测 swap 下 home 得 23，应为 87）。
+    //   改由 `attackDir` 派生；比较的运算顺序保持原样（不换成「纵深」换算，
+    //   避免浮点往返差异破坏 `endsSwapped=false` 的逐位等价 —— 见 AGENTS.md ⑦）。
+    const dir = this.attackDir(attTeam);
+    let first = dir < 0 ? Infinity : -Infinity;
     let second = first;
     let count = 0;
     for (const defender of this.agents) {
       if (defender.team !== defTeam) continue;
       count++;
       const y = defender.y;
-      const ahead = attTeam === "home" ? y < first : y > first;
-      const secondAhead = attTeam === "home" ? y < second : y > second;
+      const ahead = dir < 0 ? y < first : y > first;
+      const secondAhead = dir < 0 ? y < second : y > second;
       if (ahead) {
         second = first;
         first = y;
@@ -5503,6 +5526,10 @@ export class SimEngine {
       agentId: a?.id,
       x: a?.x,
       y: a?.y,
+      // 记下这条事件发生在**哪个半场**：`endsSwapped` 会翻 y，下游（赛后分析的
+      // xG / 热区归一化）需要它才能还原「这次进攻朝哪个门」，否则下半场会按
+      // 错误的端算距离与角度。缺省 false ⇒ 与旧行为一致。
+      endsSwapped: !!this.endsSwapped,
       ...extra,
     });
   }
@@ -6626,7 +6653,7 @@ export class SimEngine {
         const off =
           b.offsideIds instanceof Set
             ? b.offsideIds.has(best.id)
-            : b.kickTeam === "home"
+            : this.attackDir(b.kickTeam) < 0
               ? best.y < b.offsideLineY - 0.5
               : best.y > b.offsideLineY + 0.5;
         if (off) {
@@ -7493,7 +7520,12 @@ export class SimEngine {
     const kickTeam = kicker ? kicker.team : null;
 
     // —— 越过球门线 ——
-    // 主队球门在 y≈100，客队球门在 y≈0
+    // ⚠ 端别一律从 `ownGoalY` 派生，**不能**写死「主队球门在 y≈100，客队球门在 y≈0」——
+    //   `endsSwapped` 会翻 y，写死的话下半场每一次底线判罚都会反：进球记给错队
+    //   （还会被判成乌龙）、角球↔门球互换、门球点跑到另一端。
+    //   （旧注释正是那句话，是下面那一整块错误的成因。）
+    const lowTeam = this.ownGoalY("home") <= 50 ? "home" : "away"; // y≈0 端守门的队
+    const highTeam = lowTeam === "home" ? "away" : "home"; // y≈100 端守门的队
     const crossedGoalLine = b.y <= 0 ? 0 : b.y >= 100 ? 100 : null;
     let crossX = b.x;
     let crossZ = b.z || 0;
@@ -7529,8 +7561,10 @@ export class SimEngine {
       crossX < SIM.GOAL_X1 + POST_TOL_X &&
       Math.abs(crossZ - 2.44) < BAR_TOL_Z;
     if (b.y <= 0) {
-      // 客队球门线：门框内且是主队打进 → 进球
-      const goalEligible = b.state === "shot" || (b.state === "loose" && kickTeam === "away");
+      // y≈0 端：`lowTeam` 守门，它的对手在这端进攻
+      const defTeam = lowTeam;
+      const attTeam = lowTeam === "home" ? "away" : "home";
+      const goalEligible = b.state === "shot" || (b.state === "loose" && kickTeam === defTeam);
       // 擦柱/中梁：不算进球，往下走死球重启（见 `_emitWoodwork`）
       const wood = goalEligible && (hitPost || hitBar);
       if (wood) this._emitWoodwork(hitPost ? "post" : "bar", crossX);
@@ -7540,19 +7574,22 @@ export class SimEngine {
         crossX > SIM.GOAL_X0 &&
         crossX < SIM.GOAL_X1 &&
         underBar
-      ) return this._goal("home", {
+      ) return this._goal(attTeam, {
         crossedGoalLine: true,
         insidePosts: true,
         underBar,
         crossX,
         crossZ,
       });
-      // 门框外出底线：防守方(away)最后碰 = 角球给进攻方(home)；进攻方(home)碰 = 门球给 away
-      if (kickTeam === "away") return this._restart("corner", "home", b.x < 50 ? 2 : 98, 4);
-      return this._restart("goalkick", "away", 50, 12);
+      // 门框外出底线：守方(defTeam)最后碰 = 角球给攻方(attTeam)；攻方碰 = 门球给 defTeam
+      if (kickTeam === defTeam) return this._restart("corner", attTeam, b.x < 50 ? 2 : 98, 4);
+      return this._restart("goalkick", defTeam, 50, 12);
     }
     if (b.y >= 100) {
-      const goalEligible = b.state === "shot" || (b.state === "loose" && kickTeam === "home");
+      // y≈100 端：`highTeam` 守门
+      const defTeam = highTeam;
+      const attTeam = highTeam === "home" ? "away" : "home";
+      const goalEligible = b.state === "shot" || (b.state === "loose" && kickTeam === defTeam);
       const wood = goalEligible && (hitPost || hitBar);
       if (wood) this._emitWoodwork(hitPost ? "post" : "bar", crossX);
       if (
@@ -7561,16 +7598,16 @@ export class SimEngine {
         crossX > SIM.GOAL_X0 &&
         crossX < SIM.GOAL_X1 &&
         underBar
-      ) return this._goal("away", {
+      ) return this._goal(attTeam, {
         crossedGoalLine: true,
         insidePosts: true,
         underBar,
         crossX,
         crossZ,
       });
-      // 防守方(home)最后碰 = 角球给进攻方(away)；进攻方(away)碰 = 门球给 home
-      if (kickTeam === "home") return this._restart("corner", "away", b.x < 50 ? 2 : 98, 96);
-      return this._restart("goalkick", "home", 50, 88);
+      // 门框外出底线：守方最后碰 = 角球给攻方；攻方碰 = 门球给守方
+      if (kickTeam === defTeam) return this._restart("corner", attTeam, b.x < 50 ? 2 : 98, 96);
+      return this._restart("goalkick", defTeam, 50, 88);
     }
 
     // —— 越过边线：界外球，判给对方 ——
@@ -7615,8 +7652,10 @@ export class SimEngine {
     b.backpassTargetId = null;
 
     const dir = this.attackDir(restartTeam); // 重启方进攻方向
-    // 角球攻的球门：主队攻 y≈0，客队攻 y≈100
-    const defGkY = restartTeam === "home" ? 5 : 95;
+    // 守方门将锚点：距**守方自己**的球门 5 格（换边安全：从 `_ownGoalSideY` 派生）。
+    // ⚠ 原式 `restartTeam === "home" ? 5 : 95` 同样把「主队朝 y 小攻」写死了。
+    //   （当前它被 `buildCornerRoutine` 的槽位覆盖，所以观测不到，但属同类漏网。）
+    const defGkY = this._ownGoalSideY(restartTeam === "home" ? "away" : "home", 5);
 
     // 角球用固定分槽而不是逐人随机撒点。旧逻辑的伯努利抽样会偶发 7v7
     // 同时塞进八码宽的区域，录像里就表现成一团重叠圆点。
@@ -7625,7 +7664,11 @@ export class SimEngine {
     const attackEdgeSlots = new Map();
     const defendBoxSlots = new Map();
     const defendEdgeSlots = new Map();
-    const mirrorY = (topY) => (restartTeam === "home" ? topY : 100 - topY);
+    // 槽位表以「重启方朝 y→0 攻」为基准 ⇒ 按该队**进攻方向**决定要不要镜像。
+    // ⚠ 2026-09-22 修：原式 `restartTeam === "home" ? topY : 100 - topY` 把
+    //   「主队朝 y 小攻」写死了。下半场换边后整队会被摆到另一端（实测：主队在
+    //   y=82 获前场任意球，10 名场上球员里 8 人被摆到 y≈14-28）。
+    const mirrorY = (topY) => (dir < 0 ? topY : 100 - topY);
     if (type === "corner") {
       const attackOutfield = this.agents.filter(
         (a) => a.team === restartTeam && a.role !== "GK" && !a.sentOff
@@ -8033,8 +8076,11 @@ export class SimEngine {
       ownGoal,
     });
 
-    // 球钉在球门线外/网口（主队进客门 y≈0，客队进主门 y≈100）
-    const inTopNet = scoringTeam === "home";
+    // 球钉在球门线外/网口 —— **得分方进攻的**那个门（换边安全：从 `targetGoalY` 派生）。
+    // ⚠ 这一行必须与上面 `_resolveBounds` 的记名**同批**改：两者原先同向错误、互相抵消
+    //   （记名反 + 钉球端也反 ⇒ 球反而落在真实那一端）。只改一边会让球在进球瞬间
+    //   瞬移 ~87 码（y 0.8 ↔ 99.2）。
+    const inTopNet = this.targetGoalY(scoringTeam) <= 50;
     b.x = clamp(b.x, SIM.GOAL_X0 + 1.2, SIM.GOAL_X1 - 1.2);
     b.y = inTopNet ? 0.8 : 99.2;
     b.vx = 0;
@@ -8116,11 +8162,14 @@ export class SimEngine {
     b.vz = 0;
     b.z = 0.15;
     b.owner = null;
-    // 钉在进攻球门网口
-    if (team === "home") {
-      b.y = Math.min(b.y, 1.2);
-    } else if (team === "away") {
-      b.y = Math.max(b.y, 98.8);
+    // 钉在**得分方进攻的**球门网口。
+    // ⚠ 原实现是 `if (team === "home") … else if (team === "away") …` —— 按队名取端，
+    //   换边后把球钉到另一端。改由 `targetGoalY` 派生（`endsSwapped=false` 下逐位等价）；
+    //   仍保留「只有合法队名才钉球」的语义（team 为空时两边都不动）。
+    if (team === "home" || team === "away") {
+      const goalEnd = this.targetGoalY(team);
+      if (goalEnd <= 50) b.y = Math.min(b.y, 1.2);
+      else b.y = Math.max(b.y, 98.8);
     }
     b.x = clamp(b.x, SIM.GOAL_X0 + 1, SIM.GOAL_X1 - 1);
 
@@ -8141,7 +8190,8 @@ export class SimEngine {
         if (scorer && a.id === scorer.id) {
           // 射手：先冲角旗，再在角区小范围晃
           const cx = this.celebrateCornerX || 8;
-          const inTop = team === "home";
+          // 「上/下」端按**得分方进攻的球门**取，不按队名（换向安全）
+          const inTop = this.targetGoalY(team) <= 50;
           if (windDown) {
             tx = clamp(cx * 0.4 + 50 * 0.6, 12, 88);
             ty = inTop ? 22 : 78;

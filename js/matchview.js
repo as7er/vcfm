@@ -157,14 +157,21 @@ function replayRandomFor(event = {}) {
   };
 }
 
-/** 战术站位 → 球场坐标（主队守下方，客队翻转） */
-function slotToPitch(slot, isHome) {
+/**
+ * 战术站位 → 球场坐标（主队守下方，客队翻转）
+ *
+ * `endsSwapped`（下半场易边）**只翻 y 轴，x 轴永不翻** —— 与引擎换边契约一致。
+ * 槽位的 y 是「己方球门在 y 大端」的写法，所以只有「己方球门在 y 小端」的一方才需要
+ * y → 100-y：默认档是 away，换边后是 home。缺省 false 时与旧行为逐位相同。
+ */
+function slotToPitch(slot, isHome, endsSwapped = false) {
   let x = slot.x;
   let y = slot.y;
-  if (!isHome) {
-    x = 100 - x;
-    y = 100 - y;
-  }
+  // 客队横向镜像：与换边无关，永远翻
+  if (!isHome) x = 100 - x;
+  // 纵向：只有己方球门在 y 小端时才翻
+  const ownGoalHighY = isHome ? !endsSwapped : !!endsSwapped;
+  if (!ownGoalHighY) y = 100 - y;
   return { x, y };
 }
 
@@ -2913,8 +2920,11 @@ export class MatchView {
     for (let i = 0; i < defs.length; i++) {
       const pl = defs[i];
       const ballW = i < 2 ? 0.55 : i < 4 ? 0.42 : 0.3;
+      // 换边安全：端别一律走 `_attackDir(team)`（<0 = 朝 y 小端攻 = 己方球门在 y 大端），
+      // 不再按队名选 y 区间。本函数 DEF/MID/ATT 三段必须**一起**翻 —— 只翻 clamp 而
+      // 留着 lineY，换边后 home 中场会被钉在中线附近。
       const lineY =
-        team === "home"
+        this._attackDir(team) < 0
           ? clamp(ty - (i < 2 ? 8 : 12), 56, 91)
           : clamp(ty + (i < 2 ? 8 : 12), 9, 44);
       pl.tx = clamp(lerp(pl.baseX, tx, ballW) + (random() - 0.5) * 2.5, 8, 92);
@@ -2923,15 +2933,21 @@ export class MatchView {
 
     for (const pl of mids) {
       const lineY =
-        team === "home"
+        this._attackDir(team) < 0
           ? clamp(ty - 22, 48, 80)
           : clamp(ty + 22, 20, 52);
       pl.tx = clamp(lerp(pl.baseX, tx, 0.22) + (random() - 0.5) * 2, 10, 90);
-      pl.ty = clamp(lineY + (random() - 0.5) * 3, team === "home" ? 46 : 18, team === "home" ? 82 : 54);
+      // 上下界与上面的 lineY 是**同一套端别**，必须一起翻。
+      pl.ty = clamp(
+        lineY + (random() - 0.5) * 3,
+        this._attackDir(team) < 0 ? 46 : 18,
+        this._attackDir(team) < 0 ? 82 : 54
+      );
     }
     for (const pl of atts) {
+      // 换边安全：端别同样由 `_attackDir(team)` 派生（见上面 DEF 注释）
       const lineY =
-        team === "home"
+        this._attackDir(team) < 0
           ? clamp(Math.max(48, ty - 34), 46, 68)
           : clamp(Math.min(52, ty + 34), 32, 54);
       pl.tx = clamp(lerp(pl.baseX, 50, 0.2) + (random() - 0.5) * 4, 12, 88);
@@ -3222,7 +3238,8 @@ export class MatchView {
     for (let i = 0; i < Math.min(11, slots.length); i++) {
       const slot = slots[i];
       const p = assigned[i] || xi[i] || null;
-      const pos = slotToPitch(slot, isHome);
+      // 换边开关透传：下半场中途重建视图时，这 22 个热区第一次摆位就落在正确一端
+      const pos = slotToPitch(slot, isHome, this.endsSwapped);
       const el = document.createElement("div");
       el.className = `mp-player ${isHome ? "home" : "away"}`;
       el.dataset.id = p?.id || `slot-${isHome ? "h" : "a"}-${i}`;
@@ -3539,7 +3556,7 @@ export class MatchView {
       const byPos = { DEF: [], MID: [], ATT: [] };
       for (const slot of form.slots || []) {
         if (!byPos[slot.pos]) continue;
-        const p = slotToPitch(slot, isHome);
+        const p = slotToPitch(slot, isHome, this.endsSwapped);
         byPos[slot.pos].push(p);
       }
       for (const pos of ["DEF", "MID", "ATT"]) {
@@ -4737,7 +4754,8 @@ export class MatchView {
     let push = pl.pos === "ATT" ? 13 : pl.pos === "MID" ? 11 : pl.pos === "DEF" ? 6.5 : 1.2;
     push *= 0.75 + (pace / 20) * 0.45 + (drib / 20) * 0.2;
     if (onAttack) push *= 1.15 + phase.intensity * 0.25;
-    const goalY = pl.team === "home" ? 8 : 92;
+    // 对方球门 y（朝 y 小端攻 = 8）；换边安全：沿用上面 `dir = _attackDir(pl.team)`
+    const goalY = dir < 0 ? 8 : 92;
     if (Math.abs(pl.y - goalY) < 16) push *= 0.4;
 
     pl.tx = clamp(pl.x + lateral, 8, 92);
@@ -4790,10 +4808,12 @@ export class MatchView {
     const blockers = this.players.filter((p) => {
       if (p.team === car.team || p.pos === "GK" || p.el.classList.contains("sent-off"))
         return false;
-      // 在射门路线附近
+      // 封堵者要站在持球人与球门之间：朝 y 小端攻时 y 更小，朝 y 大端攻时 y 更大。
       const onPath =
         Math.abs(p.x - car.x) < 14 &&
-        (car.team === "home" ? p.y < car.y && p.y > gy - 2 : p.y > car.y && p.y < gy + 2);
+        (this._attackDir(car.team) < 0
+          ? p.y < car.y && p.y > gy - 2
+          : p.y > car.y && p.y < gy + 2);
       return onPath || Math.hypot(p.x - gx, p.y - gy) < 12;
     }).length;
 
@@ -4881,7 +4901,8 @@ export class MatchView {
         // 门将大脚
         setTimeout(() => {
           if (this.carrier !== gk) return;
-          const clearY = car.team === "home" ? 55 : 45;
+          // 门将解围朝**自己的进攻方向**（＝射门方的反方向）；换边安全：_attackDir(car.team)
+          const clearY = this._attackDir(car.team) < 0 ? 55 : 45;
           this._beginFlight({
             x: 30 + Math.random() * 40,
             y: clearY,
@@ -5116,7 +5137,9 @@ export class MatchView {
     }
     if (car) car.fsm = "carry";
 
-    const danger = def === "home" ? by > 62 : by < 38;
+    // 「危险区」= 球已深入**防守方自己**那一端。朝 y 小端攻（dir<0）的队守 y 大端 ⇒ by > 62。
+    // 换边安全：端别走 this._attackDir(def)，不再看队名。
+    const danger = this._attackDir(def) < 0 ? by > 62 : by < 38;
     const pressMax = danger ? 3 : 2;
 
     // 2) 无球：最多 2–3 人逼抢，其余 cover 在角色线上（前锋几乎不参与后场逼抢）
@@ -5163,14 +5186,16 @@ export class MatchView {
 
       // 后腰拖后：选最靠己方半场的中场
       const mids = mates.filter((m) => m.p.pos === "MID").sort((a, b) => {
-        return att === "home" ? b.p.baseY - a.p.baseY : a.p.baseY - b.p.baseY;
+        // 拖后 = 最靠**己方**球门（换边安全：dir = _attackDir(att)，<0 = 朝 y 小端攻）
+        return dir < 0 ? b.p.baseY - a.p.baseY : a.p.baseY - b.p.baseY;
       });
       if (mids[0]) {
         const dm = mids[0].p;
         dm.fsm = "cover";
         dm.subRole = "dm_hold";
         dm.tx = clamp(lerp(dm.baseX, 50, 0.3), 22, 78);
-        dm.ty = this._roleLineY(att, "MID", by, true) + (att === "home" ? 4 : -4);
+        // 拖后：往**己方**半场方向退 4（换边安全：dir = _attackDir(att)）
+        dm.ty = this._roleLineY(att, "MID", by, true) - dir * 4;
       }
 
       // 边后卫偶尔套边（最多 1）
@@ -5218,17 +5243,20 @@ export class MatchView {
 
   /** 有球方非持球进对方大禁区的人数上限，多余的退到角色线 */
   _capAttackersInBox(attTeam, car) {
+    // 换边安全：端别一律从 `_attackDir` 派生（attTeam 只用来挑人，不用来判方向）。
+    // `_attackDir(attTeam) < 0` = 朝 y 小端攻 ⇒ 对方大禁区在 y 4~18，否则在 y 82~96。
+    const towardsLowY = this._attackDir(attTeam) < 0;
     const inBox = this.players.filter((p) => {
       if (p.team !== attTeam || p.el.classList.contains("sent-off")) return false;
       if (p === car || p.pos === "GK") return false;
-      if (attTeam === "home") return p.ty <= 30 || p.y <= 28;
-      return p.ty >= 70 || p.y >= 72;
+      return towardsLowY ? p.ty <= 30 || p.y <= 28 : p.ty >= 70 || p.y >= 72;
     });
     if (inBox.length <= 3) return;
     // 离球门最近的优先留下，远的 / 后卫优先清出
+    const toGoal = (p) => (towardsLowY ? p.y : 100 - p.y);
     inBox.sort((a, b) => {
-      const ga = attTeam === "home" ? a.y : 100 - a.y;
-      const gb = attTeam === "home" ? b.y : 100 - b.y;
+      const ga = toGoal(a);
+      const gb = toGoal(b);
       const ra = a.pos === "DEF" ? -10 : a.pos === "MID" ? 0 : 5;
       const rb = b.pos === "DEF" ? -10 : b.pos === "MID" ? 0 : 5;
       return ga + ra - (gb + rb);
