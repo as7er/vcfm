@@ -239,3 +239,30 @@ node scripts/_restart-snap-census.mjs 4          # 整场普查 + 可复现自�
 node scripts/match-continuity-audit.mjs          # 规格护栏（秒级）
 node scripts/_restart-placement-probe.mjs 220    # 浏览器 before/after（约 5 分钟）
 node scripts/verify.mjs --full                   # 全量（43~57 分钟；改了 js/ 必跑）
+
+--------------------------------------------------------------------------------
+8. 全量验证结果（`node scripts/verify.mjs --full`，2026-09-22 夜）
+--------------------------------------------------------------------------------
+**112 项审计：111 项通过，1 项失败 —— 失败的是交接 §6.1 已记录的既有红。**
+
+失败项：`scripts/match-realism-audit.mjs 24 background`
+  `AssertionError: background pass completion diverged from the fixed-seed standard profile`
+  （`match-realism-audit.mjs:546`；`referenceDelta.passCompletionPct = 2.4`，容差 ±2）
+  · 交接 §6.1 写明它**在 v284 就用 `git worktree` 复现过** ⇒ 不是 v285/v286 引入；
+  · 且该审计**直接用 `SimEngine`**、不经过 `MatchView` ⇒ 结构上够不到本次改动
+    （本次只改 `js/matchview.js`）。
+  · ⛔ 按交接的禁令：**不要用放宽容差来让它变绿**。
+
+与本次改动直接相关的护栏全部通过：
+  `scripts/match-continuity-audit.mjs`
+    → Match continuity audit passed: 30/60/120fps, paused frames, restarts,
+      replay restoration, 130 contacts, identical full-match results
+  `scripts/background-spatial-worker-audit.mjs` → passed（v285 的护栏）
+  `scripts/fitness-finalize-drain-verify.mjs` / `scripts/ends-swap-verify.mjs` /
+  `scripts/tactics-response-verify.mjs` → ok
+  `scripts/cache-audit.mjs` → vcfm-v286（8 处 `?v=` 查询串 + sw.js + index.html 一致）
+
+⚠ 与 v285 的全量一样，最后 2 项**没跑到**（进程在 `match-realism-audit … background`
+  上断言退出）。⇒ 「除 match-realism-audit 外全部通过」这句只覆盖**跑到的那 111 项**。
+
+提交：`bc6adc3`（本地）。
