@@ -270,6 +270,12 @@ export class MatchView {
     this.cameraPreset = "tv";
     /** @type {((playerId: string, team: 'home'|'away') => void) | null} */
     this.onPlayerClick = null;
+    /** 点**空白球场**（不是球员热区）时的回调 —— 沉浸模式开关用。
+     *  ⚠ 必须挂在 `fieldEl` 那个已有 click 处理器里：它已经用
+     *  `e.target === fieldEl || closest(".mp-grass") || closest(".mp-lines")`
+     *  把球员热区排除掉了，另起一个监听器会连球员一起吃掉。
+     *  @type {(() => void) | null} */
+    this.onPitchTap = null;
     // 镜头：目标与当前（百分比偏移 → CSS translate）
     this.cam = { x: 0, y: 0, tx: 0, ty: 0, scale: 1, tScale: 1 };
     this._everPlayed = false; // A2 收尾：死球镜头策略在开赛/开赛前分叉（见 _updateCameraTarget）
@@ -1431,13 +1437,14 @@ export class MatchView {
   /**
    * @param {object} home
    * @param {object} away
-   * @param {{ onPlayerClick?: (playerId, team) => void, onMotionStatus?: (status: object) => void, cameraPreset?: string, broadcastContext?: object }} [opts]
+   * @param {{ onPlayerClick?: (playerId, team) => void, onMotionStatus?: (status: object) => void, onPitchTap?: () => void, cameraPreset?: string, broadcastContext?: object }} [opts]
    */
   mount(home, away, opts = {}) {
     this.home = home;
     this.away = away;
     if (opts.onPlayerClick) this.onPlayerClick = opts.onPlayerClick;
     if (opts.onMotionStatus) this.onMotionStatus = opts.onMotionStatus;
+    if (opts.onPitchTap) this.onPitchTap = opts.onPitchTap;
     this.motionMonitor.reset({
       home: { id: home?.id || null, name: home?.name || null, color: home?.color || null },
       away: { id: away?.id || null, name: away?.name || null, color: away?.color || null },
@@ -1656,10 +1663,26 @@ export class MatchView {
     const netToggle = wrap.querySelector("#mp-net-toggle");
     netToggle?.classList.remove("active");
 
-    // 点空白关闭卡片
+    // 点空白关闭卡片 + 沉浸模式开关
+    //
+    // ⚠ 旧守卫写成 `e.target === fieldEl || closest(".mp-grass") || closest(".mp-lines")`，
+    //   但 `.mp-actors`（`inset:0`、z-index 4）铺满球场、**当时没有 `pointer-events: none`**
+    //   ⇒ 空白处的点击 `e.target` 恒为 `.mp-actors`，守卫**永远不成立**，
+    //   这段「点空白关闭卡片」从写下起就没生效过（CSS 侧已补 `pointer-events: none`）。
+    //   这里改成**排除法**：只把明确「不是空白」的东西挡掉，其余都算点球场 ——
+    //   比列举「哪些算空白」更不容易漏（漏了就是功能静默失效）。
+    const NOT_BLANK = ".mp-player, .mp-card, .mp-flash-card, .mp-tip, .mp-banner, .mp-caption, button, a";
     this.fieldEl.addEventListener("click", (e) => {
-      if (e.target === this.fieldEl || e.target.closest(".mp-grass") || e.target.closest(".mp-lines")) {
-        this.hidePlayerCard();
+      if (e.target?.closest?.(NOT_BLANK)) return;
+      // 卡片开着时这一下只负责关卡片 —— 否则「关掉球员卡」会顺手把整个
+      // 界面切成沉浸模式，用户会以为点坏了。
+      const hadCard = this.hidePlayerCard();
+      if (!hadCard) {
+        try {
+          this.onPitchTap?.();
+        } catch (err) {
+          console.warn(err);
+        }
       }
     });
 
@@ -3162,6 +3185,11 @@ export class MatchView {
 
   setOnPlayerClick(fn) {
     this.onPlayerClick = fn;
+  }
+
+  /** 点空白球场（沉浸模式开关）。`main.js` 在 `ensureMatchPitch` 的复用分支里调。 */
+  setOnPitchTap(fn) {
+    this.onPitchTap = fn;
   }
 
   setOnMotionStatus(fn) {
@@ -5962,11 +5990,14 @@ export class MatchView {
     });
   }
 
+  /** @returns {boolean} 是否真的关掉了一张**可见**的卡片（沉浸模式开关要据此让路） */
   hidePlayerCard() {
-    if (!this.cardEl) return;
+    if (!this.cardEl) return false;
+    const wasVisible = !this.cardEl.classList.contains("hidden") && this.cardEl.innerHTML !== "";
     this.cardEl.classList.add("hidden");
     this.cardEl.innerHTML = "";
     for (const pl of this.players) pl.el.classList.remove("selected");
+    return wasVisible;
   }
 
   _syncClickable() {

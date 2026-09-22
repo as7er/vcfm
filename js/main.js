@@ -57,8 +57,8 @@ import {
   habitLabel,
   startHabitTraining,
 } from "./player-habits.js";
-import { nationFlagHtml } from "./flags.js?v=283";
-import { clubCrestHtml } from "./club-crest.js?v=283";
+import { nationFlagHtml } from "./flags.js?v=284";
+import { clubCrestHtml } from "./club-crest.js?v=284";
 import { applyWorldClubBranding, localizedClubName } from "./branding.js";
 import { recordFinanceEntry } from "./finance-ledger.js";
 import { renderFinance as renderFinanceView } from "./ui/finance.js";
@@ -323,7 +323,7 @@ import {
   selectPlannedSaleCandidate,
   squadPlayerPlan,
   squadPositionPlan,
-} from "./squad-planning.js?v=283";
+} from "./squad-planning.js?v=284";
 import {
   TRAINING_MODES,
   ensureTrainingBoost,
@@ -390,7 +390,7 @@ import {
   staffAvatarHtml,
   avatarHtml,
   hydrateAvatarKitRecolor,
-} from "./avatar.js?v=283";
+} from "./avatar.js?v=284";
 import { attributeArchetypeLabel } from "./player-attributes.js";
 import {
   MANAGER_ONBOARDING_TAB_STEPS,
@@ -564,7 +564,7 @@ function clearMatchResume() {
 
 function loadMatchViewModule() {
   if (!matchViewModulePromise) {
-  matchViewModulePromise = import("./matchview.js?v=283").then((module) => {
+  matchViewModulePromise = import("./matchview.js?v=284").then((module) => {
       matchViewApi = module;
       return module;
     });
@@ -10269,6 +10269,9 @@ async function openMatch() {
   matchState = null;
   pendingSubs = [];
   document.querySelector(".match-layout")?.classList.remove("match-report-only");
+  // 进比赛界面永远从「有 chrome」开始：沉浸模式是当场的一次性选择，
+  // 不该跨场次/跨刷新继承（否则用户会以为控制条坏了）。
+  toggleMatchImmersive(false);
   const home = world.clubs.find((c) => c.id === next.home);
   const away = world.clubs.find((c) => c.id === next.away);
   const user = getUserClub(world);
@@ -10405,6 +10408,49 @@ function maybeWarnReopenedMatch(fixture) {
     closeModal();
     runMatch("instant");
   });
+}
+
+// ---------- 沉浸模式（点空白球场切换） ----------
+/**
+ * 点空白球场 → 隐藏 比分条 / 控球率条 / 控制条，把高度全还给球场；再点一次恢复。
+ *
+ * 为什么是「点球场」而不是「N 秒无操作自动隐藏」：
+ * v276 刚做完**全屏键可发现性**（控制条 6 个图标键同色同尺寸、用户找不到 ⇒
+ * 改成主题色高亮 + 开赛 toast 提示）。**自动隐藏会让那个按钮再次找不到。**
+ * 点球场是用户主动控制，且进入时给一次明确提示（含退出方式），
+ * 不会出现「藏起来就回不来」。
+ *
+ * 收益（实测 800×295，等效真机去掉浏览器工具栏）：比分条 38.1 + 控球条 18.3 +
+ * 控制条 51 ⇒ 可见球场还能再涨 ~100px。详见
+ * `docs/measurements/mobile-match-chrome-2026-09-22.txt`。
+ *
+ * @param {boolean} [force] 省略则取反
+ */
+function toggleMatchImmersive(force) {
+  const layout = document.querySelector(".match-layout");
+  if (!layout) return;
+  const next = force === undefined ? !layout.classList.contains("mp-immersive") : !!force;
+  layout.classList.toggle("mp-immersive", next);
+  // 布局变了（控制条在流里消失/出现）⇒ 让视图重算尺寸与镜头。
+  // 有 ResizeObserver 兜底，但这里显式调一次可以让第一帧就不糊。
+  if (matchView?.refreshLayout) requestAnimationFrame(() => matchView.refreshLayout());
+  if (next && matchView?.setCaption) {
+    // ⚠ 必须有这句：否则用户点一下球场，控制条「凭空消失」，不知道还能不能回来。
+    const msg =
+      getLang() === "en"
+        ? "Immersive view · tap the pitch to bring the controls back"
+        : "沉浸模式 · 再点球场恢复控制";
+    matchView.setCaption(msg, "info", 2600);
+    // 场内字幕只有一个槽（`#mp-caption`），开赛前后会被「比赛开始！」「☀️ 晴朗」
+    // 这类转瞬即逝的字幕顶掉 —— 实测截图里就出现过一次。
+    // 沉浸提示是**可发现性**信息（丢了用户就不知道控制条能不能回来），
+    // 所以 1.5s 后再确认一次。第二次若仍被顶掉，用户再点一下球场也能恢复。
+    setTimeout(() => {
+      if (document.querySelector(".match-layout")?.classList.contains("mp-immersive")) {
+        matchView.setCaption(msg, "info", 2200);
+      }
+    }, 1500);
+  }
 }
 
 /** 开赛后收起赛前简报卡片（评论流仍保留） */
@@ -10843,17 +10889,23 @@ async function ensureMatchPitch(remount = false) {
     capacity: report?.ticketCapacity,
     attendanceRatio: report?.ticketFillPct ? Number(report.ticketFillPct) / 100 : 0.84,
   };
+  // 点空白球场 = 沉浸模式开关（见 `toggleMatchImmersive`）。
+  // ⚠ 不能另挂一个 `fieldEl` 监听器：`matchview.js` 那个既有处理器已经用
+  //   `closest(".mp-grass"/".mp-lines")` 把球员热区排除掉了，另起一个会连球员一起吃掉。
+  const onPitchTap = () => toggleMatchImmersive();
   if (!matchView || remount || !matchView._built) {
     matchView = getMatchView(pitchRoot);
     matchView.mount(home, away, {
       onPlayerClick,
       onMotionStatus,
+      onPitchTap,
       cameraPreset: matchCamera,
       broadcastContext,
     });
   } else {
     matchView.setOnPlayerClick(onPlayerClick);
     matchView.setOnMotionStatus?.(onMotionStatus);
+    matchView.setOnPitchTap?.(onPitchTap);
     matchView.setBroadcastContext?.(broadcastContext);
     matchView.setCameraPreset?.(matchCamera, { persist: false });
   }

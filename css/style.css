@@ -1935,6 +1935,25 @@ html[data-theme="light"] .fm-scoreboard {
 .match-layout.match-report-only .fmm-match-bar .match-actions {
   justify-content: flex-end;
 }
+/* ── 沉浸模式：点空白球场隐藏全部 chrome（2026-09-22，v284） ──────────────
+   用户诉求「下面的功能区能不能不用时隐藏」。实现成**用户主动切换**而不是
+   「N 秒无操作自动隐藏」—— v276 刚做完全屏键的**可发现性**
+   （控制条 6 个图标键同色同尺寸、用户找不到 ⇒ 主题色高亮 + 开赛 toast），
+   自动隐藏会让那个按钮再次找不到。点球场是主动控制，且进入时给一次明确提示。
+
+   为什么用 `display: none` 而不是 `opacity: 0`：只有真的移出布局流，
+   高度才会还给球场。控球条在流里、控制条也在流里（横屏 body 的高度公式
+   硬编码了 `- 58px`），隐藏后必须把这段高度补回去 —— 见横屏媒体查询里的
+   `.mp-immersive .fmm-match-body` 覆盖。
+
+   ⚠ 不隐藏 `.mp-wrap`：进球横幅（`.mp-banner`）与场内字幕胶囊（`setCaption`
+   的 `captionEl`）都在 wrap 里，**它们是沉浸模式下唯一还能报事件的东西**
+   （底栏 ticker 会跟着 dock 一起藏掉）。 */
+.match-layout.mp-immersive > .fmm-scoreboard,
+.match-layout.mp-immersive > .fmm-match-bar,
+.match-layout.mp-immersive .mp-fmm-dock {
+  display: none;
+}
 .fm-pitch-col {
   min-width: 0;
   min-height: 0;
@@ -4005,6 +4024,17 @@ html[data-theme="dark"] .mp-fmm-dock {
   position: absolute;
   inset: 0;
   z-index: 4;
+  /* 🔴 点击穿透（2026-09-22）：`.mp-actors` 铺满整个球场，但它是**绘制容器** ——
+     canvas 模式下里面的 `.mp-player`/`.mp-dot`/`.mp-name` 全被
+     `opacity:0 !important` 藏掉，只剩热区还需要点。
+     不加这条，**空白球场的点击全被它吃掉**：`matchview.js` 里
+     `e.target === fieldEl || closest(".mp-grass") || closest(".mp-lines")`
+     那个「点空白关闭卡片」处理器**从来没有触发过**（守卫永远匹配不上），
+     沉浸模式也点不动。只给热区开回点击。 */
+  pointer-events: none;
+}
+.mp-actors .mp-player {
+  pointer-events: auto;
 }
 .mp-fx {
   position: absolute;
@@ -7197,6 +7227,16 @@ html[data-theme="light"] .badge-chip {
     height: calc(100dvh - 58px - 2 * var(--fmm-shell-pad));
     min-height: 0;
     max-height: none;
+  }
+  /* 沉浸模式：控制条被 `display: none` 掉了 ⇒ 把那 58px 还给 body。
+     ⚠ 必须补这一条：上面的高度公式把 58 写死了，不补的话隐藏控制条
+     **只会让页面底下空一块**，球场一点都不会变大（实测过）。
+     特异性 0,6,0 > 上面那条的 0,5,0，且写在后面。 */
+  .match-layout.fm-match.fmm-match.live-kick.mp-immersive .fmm-match-body,
+  .match-layout.fm-match.fmm-match.ht-kick.mp-immersive .fmm-match-body,
+  .match-layout.fm-match.fmm-match.pre-kickoff.mp-immersive .fmm-match-body {
+    height: calc(100vh - 2 * var(--fmm-shell-pad));
+    height: calc(100dvh - 2 * var(--fmm-shell-pad));
   }
   .match-layout.fm-match.fmm-match.live-kick .fmm-match-body .fm-pitch-col,
   .match-layout.fm-match.fmm-match.ht-kick .fmm-match-body .fm-pitch-col,
