@@ -3117,6 +3117,16 @@ function drainFitness(club, isHome, state) {
   for (const a of state.simEng?.agents || []) {
     if (a?.id != null) runById.set(a.id, Number(a.runMetres) || 0);
   }
+  // 🔴 worker / 有序提交路径：`restorePreparedMatch` 给回的 `state.simEng` 只是
+  //   一个 `{ events }` **桩**，没有 `agents` ⇒ 上面那个循环什么都取不到，
+  //   终场体能会退化成**整数回退**，而同步路径是按跑动分摊 ⇒ 两条路径不一致。
+  //   `serializePreparedMatch` 因此把跑动距离快照挂在 `_runMetres` 上带过来。
+  //   （修的是 `background-spatial-worker-audit` 那条既有红，v278 引入。）
+  if (!runById.size && state._runMetres?.[sk]) {
+    for (const [id, metres] of Object.entries(state._runMetres[sk])) {
+      runById.set(id, Number(metres) || 0);
+    }
+  }
   const work = xi.map((p) => runById.get(p.id) ?? 0);
   const sumWork = work.reduce((s, v) => s + v, 0);
 
@@ -3700,6 +3710,10 @@ const PREPARED_MATCH_STATE_FIELDS = Object.freeze([
   // 下半场是否已换边。simEng 本身不入档，读档后引擎会重建为
   // endsSwapped=false，必须靠这个 state 字段在下一段模拟开始时回灌。
   "_endsSwappedApplied",
+  // 每名球员的跑动距离快照（按队别）。`restorePreparedMatch` 给回的 `simEng`
+  // 只是 `{ events }` 桩、没有 agents ⇒ 终场 `drainFitness` 会退化成整数回退，
+  // 与同步路径不一致。带上它两条路径才逐位相同（见 `collectRunMetresBySide`）。
+  "_runMetres",
 ]);
 
 function beginMatchSimulation(state, opts = {}) {
@@ -3762,7 +3776,40 @@ function runMatchSimulationSync(state, opts = {}) {
   return state;
 }
 
+/**
+ * 把引擎的**每名球员跑动距离**按队别快照出来，供 `prepared` 载荷携带。
+ *
+ * 🔴 为什么必须带（2026-09-22 修的既有红）：`restorePreparedMatch` 重建出来的
+ * `state.simEng` 只是一个 `{ events }` **桩**，没有 `agents` ⇒ 终场 `drainFitness`
+ * 读不到 `runMetres` ⇒ 走**整数回退**，而同步路径走**按跑动分摊**。
+ * 两条路径从此在 `fitness` 上系统性不一致 —— 这正是
+ * `background-spatial-worker-audit` 的断言「prepared worker clock and ordered
+ * commit must equal the synchronous result」抓到的东西（v278 引入，连过 4 个提交）。
+ *
+ * ⚠ 只影响 `fitness`：回退分支的 `rng()` 调用次数与分摊分支相同，
+ *   所以随机流没有被平移，其余字段逐位相同。
+ *
+ * @returns {null | { home: Record<string, number>, away: Record<string, number> }}
+ */
+function collectRunMetresBySide(state) {
+  const agents = state.simEng?.agents;
+  if (!Array.isArray(agents) || !agents.length) return null;
+  const out = { home: {}, away: {} };
+  let any = false;
+  for (const a of agents) {
+    if (!a || a.id == null) continue;
+    if (a.team !== "home" && a.team !== "away") continue;
+    out[a.team][a.id] = Number(a.runMetres) || 0;
+    any = true;
+  }
+  return any ? out : null;
+}
+
 function serializePreparedMatch(state, { completed = false } = {}) {
+  // 跑动距离快照（见 `collectRunMetresBySide`）：必须在拷贝 `fields` **之前**挂到
+  // state 上，才会被 `PREPARED_MATCH_STATE_FIELDS` 的循环带走。
+  const runMetres = collectRunMetresBySide(state);
+  if (runMetres) state._runMetres = runMetres;
   if (completed && typeof state.simEng?.tacticalShapeEvidence === "function") {
     state.spatialShapeEvidence = state.simEng.tacticalShapeEvidence({
       compact: state.simulationProfile === "background",

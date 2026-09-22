@@ -1,0 +1,106 @@
+修掉 v278 引入的既有红：worker / 同步路径体能精度不一致（2026-09-22，v285）
+==========================================================================
+
+怎么发现的
+----------
+不是用户报的，是**跑全量回归时撞出来的**：
+`scripts/background-spatial-worker-audit.mjs` 的断言
+
+> prepared worker clock and ordered commit must equal the synchronous result
+
+失败。这条审计是**专门为「后台 worker 与同步路径必须一致」设的护栏** ——
+它比对的是 `prepareMatchSimulation → runPreparedMatchSimulation → commitPreparedMatch`
+这条路与 `simulateMatchSync` 跑完之后的 `{ fixture, home, away, table, financeObligations }`。
+
+
+症状
+----
+`deepStrictEqual` 的 diff 里**只有 `fitness` 一项不一致**，而且是两种形态：
+
+| 路径 | 体能值 |
+|---|---|
+| worker / 有序提交 | **整数**：80 / 88 / 89 / 76 / 80 |
+| 同步 | **小数**：77.82507430934491 / 94.76541816359754 / 82.48024164383324 … |
+
+⚠ 不是「同一个值取整」—— 整数侧是另一条**分配方式**算出来的，所以两边差 2~6 点。
+
+
+根因
+----
+`restorePreparedMatch` 重建出来的 `state.simEng` 只是一个 **`{ events }` 桩**：
+
+```js
+if (prepared.simEvents || prepared.analysis) {
+  state.simEng = { events: prepared.simEvents || [] };   // ← 没有 agents
+}
+```
+
+而终场体能结算 `drainFitness` 是**按每名球员的跑动距离占比**分摊的：
+
+```js
+const runById = new Map();
+for (const a of state.simEng?.agents || []) { ... }      // ← 桩里取不到 → 空 Map
+const sumWork = work.reduce((s, v) => s + v, 0);
+if (xi.length && sumWork > 0) { /* 按跑动分摊（保留小数） */ }
+else { /* 回退：逐人掷骰子 + Math.round ⇒ 整数 */ }
+```
+
+⇒ **worker 路径永远走整数回退，同步路径走按跑动分摊。**
+
+**引入时间：v278**（「终场体能改为按跑动距离分摊」）。那一次只改了同步侧 ——
+`simEng` 本来就不进 prepared 载荷，所以「引擎数据拿不到」这条回退在 worker 路径上
+被静默地长期命中。
+
+
+定位过程（`git worktree` 逐提交，**不动工作区**）
+--------------------------------------------------
+| 提交 | 结果 |
+|---|---|
+| `721d807`（v277，v278 **之前**） | ✅ 通过 |
+| `aa6d100`（**v278** 终场体能按跑动分摊） | ❌ 失败 |
+| `ba679b8`（v282，本轮基线） | ❌ 失败 |
+
+```bash
+git worktree add ../probe <sha>
+cd ../probe && node scripts/background-spatial-worker-audit.mjs
+cd .. && git worktree remove ../probe --force
+```
+比 `git stash` 安全（不会丢改动），比逐次 checkout 快。两次就钉到了 v278。
+
+
+修法
+----
+1. 新增 `collectRunMetresBySide(state)`：把 `state.simEng.agents` 的
+   `runMetres` 按 `agent.team` 分成 `{ home: {id: 米}, away: {id: 米} }`。
+2. `serializePreparedMatch` 在拷贝 `fields` **之前**把它挂到 `state._runMetres`，
+   并把 `"_runMetres"` 加进 `PREPARED_MATCH_STATE_FIELDS` ⇒ 随 prepared 载荷过界。
+3. `drainFitness` 在 `simEng.agents` 取不到跑动时，改读 `state._runMetres[sk]`。
+
+**三条不变量：**
+
+- **同步路径逐位不变**：它的 `simEng.agents` 非空 ⇒ 新分支不触发。
+- **只影响 `fitness`**：回退分支与分摊分支的 `rng()` 调用次数**相同**
+  ⇒ 随机流没有被平移。这正是为什么 diff 里只有 `fitness` 不一致。
+- **读档路径行为不变**：`_runMetres` 只在 prepared 载荷里，不进存档 ⇒
+  读档后引擎重建仍是「拿不到就跑回退」，与原来一致。
+
+
+验证
+----
+- `background-spatial-worker-audit.mjs`：**exit 0**（原本 exit 1）。
+  `workerTransferBytes` 略增（172635），因为多带了 22 人的跑动快照。
+- `fitness-finalize-drain-verify.mjs`（v278 自己那条护栏）：**exit 0**。
+- `ends-swap-verify` / `segment-cut-fade-verify` / `reopened-match-notice-audit`：全 **exit 0**。
+- `cache-audit`：`vcfm-v285` 通过。
+- 全量 `verify.mjs --full`：见文末。
+
+
+🔴 教训（流程，比代码重要）
+--------------------------
+**交接里那句「不必先跑 `verify.mjs`」让这条红连过 4 个提交没人发现。**
+
+- 这条审计是**专门为两条路径的一致性**设的护栏，v278 的作者大概率没跑全量，
+  而后面三个提交都照着「不必先跑」跳过了。
+- ⇒ **改了 `js/` 或 `css/` 就要跑全量**；只改探针/文档才可跳过。
+- ⚠ 全量约 43~57 分钟，**中途不要改任何被它读到的文件**
+  ——否则结果既不是旧的也不是新的。

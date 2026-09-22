@@ -57,8 +57,8 @@ import {
   habitLabel,
   startHabitTraining,
 } from "./player-habits.js";
-import { nationFlagHtml } from "./flags.js?v=284";
-import { clubCrestHtml } from "./club-crest.js?v=284";
+import { nationFlagHtml } from "./flags.js?v=285";
+import { clubCrestHtml } from "./club-crest.js?v=285";
 import { applyWorldClubBranding, localizedClubName } from "./branding.js";
 import { recordFinanceEntry } from "./finance-ledger.js";
 import { renderFinance as renderFinanceView } from "./ui/finance.js";
@@ -323,7 +323,7 @@ import {
   selectPlannedSaleCandidate,
   squadPlayerPlan,
   squadPositionPlan,
-} from "./squad-planning.js?v=284";
+} from "./squad-planning.js?v=285";
 import {
   TRAINING_MODES,
   ensureTrainingBoost,
@@ -390,7 +390,7 @@ import {
   staffAvatarHtml,
   avatarHtml,
   hydrateAvatarKitRecolor,
-} from "./avatar.js?v=284";
+} from "./avatar.js?v=285";
 import { attributeArchetypeLabel } from "./player-attributes.js";
 import {
   MANAGER_ONBOARDING_TAB_STEPS,
@@ -564,7 +564,7 @@ function clearMatchResume() {
 
 function loadMatchViewModule() {
   if (!matchViewModulePromise) {
-  matchViewModulePromise = import("./matchview.js?v=284").then((module) => {
+  matchViewModulePromise = import("./matchview.js?v=285").then((module) => {
       matchViewApi = module;
       return module;
     });
