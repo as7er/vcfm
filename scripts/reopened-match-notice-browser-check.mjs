@@ -16,8 +16,12 @@
  * 2. 断言 `sessionStorage` 里有 `vcfm-match-progress` 且 `minute >= 1`
  * 3. **刷新页面（F5）** —— 这正是用户走的路（sessionStorage 仍在）
  * 4. 回到比赛日 → 再点「进入比赛」
- * 5. 断言 `#modal` **可见**、文案里含那个分钟数、两个按钮都在
+ * 5. 断言 `#modal` **可见**、文案里含那个分钟数、按钮都在（v282 起含真正的
+ *    续播按钮 `#btn-reopened-match-resume`）
  * 6. 反面对照：点「从头重看」应关掉弹窗
+ *
+ * ⚠ 本检查**不**验续播本身跑得对不对（那要真播一段，见
+ *   `scripts/_match-resume-probe.mjs` / `npm run test:resume-browser`）。
  *
  * 用法：node scripts/reopened-match-notice-browser-check.mjs
  * ⚠ 需要 Playwright + msedge；约 3~5 分钟（含联赛开局）。
@@ -220,9 +224,15 @@ try {
     btns.every((b) => b.visible),
     `有按钮不可见（CSS 坑）：${JSON.stringify(btns)}`
   );
-  // 不得出现「继续观看」这类未实现的承诺
+  // ⚠ v281 这里断言的是「不得出现未实现的续播承诺」（当时续播没做）。
+  //   v282 的 ④-B **把续播实现了** ⇒ 前提变了，断言改成**钉住那个真按钮**：
+  //   续播入口必须就是 `#btn-reopened-match-resume`（而不是另造一个措辞相近的假按钮）。
+  const resumeBtn = btns.find((b) => b.id === "btn-reopened-match-resume");
+  assert.ok(resumeBtn, `弹窗里没有真正的续播按钮 #btn-reopened-match-resume：${JSON.stringify(btns)}`);
+  assert.ok(resumeBtn.visible, `续播按钮不可见：${JSON.stringify(resumeBtn)}`);
+  // 仍不得出现**别的**未实现措辞（如「继续观看」——本项目没有这个词的入口）。
   assert.ok(
-    !btns.some((b) => /继续观看|继续直播|resume|continue/i.test(b.text)),
+    !btns.some((b) => b.id !== "btn-reopened-match-resume" && /继续观看|继续直播/i.test(b.text)),
     `弹窗给了未实现的续播承诺：${JSON.stringify(btns)}`
   );
 

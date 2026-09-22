@@ -5,7 +5,35 @@
 > 仓库：https://github.com/as7er/vcfm.git · `master`（**2026-09-14 起规范地址为小写 `vcfm`**；
 > 大写 `VCFM` 仍可用但会走重定向，`origin` 已更新为小写）  
 > 预览：`python -m http.server 8765 --bind 127.0.0.1`  
-> **本轮（2026-09-22 v281）**：**「重开直播画面一样」= 设计，已改成「提示 + 替代动作」**（用户报）。
+> **本轮（2026-09-22 v282）**：**④-B「真正的继续看」—— 续播落地**（交接第一优先）。
+> 背景：v281 只做「提示 + 替代动作」，并明确**不实现续播**（避免假承诺）。
+> 本轮把续播做出来了，**`js/match.js` 零改动**，全在 `js/main.js`：
+> ① 进度记录多存**模拟秒 `simT`**（`writeMatchProgress` / `setMatchMinute` /
+>    `refreshLiveHudFromState` 透传）。⚠ 45′/90′ 那几处收尾调用不带 simT，
+>    **必须沿用上一次的值**而不是抹成 null。
+> ② 模块级 `matchResumeSimT`：桥接器段循环**开头**跳过 `t1 ≤ 续播点` 的段
+>    （复用现成 skip 路径 `spec.onSkip` + `refreshLiveHudFromState`），
+>    但**不走**「⏩ 跳过平淡」横幅（一次长快进会刷出十几条噪声），
+>    改打一条专属的「⏩ 快进到你上次看到的位置（N′）」。
+> ③ **首次真正渲染后**清掉 `matchResumeSimT`（不清会把整场都跳光）。
+> ④ 重开弹窗加「从 N′ 接着看」→ `runMatch("live", { resume: true })`；
+>    `runMatch` 默认 `resume = false` ⇒ 用户自己点直播仍是既有「从 0′ 重演」语义。
+> ⑤ **跨半场不用特殊处理**：H2 续播时 H1 段全部被跳过 ⇒ 没渲染 ⇒
+>    `matchResumeSimT` 保持非 null 一直带到 H2，正好继续跳过 46′ 之前的段。
+>    中途会停在**中场面板**等一次确认（用户可顺手调整）—— 弹窗文案里已讲清。
+> **为什么可行（交接已查实）**：`simulatePeriodWithSim` 把**渲染**交给
+> `opts.playHighlightPlan`，之后有兜底循环 flush 全部剩余线索 + 逐分钟跑
+> `finishMinuteSideEffects` ⇒ **一个段都不渲染也不会丢进球 / 体能 / 事件**。
+> **实测**（`scripts/_match-resume-probe.mjs`，真实 Chromium）：
+> 续播点 760.3 → **首帧 760.3**、HUD 13′（不是 0′）、专属横幅命中；
+> 对照组「从头重看」首帧 0.1 ⇒ 跳过量 ≈ 续播点。
+> ⚠ 判据**不能**写「首帧 ≈ 续播点」：续播点常落在**平淡段内部**，
+>   最早能渲染的是它之后的第一个高光段（census 段间隔 129.5~956.8 模拟秒；
+>   实测见过 689.9 ⇒ 1122.6）。正确判据是**「首帧不早于续播点」**+ 与对照组配对。
+> ⚠ 旧断言的前提变了要**反向加强**、不是放宽：v281 的「弹窗不得承诺续播」
+>   改成「承诺必须真的接线」（`reopened-match-notice-audit.mjs` 变异测试 7 → 10 项）。
+>
+> **上一轮（2026-09-22 v281）**：**「重开直播画面一样」= 设计，已改成「提示 + 替代动作」**（用户报）。
 > 查清：`openMatch` 无条件重置（`matchState=null` / `setMatchMinute(0,{reset})`）+ `runMatch` 新建会话
 > + `playFirstHalf` 硬编码 `fromMin=1`，而 `matchSeed` 随存档保留 ⇒ 随机流相同 ⇒ **重放逐位相同**。
 > 本轮只做两件事：`js/main.js` 用 sessionStorage 记进度（钩在 `setMatchMinute` 里，**`reset` 那次不记**，
@@ -16,7 +44,7 @@
 > 🔴 另加**浏览器层** `npm run test:reopen-browser`（`scripts/reopened-match-notice-browser-check.mjs`，
 > 146 秒）—— 走用户那条路：新游戏→推进比赛日→直播 25 秒→**F5**→再进比赛，
 > 断言弹窗**真的可见**、按钮都在、且不含假承诺。**静态断言证明不了「弹窗会出现」**，
-> 本仓库有「单测全绿但画面上什么都没发生」的血例（见 ③ 进场动画）。缓存 **vcfm-v281**。
+> 本仓库有「单测全绿但画面上什么都没发生」的血例（见 ③ 进场动画）。缓存 **vcfm-v282**。
 > 详见 [docs/measurements/tactics-layer-four-items-2026-09-22.txt](docs/measurements/tactics-layer-four-items-2026-09-22.txt)（④ 段）。
 > **上一轮（2026-09-22 v280）**：**战术层摸底 + 两项落地**（用户诉求「让球员读懂战术」）。
 > 先摸底（新增 `scripts/_tactics-understanding-probe.mjs`，配对 A/B：同一 seed、只改一个旋钮、

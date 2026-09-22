@@ -57,8 +57,8 @@ import {
   habitLabel,
   startHabitTraining,
 } from "./player-habits.js";
-import { nationFlagHtml } from "./flags.js?v=281";
-import { clubCrestHtml } from "./club-crest.js?v=281";
+import { nationFlagHtml } from "./flags.js?v=282";
+import { clubCrestHtml } from "./club-crest.js?v=282";
 import { applyWorldClubBranding, localizedClubName } from "./branding.js";
 import { recordFinanceEntry } from "./finance-ledger.js";
 import { renderFinance as renderFinanceView } from "./ui/finance.js";
@@ -323,7 +323,7 @@ import {
   selectPlannedSaleCandidate,
   squadPlayerPlan,
   squadPositionPlan,
-} from "./squad-planning.js?v=281";
+} from "./squad-planning.js?v=282";
 import {
   TRAINING_MODES,
   ensureTrainingBoost,
@@ -390,7 +390,7 @@ import {
   staffAvatarHtml,
   avatarHtml,
   hydrateAvatarKitRecolor,
-} from "./avatar.js?v=281";
+} from "./avatar.js?v=282";
 import { attributeArchetypeLabel } from "./player-attributes.js";
 import {
   MANAGER_ONBOARDING_TAB_STEPS,
@@ -522,12 +522,12 @@ function writeMatchProgress(rec) {
   }
 }
 
-/** 已写入的 { key, minute }。直播时 `refreshLiveHudFromState` 每帧都会调 `setMatchMinute`，
+/** 已写入的 { key, minute, simT }。直播时 `refreshLiveHudFromState` 每帧都会调 `setMatchMinute`，
  *  而 sessionStorage 是同步 API ⇒ 不去重就是每帧一次写盘；去重后每场只写 ~90 次。 */
-let lastMatchProgressWrite = { key: "", minute: 0 };
+let lastMatchProgressWrite = { key: "", minute: 0, simT: null };
 
 function clearMatchProgress() {
-  lastMatchProgressWrite = { key: "", minute: 0 };
+  lastMatchProgressWrite = { key: "", minute: 0, simT: null };
   try {
     sessionStorage.removeItem(MATCH_PROGRESS_KEY);
   } catch (_) {
@@ -535,9 +535,36 @@ function clearMatchProgress() {
   }
 }
 
+// ---------- ④-B 续播（真正的「继续看」） ----------
+/**
+ * 续播点（模拟秒）。非 null 时，`playHighlightPlanBridge` 对 `t1 ≤ 它的段`
+ * **只记账、不渲染** —— 复用现成的 skip 路径（`spec.onSkip` + `refreshLiveHudFromState`）。
+ *
+ * 为什么可行：`js/match.js` 的 `simulatePeriodWithSim` 把**渲染**交给
+ * `opts.playHighlightPlan`，之后有一段兜底循环 flush 全部剩余线索并逐分钟跑
+ * `finishMinuteSideEffects` ⇒ **一个段都不渲染也不会丢进球 / 体能 / 事件**。
+ *
+ * ⚠ 跨半场：`playFirstHalf`（fromMin=1）与 `playSecondHalf`（46/61/76）是两次独立调用，
+ *   桥接器因此被调 4 次。若续播点在 H2，H1 的段**全部**被跳过 ⇒ 不会渲染 ⇒ 本变量
+ *   保持非 null 一直带到 H2，正好继续跳过 46′ 之前的段。中途会停在**中场面板**
+ *   等一次确认（用户可顺手调整战术）—— 这是有意的，弹窗文案里已说明。
+ */
+let matchResumeSimT = null;
+/** 续播点的顶栏分钟，只用于文案。 */
+let matchResumeMinute = 0;
+/** 续播横幅只弹一次。 */
+let matchResumeBannerShown = false;
+
+/** 清掉续播意图（进比赛界面 / 完场时调，避免影响下一场）。 */
+function clearMatchResume() {
+  matchResumeSimT = null;
+  matchResumeMinute = 0;
+  matchResumeBannerShown = false;
+}
+
 function loadMatchViewModule() {
   if (!matchViewModulePromise) {
-  matchViewModulePromise = import("./matchview.js?v=281").then((module) => {
+  matchViewModulePromise = import("./matchview.js?v=282").then((module) => {
       matchViewApi = module;
       return module;
     });
@@ -9586,7 +9613,7 @@ function handleSimLiveEvent(ev, snap) {
  */
 function refreshLiveHudFromState(minute, simT = null) {
   if (!matchState) return;
-  if (minute != null) setMatchMinute(minute);
+  if (minute != null) setMatchMinute(minute, { simT });
   setMatchScore(matchState.hg, matchState.ag);
   if (!matchState.stats) return;
   const live = liveStatsThrough(simT, minute);
@@ -9697,6 +9724,29 @@ async function playHighlightPlanBridge(spec) {
   }
 
   for (const seg of segs) {
+    // ④-B 续播：续播点之前的段只记账、不渲染。
+    // 复用现成的 skip 路径（`spec.onSkip` 记账 + HUD 刷新），但**不走**下面的
+    // 「⏩ 跳过平淡」横幅 —— 那会把一次长快进刷成十几条噪声横幅。
+    if (matchResumeSimT != null && seg.t1 <= matchResumeSimT) {
+      try {
+        spec.onSkip?.(seg);
+      } catch (e) {
+        console.warn(e);
+      }
+      refreshLiveHudFromState(seg.toMin, seg.t1);
+      if (!matchResumeBannerShown) {
+        matchResumeBannerShown = true;
+        const msg =
+          getLang() === "en"
+            ? `⏩ Fast-forward to where you left off (${matchResumeMinute}')`
+            : `⏩ 快进到你上次看到的位置（${matchResumeMinute}′）`;
+        matchView?.setBanner?.(msg, "info");
+        matchView?.setCaption?.(msg, "info", fast ? 1400 : 2000);
+        setTimeout(() => matchView?.setBanner?.(""), fast ? 140 : 200);
+      }
+      continue;
+    }
+
     if (seg.kind === "skip") {
       try {
         spec.onSkip?.(seg);
@@ -9725,6 +9775,9 @@ async function playHighlightPlanBridge(spec) {
     }
 
     if (seg.kind === "play" && seg.frames?.length >= 2 && matchView?.playSimTimeline) {
+      // ④-B：这是续播后**第一次真正渲染** ⇒ 续播使命完成，清掉以免影响
+      // 后续批次（H2 有 3 次独立调用，不清会把整场都跳光）。
+      matchResumeSimT = null;
       await matchView.playSimTimeline(seg.frames, {
         getSpeed,
         isPaused,
@@ -10211,6 +10264,8 @@ async function openMatch() {
   pendingMatch = next;
   // 已完赛的场次不必再提示「重开会从 0′ 重演」
   if (next.played) clearMatchProgress();
+  // 进比赛界面即清掉续播意图：只有弹窗里的「接着看」才会重新armed。
+  clearMatchResume();
   matchState = null;
   pendingSubs = [];
   document.querySelector(".match-layout")?.classList.remove("match-report-only");
@@ -10280,12 +10335,16 @@ async function openMatch() {
 }
 
 /**
- * 重开同一场比赛前，把「会从 0′ 重演」说清楚，并给一个替代动作。
+ * 重开同一场比赛前，把「会从 0′ 重演」说清楚，并给替代动作。
  *
  * 为什么需要这条提示：`matchSeed` 随存档保留，而进比赛永远是**新建**会话
  * （`openMatch` 无条件重置 + `runMatch` 新建会话 + `playFirstHalf` 从 fromMin=1 起算），
  * 同一个随机流 ⇒ 重放逐位相同 ⇒ 用户看到「重开之后画面一模一样」，像是没反应。
- * 本轮只提示，**不实现续播** —— 所以不给「接着看」这类按钮，避免假承诺。
+ *
+ * ④-B：现在**真的能接着看**了 —— 进度记录里有模拟秒 `simT` 时给「从 N′ 接着看」，
+ * 它会跳过续播点之前的段（只记账不渲染，见 `matchResumeSimT`）。
+ * ⚠ 续播点在**下半场**时，上半场会整段跳过 ⇒ 会先停在中场面板等一次确认；
+ *   文案里必须说清，否则用户会以为卡住了。
  */
 function maybeWarnReopenedMatch(fixture) {
   if (!fixture || fixture.played) return;
@@ -10293,18 +10352,41 @@ function maybeWarnReopenedMatch(fixture) {
   if (!rec || rec.key !== matchProgressKey(fixture) || !(rec.minute >= 1)) return;
   const en = getLang() === "en";
   const minute = Math.floor(rec.minute);
+  // 续播要有模拟秒，且「跳过一点点」没有意义（≥2′ 才给按钮）。
+  const resumeSimT = Number(rec.simT);
+  const canResume = Number.isFinite(resumeSimT) && resumeSimT > 0 && minute >= 2;
   const body = $("#modal-body");
   if (!body) return;
   $("#modal-card")?.classList.remove("wide", "search-modal");
   body.innerHTML = `
     <h2>${escapeHtml(en ? "You already watched this match" : "这场比赛你已经看过一段")}</h2>
     <p>${
-      en
-        ? `You watched up to <b>${minute}'</b>. Reopening restarts from <b>0'</b> — the engine replays the whole match from the beginning (it is identical every time, so it can look like nothing happened).`
-        : `上次你看到 <b>${minute}′</b>。重开直播会 <b>从 0′ 重演</b> —— 引擎会把整场从头再演一遍（每次都一样，所以看起来像"没反应"）。`
+      canResume
+        ? en
+          ? `You watched up to <b>${minute}'</b>. You can <b>carry on from there</b>, or replay from <b>0'</b> (the engine replays identically every time, so a restart can look like nothing happened).`
+          : `上次你看到 <b>${minute}′</b>。可以 <b>从那里接着看</b>，也可以 <b>从 0′ 重看</b>（引擎每次重放都一样，所以重开看起来像"没反应"）。`
+        : en
+          ? `You watched up to <b>${minute}'</b>. Reopening restarts from <b>0'</b> — the engine replays the whole match from the beginning (it is identical every time, so it can look like nothing happened).`
+          : `上次你看到 <b>${minute}′</b>。重开直播会 <b>从 0′ 重演</b> —— 引擎会把整场从头再演一遍（每次都一样，所以看起来像"没反应"）。`
     }</p>
+    ${
+      canResume && minute >= 46
+        ? `<p class="muted" style="font-size:0.9em">${escapeHtml(
+            en
+              ? "You were in the second half, so the first half is fast-forwarded — you will stop at the half-time panel once; just continue from there."
+              : "你上次在下半场，上半场会被快进 —— 中途会先停在中场面板一次，直接点继续即可。"
+          )}</p>`
+        : ""
+    }
     <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.75rem">
-      <button type="button" class="btn primary" id="btn-reopened-match-replay">${escapeHtml(
+      ${
+        canResume
+          ? `<button type="button" class="btn primary" id="btn-reopened-match-resume">${escapeHtml(
+              en ? `Carry on from ${minute}'` : `从 ${minute}′ 接着看`
+            )}</button>`
+          : ""
+      }
+      <button type="button" class="btn${canResume ? " ghost" : " primary"}" id="btn-reopened-match-replay">${escapeHtml(
         en ? "Replay from 0'" : "从头重看"
       )}</button>
       <button type="button" class="btn ghost" id="btn-reopened-match-instant">${escapeHtml(
@@ -10312,6 +10394,11 @@ function maybeWarnReopenedMatch(fixture) {
       )}</button>
     </div>`;
   openSharedModal();
+  // 「接着看」是用户明确点的 ⇒ 直接开直播，不必再让他去点一次「直播」按钮。
+  $("#btn-reopened-match-resume")?.addEventListener("click", () => {
+    closeModal();
+    runMatch("live", { resume: true });
+  });
   // 「从头重看」只关弹窗：用户随后自己点直播/快速按钮，这里不替他做决定。
   $("#btn-reopened-match-replay")?.addEventListener("click", () => closeModal());
   $("#btn-reopened-match-instant")?.addEventListener("click", () => {
@@ -10369,22 +10456,26 @@ function setMatchScore(hg, ag) {
 
 let displayedMatchMinute = 0;
 
-function setMatchMinute(min, { reset = false } = {}) {
+function setMatchMinute(min, { reset = false, simT = null } = {}) {
   displayedMatchMinute = nextDisplayedMinute(displayedMatchMinute, min, { reset });
   const el = $("#match-minute");
   if (el) el.textContent = `${Math.floor(displayedMatchMinute)}'`;
   matchView?.setBroadcastState?.({ minute: displayedMatchMinute });
-  // 进度记账：只服务「重开直播会从 0′ 重演」这条提醒，不参与任何播放逻辑。
+  // 进度记账：服务「重开直播会从 0′ 重演」这条提醒 + ④-B 的续播点，不参与播放逻辑。
   // ① `reset` 那次是时钟边界或「刚进比赛界面」，不代表用户看过 —— 尤其 openMatch 的
   //    setMatchMinute(0, { reset: true })，真记了就会把进度写成 0′。
   // ② 已完赛场次不再提示（openMatch 里另有 clearMatchProgress）。
   // ③ 只记整分钟：直播时 onSimT 每帧都走到这里，而 sessionStorage 是同步 API。
+  // ④ `simT` 是**模拟秒**（续播点用它，比整分钟精确）；缺失时沿用上一次的值 ——
+  //    收尾那几处 `setMatchMinute(45/90)` 不带 simT，不该把续播点抹成 null。
   if (!reset && min >= 1 && pendingMatch && !pendingMatch.played) {
     const key = matchProgressKey(pendingMatch);
     const minute = Math.floor(min);
+    const t = Number.isFinite(Number(simT)) ? Number(simT) : null;
     if (key !== lastMatchProgressWrite.key || minute > lastMatchProgressWrite.minute) {
-      if (writeMatchProgress({ key, minute, at: Date.now() })) {
-        lastMatchProgressWrite = { key, minute };
+      const nextSimT = t != null ? t : lastMatchProgressWrite.simT;
+      if (writeMatchProgress({ key, minute, at: Date.now(), simT: nextSimT ?? 0 })) {
+        lastMatchProgressWrite = { key, minute, simT: nextSimT ?? 0 };
       }
     }
   }
@@ -10522,9 +10613,24 @@ function setMatchBusy(busy) {
 /**
  * mode: "fast" | "live" | "instant"
  * fast/live 在中场暂停；instant 一键完赛
+ * @param {{ resume?: boolean }} [opts] `resume` 时从进度记录的模拟秒接着播（④-B）。
+ *   ⚠ 只有「接着看」按钮传 true —— 用户自己点直播/快速仍是「从 0′ 重演」的既有语义。
  */
-async function runMatch(mode) {
+async function runMatch(mode, { resume = false } = {}) {
   if (!pendingMatch || pendingMatch.played || liveRunning) return;
+  clearMatchResume();
+  // ⚠ 这里 `matchState` 还是 null（会话在下面才建），所以只算「是否续播」，
+  //   `_hlIntroShown` 等建完会话再打（见下方 createMatchSession 之后）。
+  let resumeArmed = false;
+  if (resume && pendingMatch && !pendingMatch.played) {
+    const rec = readMatchProgress();
+    const simT = Number(rec?.simT);
+    if (rec && rec.key === matchProgressKey(pendingMatch) && Number.isFinite(simT) && simT > 0) {
+      matchResumeSimT = simT;
+      matchResumeMinute = Math.floor(rec.minute);
+      resumeArmed = true;
+    }
+  }
   setMatchBusy(true);
   hidePrematchBriefPanel();
   hideHtPanel();
@@ -10613,6 +10719,9 @@ async function runMatch(mode) {
     }
 
     matchState = createMatchSession(world, pendingMatch);
+    // ④-B：续播时不弹通用的「高光观赛 · 平淡时段已跳过」开场字幕 ——
+    // 续播横幅更具体，两条叠在一起只会互相盖。
+    if (resumeArmed) matchState._hlIntroShown = true;
     // 赛前队内讲话 → 士气 + 上半场修正 + 媒体（事件经 playFirstHalf onEvent / 快速日志刷出）
     const talkRes = coachRunsMatch
       ? applyManagedTeamTalk(matchState, "pre")
@@ -12138,6 +12247,8 @@ function formatRoleReviewHtml(rev) {
 }
 
 function finishMatchUI() {
+  // ④-B：完场即清续播意图（异常路径下 `runMatch` 可能中途退出，别把它带到下一场）。
+  clearMatchResume();
   // 首周引导的比赛步骤在这里落定，随后由调用方的 saveGame 落盘。
   // 工作台此刻不可见（激活屏是比赛画面），点「继续」时 refreshAll 会重渲染，
   // 所以这里只改状态不渲染；也不能让异常冒出去，后面还要解锁「继续」按钮。

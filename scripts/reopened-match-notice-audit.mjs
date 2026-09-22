@@ -1,11 +1,17 @@
 /**
- * 「重开直播画面一样」提示的静态接线检查（2026-09-22 v281）。
+ * 「重开直播」提示 + **续播**接线的静态检查（2026-09-22 v281 起，v282 扩到 ④-B）。
  *
  * 用户报「直播看了一段，重开之后画面好像一样」。**这不是 bug，是设计**：
  * `openMatch` 无条件重置会话、`playFirstHalf` 从 fromMin=1 起算，而 `matchSeed`
- * 随存档保留 ⇒ 随机流相同 ⇒ 重放逐位相同。本轮只做「提示 + 替代动作」，
- * **续播没有实现**（`fromMin` 仍只有硬编码 1/46/61/76）——所以这条审计也顺便
- * 钉住「弹窗里不得出现承诺续播的字样」。
+ * 随存档保留 ⇒ 随机流相同 ⇒ 重放逐位相同。
+ *
+ * - **v281** 只做「提示 + 替代动作」，**续播没实现** —— 当时这里钉的是
+ *   「弹窗里不得出现承诺续播的字样」（不许假承诺）。
+ * - **v282（④-B）真的实现了续播**：进度记录多存一个**模拟秒 `simT`**，
+ *   桥接器把 `t1 ≤ 续播点` 的段只记账、不渲染（复用现成的 skip 路径）。
+ *   ⇒ 第 6 组断言随之**反向加强**：从「不许承诺」改成「承诺必须真的接线」——
+ *   按钮存在 + 有 simT 守卫 + 真的调 `runMatch("live", { resume: true })` +
+ *   桥接器真的跳过 + 首次渲染后真的清掉。
  *
  * 纯静态，不启动浏览器、不模拟引擎，1 秒内跑完：
  * 1. 进度键 `MATCH_PROGRESS_KEY === "vcfm-match-progress"`。
@@ -15,11 +21,12 @@
  *    会把进度写成 0′，弹窗从此再也不会出现）。
  * 4. `openMatch` 体内有 `clearMatchProgress()`（已完赛不必再提示）。
  * 5. 弹窗文案双语（`getLang() === "en"` + 中文串都在）。
- * 6. 弹窗**不承诺续播**（不得出现 `resume` / `continue from` / `继续观看`）。
+ * 6. 「接着看」按钮**真的接线**（见上）；跨半场必须在文案里交代。
+ * 6b. 桥接器真的会跳过续播点之前的段，且**首次渲染后清掉**续播点。
  * 7. 弹窗按钮里调用了 `runMatch("instant")`。
  * 8. 弹窗按钮只用样式表里**真实存在**的 class（`.btn.primary` / `.btn.ghost`）。
  *
- * 末尾附带**变异测试**：把上述 7 个要点逐个改坏（每次只动一处），断言至少有
+ * 末尾附带**变异测试**：把上述要点逐个改坏（每次只动一处），断言至少有
  * 一条检查转红 —— 「改坏就该红」，证明这些断言不是装饰。
  */
 import { readFileSync } from "node:fs";
@@ -58,6 +65,7 @@ function bodyRange(src, pattern) {
 const OPEN_MATCH = "async function openMatch\\(\\)";
 const SET_MINUTE = "function setMatchMinute\\([^)]*\\)";
 const WARN = "function maybeWarnReopenedMatch\\([^)]*\\)";
+const BRIDGE = "async function playHighlightPlanBridge\\([^)]*\\)";
 
 const BODY_LIMITS = {
   openMatch: [2000, 60000],
@@ -116,10 +124,29 @@ function audit(src, cssSrc) {
     );
   }
 
+  // 3b：进度必须存**模拟秒** —— 续播点靠它（整分钟不够精确，且 45′/90′
+  //     那种收尾调用不带 simT，得沿用上一次的值而不是抹成 null）。
+  add(
+    !!setMinute && /writeMatchProgress\(\{[^}]*\bsimT\b/.test(setMinute.body),
+    "`setMatchMinute` 写进度时带上模拟秒 `simT`"
+  );
+  add(
+    /setMatchMinute\(minute,[ \t]*\{[ \t]*simT[ \t]*\}/.test(src),
+    "`refreshLiveHudFromState` 把 `simT` 透传给 `setMatchMinute`（不透传就永远记不到）"
+  );
+
   // 4
   add(
     !!openMatch && /\bclearMatchProgress\(\)/.test(openMatch.body),
     "`openMatch` 体内有 `clearMatchProgress()`（已完赛不提示）"
+  );
+  add(
+    !!openMatch && /\bclearMatchResume\(\)/.test(openMatch.body),
+    "`openMatch` 清掉续播意图（只有弹窗的「接着看」才重新 armed）"
+  );
+  add(
+    /async function runMatch\(mode,[ \t]*\{[ \t]*resume[ \t]*=[ \t]*false[ \t]*\}[ \t]*=[ \t]*\{\}[ \t]*\)/.test(src),
+    "`runMatch` 有 `{ resume = false }` 选项（默认不续播 ⇒ 用户自己点直播仍是既有语义）"
   );
 
   // 5
@@ -128,13 +155,49 @@ function audit(src, cssSrc) {
     "弹窗文案双语（`getLang() === \"en\"` 与中文串都在同一个函数里）"
   );
 
-  // 6：本轮不实现续播，弹窗里不能出现任何承诺续播的字样。
+  // 6：④-B 之后**续播真的实现了**（v282）。
+  //    ⚠ v281 这里钉的是「弹窗不得出现承诺续播的字样」—— 那条断言的前提
+  //    （"不实现续播"）已经被本轮的实现取代，所以不是放宽、而是**反向加强**：
+  //    从「不许承诺」改成「承诺必须真的接线」。
   {
-    const hit = /resume|continue from|继续观看/i.exec(warn ? warn.body : "");
+    const b = warn ? warn.body : "";
     add(
-      !!warn && !hit,
-      "弹窗不承诺续播（无 resume / continue from / 继续观看）",
-      hit ? `出现 "${hit[0]}"` : ""
+      !!warn && /btn-reopened-match-resume/.test(b),
+      "弹窗有「接着看」按钮（id=btn-reopened-match-resume）"
+    );
+    add(
+      !!warn && /\bcanResume\b/.test(b) && /Number\.isFinite\(resumeSimT\)/.test(b),
+      "「接着看」由进度记录里的**模拟秒** `simT` 守卫（没有 simT 就不给按钮 —— 避免假承诺）",
+      "判据：canResume 同时要求 simT 有限且 minute ≥ 2"
+    );
+    add(
+      !!warn && /runMatch\([ \t]*"live"[ \t]*,[ \t]*\{[ \t]*resume:[ \t]*true[ \t]*\}/.test(b),
+      '「接着看」接到 `runMatch("live", { resume: true })`（不是空按钮）'
+    );
+    add(
+      !!warn && /minute[ \t]*>=[ \t]*46/.test(b),
+      "下半场续播时弹窗里讲清「会先停在中场面板」（跨半场必须交代，否则像卡住）"
+    );
+  }
+
+  // 6b：桥接器真的会跳过续播点之前的段（只记账、不渲染）。
+  //     这条是「弹窗承诺」与「实际行为」之间的桥 —— 没有它，按钮就是个假承诺。
+  {
+    const bridge = bodyRange(src, "async function playHighlightPlanBridge\\([^)]*\\)");
+    const b = bridge ? bridge.body : "";
+    add(
+      !!bridge &&
+        /matchResumeSimT[ \t]*!=[ \t]*null[ \t]*&&[ \t]*seg\.t1[ \t]*<=[ \t]*matchResumeSimT/.test(b),
+      "桥接器的段循环跳过 `t1 ≤ matchResumeSimT` 的段",
+      bridge ? `体长 ${bridge.body.length}` : "未找到定义"
+    );
+    add(
+      !!bridge && /matchResumeSimT[ \t]*=[ \t]*null;/.test(b),
+      "**首次真正渲染后**清掉续播点（不清会把整场都跳光）"
+    );
+    add(
+      !!bridge && /spec\.onSkip\?\.\(seg\)/.test(b) && /refreshLiveHudFromState\(seg\.toMin, seg\.t1\)/.test(b),
+      "续播跳过复用现成的 skip 路径（记账 + HUD 刷新），不另造一套"
     );
   }
 
@@ -185,8 +248,12 @@ const mutations = [
     () => mutateBody(main, OPEN_MATCH, "if (next.played) clearMatchProgress();", ""),
   ],
   ["⑤ 弹窗只留一种语言", () => mutateBody(main, WARN, 'getLang() === "en"', "true")],
-  ["⑥ 弹窗按钮改成假承诺", () => mutateBody(main, WARN, '"直接出战报"', '"继续观看"')],
+  // ⑥ 从 v282 起，「接着看」是真功能 ⇒ 变异改成「按钮在、但没接线」（假承诺）。
+  ["⑥ 接着看按钮不接线（假承诺）", () => mutateBody(main, WARN, 'runMatch("live", { resume: true })', "void 0")],
   ["⑦ 替代动作改成直播", () => mutateBody(main, WARN, 'runMatch("instant")', 'runMatch("live")')],
+  ["⑧ 桥接器不跳过续播段", () => mutateBody(main, BRIDGE, "seg.t1 <= matchResumeSimT", "false")],
+  ["⑨ 续播点首次渲染后不清空", () => mutateBody(main, BRIDGE, "      matchResumeSimT = null;", "")],
+  ["⑩ 进度不记模拟秒", () => mutateBody(main, SET_MINUTE, ", simT: nextSimT ?? 0", "")],
 ];
 
 console.log(`\n[2] 变异测试（每次只改坏一处，共 ${mutations.length} 项）`);
