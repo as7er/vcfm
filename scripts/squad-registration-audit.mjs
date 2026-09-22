@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
-import { autoLineup, ensureMatchLineup } from "../js/models.js";
+import { autoLineup, createWorld, ensureMatchLineup, resetIdCounter } from "../js/models.js";
+import { CLUB_TEMPLATES } from "../js/data.js";
 import { createMatchSession, getBenchPlayers } from "../js/match.js";
 import {
   autoRegisterClub,
@@ -229,6 +230,62 @@ const continentalFixture = {
   const state = createMatchSession(world, leagueFixture);
   assert.equal(state.eligiblePlayerIds.home.has(excluded.id), false);
   assert.equal(getBenchPlayers(home, state).some((candidate) => candidate.id === excluded.id), false);
+}
+
+// 🔴 报名名单必须**至少留 1 名门将**（2026-09-22 新增护栏）。
+//
+// 为什么钉它：`automaticPlayerIds` 按 `registrationScore` 从高到低填名额，而那个分数是
+// `ovr × 100 + potential + positionFloor`，门将的 `positionFloor` 只有 **0.3**
+// （`ovr × 100` 是 1300+ 量级）⇒ **实质位置无关**。
+// 非本土培养名额上限 17 ⇒ 某队非本土球员 > 17 时最弱那批被切，
+// 门将若恰在最弱批就会**一个都不剩** ⇒ `eligiblePlayerIds` 排除全部门将
+// ⇒ `ensureMatchLineup` 把一名外场球员放进首发门将槽
+// （症状：门将槽的球员跑 2.44km，却被按 `pos` 统计成 DEF）。
+//
+// ⚠ **当前真实世界不可达**：8 种子 × 270 队 = **2160 队实测 0 例**；
+//   真实球队连签 3/6/9/12/15 名外援（squad 19→34）也 0 例。
+//   唯一触发过的场景是**探针自己造的合成阵容**（把两名门将设成全队最弱）。
+//   ⇒ 这条性质是「现在恰好成立」—— 钉住它，将来报名逻辑改动导致丢门将时
+//     会**立刻报警**，而不是等玩家报「我队门将是个后卫」。
+//   详见 `docs/measurements/gk-slot-eligibility-2026-09-22.txt`。
+//
+// ⚠ 注意本护栏**只管报名**，不改任何行为：全队门将都不可用时由外场球员客串门将
+//   是**正确**的降级（现实足球也会发生）。现实规则也**不要求**名单里必须有门将 ——
+//   所以不给 `automaticPlayerIds` 加「必须留门将」的约束（那是发明规则）。
+{
+  const seeds = 4;
+  let clubs = 0;
+  let withoutGk = 0;
+  const offenders = [];
+  for (let s = 0; s < seeds; s += 1) {
+    resetIdCounter(1);
+    const division3 = CLUB_TEMPLATES.filter((candidate) => candidate.division === 3);
+    const world = createWorld(division3[s % division3.length].id, `GK guard ${s}`);
+    world.season = 2026 + s;
+    for (const candidate of world.clubs || []) {
+      const fixture = (world.fixtures || []).find(
+        (f) => f.home === candidate.id || f.away === candidate.id
+      );
+      if (!fixture) continue;
+      clubs += 1;
+      const gks = (candidate.players || []).filter((p) => p.pos === "GK");
+      // 阵容本身没有门将 ⇒ 不是本护栏管的事（那是球员生成的问题）
+      if (!gks.length) continue;
+      const ids = eligiblePlayerIds(world, candidate, fixture);
+      if (!gks.some((p) => ids.has(p.id))) {
+        withoutGk += 1;
+        if (offenders.length < 5) offenders.push(candidate.id);
+      }
+    }
+  }
+  // 样本量断言：没有它，「0 例」可能只是没量到
+  assert.ok(clubs > 500, `普查样本太小（${clubs} 队），这条护栏没有判决力`);
+  assert.equal(
+    withoutGk,
+    0,
+    `有 ${withoutGk} 支球队的报名名单排除了全部门将（例：${offenders.join(", ")}）`
+  );
+  console.log(`  门将护栏：${clubs} 支球队，报名名单排除全部门将的 ${withoutGk} 支`);
 }
 
 console.log("Squad registration audit passed: development history, domestic and continental quotas, U21/List B, locking, and match eligibility");
