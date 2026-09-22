@@ -7673,6 +7673,98 @@ html[data-theme="light"] .form-cell.empty { background: rgba(241, 245, 249, 0.9)
 .prematch-brief.compact .brief-line {
   color: var(--muted, #94a3b8);
 }
+
+/* ── 双方**预计**首发（赛前简报尾部，可折叠）────────────────────────────
+   为什么要折叠：手机横屏下 `#match-pre-brief` 只有 `min(36vh, 300px)` 高、内滚
+   （见上面 `.match-pre-brief`），而赛前讲话是**必填**交互。本块在 DOM 里排在
+   讲话**之后**（`renderLineupsPreviewHtml` 在 `openMatch` 里 `insertAdjacentHTML`
+   追加）⇒ 折叠时只多占一行 `summary`，讲话的几何位移是 **0**。
+   桌面（pointer: fine 且 ≥900px）由 JS 默认写 `open`。
+   ⚠ 展开后的高度不设上限：外层面板本身有 `max-height` + `overflow-y: auto`，
+     在这里再套一层滚动条会出双滚动条（历史坑，见 `.prematch-brief.full` 注释）。 */
+.brief-lineups {
+  margin: 0.5rem 0 0.15rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.22);
+  padding-top: 0.3rem;
+}
+.brief-lineups > summary {
+  display: flex;
+  align-items: center;
+  min-height: 1.6rem;
+  padding: 0.1rem 0;
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: #cbd5e1;
+}
+.brief-lineups[open] > summary {
+  margin-bottom: 0.3rem;
+}
+.brief-lineup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.3rem 0.8rem;
+}
+.brief-lineup-col {
+  min-width: 0;
+}
+.brief-lineup-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.35rem;
+  margin-bottom: 0.15rem;
+  font-size: var(--fs-sm);
+}
+.brief-lineup-team {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.brief-lineup-formation {
+  font-size: var(--fs-2xs);
+}
+.brief-lineup-row {
+  display: grid;
+  grid-template-columns: 2.4rem 1.4rem minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0.25rem;
+  padding: 0.05rem 0;
+  font-size: var(--fs-sm);
+  line-height: 1.35;
+}
+.brief-lineup-row .ln-pos {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-2xs);
+  color: var(--muted, #94a3b8);
+}
+.brief-lineup-row .ln-num {
+  text-align: right;
+  font-weight: 700;
+  color: #cbd5e1;
+  font-variant-numeric: tabular-nums;
+}
+.brief-lineup-row .ln-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.brief-lineup-row .ln-ovr {
+  font-size: var(--fs-2xs);
+  color: var(--muted, #94a3b8);
+}
+.brief-lineup-note {
+  margin-top: 0.3rem;
+  font-size: var(--fs-2xs);
+  line-height: 1.35;
+}
+html[data-theme="light"] .brief-lineups > summary,
+html[data-theme="light"] .brief-lineup-row .ln-num {
+  color: var(--text);
+}
 html[data-theme="light"] .prematch-brief.full {
   background: rgba(255, 255, 255, 0.96);
   border-color: rgba(59, 130, 246, 0.28);

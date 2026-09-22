@@ -162,8 +162,13 @@ assert.ok(
   /if \(off !== pl\.el\.classList\.contains\("sent-off"\)\)/.test(viewSource),
   "the sent-off sync must be edge-triggered (write DOM only on state change)"
 );
+// ⚠ 靶子必须是**帧生产者** `js/sim/adapt.js` 的 `compactSimFrame`，不是 `engine.js`。
+//   直播/高光播放喂给 `applySimSnapshot` 的就是 compact 帧（事件快照走 `sim: null`），
+//   而 `engine.js` 里那处 `sentOff: !!a.sentOff` 属于 `snapshot()`，是**另一条**路径。
+//   本断言 2026-09-22 之前一直读 `engineSource` ⇒ 要求写对了、**验错了文件**，
+//   于是「伤退/罚下者被画在场上且不动」这个真实缺陷在审计全绿的情况下存在了很久。
 assert.ok(
-  engineSource.includes("sentOff: !!a.sentOff"),
+  adaptSource.includes("sentOff: !!a.sentOff"),
   "compact frames must carry sentOff for the snapshot sync to read"
 );
 // 换人是**身份替换 + 复用同一个 DOM 元素**（`applySubOnPitch` 只改 `pl.id` 等字段，

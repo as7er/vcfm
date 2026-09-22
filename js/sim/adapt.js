@@ -202,6 +202,10 @@ const LIVE_DENSE = {
   shot: { lead: 16, trail: 6 },
   corner: { lead: 2, trail: 13 },
   kickoff: { lead: 0, trail: 14 },
+  // 界外球：与高光窗 `t1 = e.t + 8` 对齐（摆位 + 抛出 + 争抢）。
+  // ⚠ 不加这条 ⇒ 界外球落点附近**一帧都录不到** ⇒ 高光窗选中它也会因为
+  //   `buildHighlightSegments` 的 `if (fr.length >= 2)` 被整段丢掉。
+  throwin: { lead: 1, trail: 6 },
   // 伤退热替换：短窗够看清换人，不进高光预算
   injury: { lead: 4, trail: 6 },
   sub_on: { lead: 2, trail: 6 },
@@ -235,6 +239,9 @@ function liveInterestOfEvent(e, tStart) {
   if (e.type === "shot") return LIVE_DENSE.shot;
   if (e.type === "corner") return LIVE_DENSE.corner;
   if (e.type === "injury") return LIVE_DENSE.injury;
+  // 界外球：引擎的 `throwin` 事件以前在这里 return null ⇒ 落点附近不落盘。
+  // 高光窗（buildHighlightWindows）选中它也会因为切不出帧而消失。
+  if (e.type === "throwin") return LIVE_DENSE.throwin;
   if (e.type === "sub_on") return LIVE_DENSE.sub_on;
   // 半场开球瞬间（引擎 kickoff 事件）
   if (e.type === "kickoff") return LIVE_DENSE.kickoff;
@@ -399,6 +406,20 @@ export function compactSimFrame(eng) {
         num: a.num,
         pose: poseOn ? a.pose : null,
         poseDir: poseOn ? a.poseDir || 0 : 0,
+        // 🔴 必须带 `sentOff`：`js/matchview.js` 的离场同步是
+        //   `const off = !!s.sentOff; if (off !== pl.el.classList.contains("sent-off")) …`，
+        //   而**直播/高光播放的帧就是这个 `compactSimFrame`**（`snapshot()` 那条路只在
+        //   `applySimSnapshot(snap.sim)` 时走，事件快照是 `sim: null`）。
+        //   缺了它 ⇒ `s.sentOff === undefined` ⇒ 那处同步**永远拿不到真值** ⇒
+        //   罚下/伤退者既不会被加上 `.sent-off`，也就不会被 `:637` 跳过坐标写入、
+        //   更不会被 `drawList` 过滤掉 ⇒ **他被当正常球员画在场上**。
+        //   而引擎把他钉在 `x = 1|99` 不动（`_think` 的 sentOff 分支 + `clamp(...,1,99)`），
+        //   合起来就是用户报的「受伤不能继续比赛的球员依然留在场上且不动」。
+        //   ⚠ 这条不变量本来就是 `scripts/match-presentation-audit.mjs` 要求的
+        //   （「compact frames must carry sentOff for the snapshot sync to read」），
+        //   只是那条断言此前**读错了文件**（读 `engine.js` 而不是本文件）。
+        sentOff: !!a.sentOff,
+        injuredOff: !!a.injuredOff,
       };
     }),
   };
@@ -520,6 +541,31 @@ export function buildHighlightWindows(opts = {}) {
       at: e.t,
     });
     cornerN++;
+  }
+
+  // 界外球：半场最多 2 次。真实频率远高于角球（一场动辄三四十次），
+  // 不设上限会把半场 150s 的高光预算吃光 ⇒ 受 `MAX_PLAY` 约束，不进 `:564` 的豁免名单。
+  const throwins = raw.filter((e) => e.type === "throwin").sort((a, b) => a.t - b.t);
+  let throwinN = 0;
+  for (let i = 0; i < throwins.length && throwinN < 2; i++) {
+    const e = throwins[i];
+    if (!farFromExisting(e.t, 20)) continue;
+    if (
+      throwinN > 0 &&
+      e.t - (windows.filter((w) => w.label === "throwin").slice(-1)[0]?.at ?? 0) < 70
+    ) {
+      continue;
+    }
+    windows.push({
+      // 从摆位完成的事件帧开始，避免把规则层瞬时重排展示成全队跳位。
+      t0: Math.max(tStart, e.t),
+      // 摆位 + 抛出 + 争抢
+      t1: Math.min(tEnd, e.t + 8),
+      priority: 20,
+      label: "throwin",
+      at: e.t,
+    });
+    throwinN++;
   }
 
   // 开球一小段
@@ -655,6 +701,10 @@ function pickFlavorEvents(raw, fromMin, toMin) {
   const out = [];
   const caps = {
     corner: 5,
+    // 界外球：真实一场三四十次，半小时采样 4 条（≈每 11 分钟一条），
+    // 与角球 5 条同量级。⚠ 这里是白名单，`caps` / `counts` 是**成对**的表：
+    //   只加一边会让 `counts[type]` 是 `undefined` ⇒ `undefined < 4` 为假 ⇒ 一条都不发。
+    throwin: 4,
     save: 6,
     tackle: 4,
     offside: 3,
@@ -667,6 +717,7 @@ function pickFlavorEvents(raw, fromMin, toMin) {
   const counts = {
     corner: 0,
     save: 0,
+    throwin: 0,
     tackle: 0,
     offside: 0,
     intercept: 0,
@@ -874,6 +925,12 @@ export function defaultFlavorText(state, item) {
   switch (item.type) {
     case "corner":
       return `🚩 ${minute}' ${short} 获得角球`;
+    // 界外球：引擎的 `throwin` 事件以前没有 case ⇒ 落到 `default` 分支，
+    // 屏幕上只会显示「45' 河畔」这种由「分钟 + 队名」拼出来的垃圾文案。
+    // ⚠ `item.team` 是**掷球方**（引擎 `_restart` 把球判给最后触球方的对方），
+    //   所以这里说「掷出界外球」而不是「获得界外球」——与引擎语义一致。
+    case "throwin":
+      return `🙌 ${minute}' ${short} 掷出界外球`;
     case "save":
       // 引擎的 save 事件带 `hold`（true = 干净抱住，约占 29.5%）。以前这里不看它，
       // 所有扑救一律说「扑救成功」，于是画面上「从来没有接住过」。

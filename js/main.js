@@ -57,8 +57,8 @@ import {
   habitLabel,
   startHabitTraining,
 } from "./player-habits.js";
-import { nationFlagHtml } from "./flags.js?v=286";
-import { clubCrestHtml } from "./club-crest.js?v=286";
+import { nationFlagHtml } from "./flags.js?v=287";
+import { clubCrestHtml } from "./club-crest.js?v=287";
 import { applyWorldClubBranding, localizedClubName } from "./branding.js";
 import { recordFinanceEntry } from "./finance-ledger.js";
 import { renderFinance as renderFinanceView } from "./ui/finance.js";
@@ -119,6 +119,9 @@ import {
   createWorld,
   autoLineup,
   getLineupPlayers,
+  // 首发预览（`renderLineupsPreviewHtml`）按槽位排人：必须与引擎 / 2D 球场同款，
+  // 不能自己按下标对齐 lineup（见 `js/models.js:1958`）。
+  assignPlayersToFormationSlots,
   formatMoney,
   playerOverall,
   ensureYouthAcademy,
@@ -323,7 +326,7 @@ import {
   selectPlannedSaleCandidate,
   squadPlayerPlan,
   squadPositionPlan,
-} from "./squad-planning.js?v=286";
+} from "./squad-planning.js?v=287";
 import {
   TRAINING_MODES,
   ensureTrainingBoost,
@@ -390,7 +393,7 @@ import {
   staffAvatarHtml,
   avatarHtml,
   hydrateAvatarKitRecolor,
-} from "./avatar.js?v=286";
+} from "./avatar.js?v=287";
 import { attributeArchetypeLabel } from "./player-attributes.js";
 import {
   MANAGER_ONBOARDING_TAB_STEPS,
@@ -564,7 +567,7 @@ function clearMatchResume() {
 
 function loadMatchViewModule() {
   if (!matchViewModulePromise) {
-  matchViewModulePromise = import("./matchview.js?v=286").then((module) => {
+  matchViewModulePromise = import("./matchview.js?v=287").then((module) => {
       matchViewApi = module;
       return module;
     });
@@ -10187,6 +10190,104 @@ function renderPrematchBriefHtml(brief, opts = {}) {
 }
 
 /**
+ * 双方**预计**首发两列预览（纯字符串、同步；无 `await` / `fetch` / 新请求）。
+ *
+ * 用户诉求：「比赛开始的时候没有预览双方的首发阵容」—— 赛前只有计分条、简报卡、
+ * 队内讲话和一块**只画号码不画姓名**的球场（`.pre-kickoff` 下 `.mp-name` 被
+ * `display:none`，见 `css/style.css:7064-7071`）。
+ *
+ * ⚠ 口径必须写「预计」：用户队这份基本就是最终 11 人，但 AI 队**阵型与首发**真正
+ * 定案在 `createMatchSession`（`js/match.js:773-891`）—— 它会先 `aiTuneTactics`
+ * （**可能改阵型**）再 `ensureMatchLineup(..., { forceAuto: true })` 强制重排。
+ * 所以标题是「双方预计首发 / Projected starting XIs」，不给确定语气。
+ *
+ * 数据与引擎 / 2D 球场**同源**（不是另挑一套 XI）：
+ *   · `getLineupPlayers(club)` —— `js/models.js:2037`
+ *   · `FORMATIONS[tac.formation].slots` + `assignPlayersToFormationSlots`
+ *     —— `js/models.js:1958`，与 `js/matchview.js:3370-3373`（`_spawnTeam`）逐字同款
+ *   · 号码口径与球场一致：`p.number ?? i + 1`（`js/matchview.js:3386`）
+ * ⇒ 开场后球场上的 22 个热区与这里的两列是**同一批人**。
+ *
+ * 为什么桌面展开、手机折叠：面板在手机横屏只有 `min(36vh, 300px)` 高且内滚
+ * （`css/style.css:7016`），而赛前讲话是**必填**交互。本块在 DOM 里排在讲话
+ * **之后**，折叠时只多占一行 `summary`，讲话的几何位移是 **0**（实测 A/B 过）。
+ * @param {object} home
+ * @param {object} away
+ * @returns {string}
+ */
+function renderLineupsPreviewHtml(home, away) {
+  const en = getLang() === "en";
+  // 无 DOM / jsdom 环境没有 matchMedia（`window` 也可能不存在）。
+  const wide =
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(min-width: 900px) and (pointer: fine)").matches;
+
+  const side = (club) => {
+    if (!club) return { title: "—", formation: "—", rows: [] };
+    const tac = club.tactics || {};
+    const form = FORMATIONS[tac.formation] || FORMATIONS["4-3-3"];
+    const slots = form?.slots || [];
+    const assigned = assignPlayersToFormationSlots(getLineupPlayers(club), slots);
+    const rows = slots.map((slot, i) => {
+      const p = assigned[i];
+      return {
+        // 位置用**槽位**位置（本场打哪儿），不是球员的天然位置 —— 与两列按槽位
+        // 排序、与球场站位一致；天然位置与适应度差异属于战术页的信息。
+        pos: positionLabel(slot.pos),
+        name: p ? playerDisplaySurname(p.name, p.nationality) : "?",
+        num: p?.number ?? i + 1,
+        ovr: p?.ovr ?? null,
+      };
+    });
+    return {
+      title: clubDisplayName(club) || club.short || club.name || "",
+      formation: form?.name || tac.formation || "",
+      rows,
+    };
+  };
+
+  const h = side(home);
+  const a = side(away);
+  const column = (s, sideClass) => `<div class="brief-lineup-col ${sideClass}">
+      <div class="brief-lineup-head">
+        <strong class="brief-lineup-team">${escapeHtml(s.title)}</strong>
+        <span class="muted brief-lineup-formation">${escapeHtml(s.formation)}</span>
+      </div>
+      ${s.rows
+        .map(
+          (r) => `<div class="brief-lineup-row">
+        <span class="ln-pos">${escapeHtml(r.pos)}</span>
+        <span class="ln-num">${r.num}</span>
+        <span class="ln-name">${escapeHtml(r.name)}</span>
+        ${r.ovr == null ? "" : `<span class="ln-ovr">${r.ovr}</span>`}
+      </div>`
+        )
+        .join("")}
+    </div>`;
+
+  const summary = en
+    ? `Projected starting XIs · ${h.formation} vs ${a.formation}`
+    : `双方预计首发 · ${h.formation} vs ${a.formation}`;
+  // ⚠ 措辞不能写「我方就是你选的那份首发」——`matchview.mount()` 会无条件
+  //   `autoLineup(home/away)`（`js/matchview.js:1797-1798`），本块渲染时它**已经**
+  //   重排过了，显示的正是**本场实际会用的**那份；但 AI 一侧仍可能在
+  //   `createMatchSession` 里改阵型（`js/match.js:773-891`）⇒ 只对 AI 一侧写「预计」。
+  const note = en
+    ? "Both columns read the same XI the 2D pitch uses; the opponent's is projected — the AI can still switch shape at kick-off."
+    : "两列与 2D 球场读的是同一份首发；对方为预计首发 —— AI 仍可能在开赛时改阵型。";
+
+  return `<details class="brief-lineups"${wide ? " open" : ""}>
+    <summary>${escapeHtml(summary)}</summary>
+    <div class="brief-lineup-grid">
+      ${column(h, "home")}
+      ${column(a, "away")}
+    </div>
+    <div class="brief-lineup-note muted">${escapeHtml(note)}</div>
+  </details>`;
+}
+
+/**
  * 队内讲话选项 UI
  * @param {"pre"|"ht"} phase
  * @param {string} selectedId
@@ -10322,6 +10423,17 @@ async function openMatch() {
   syncMatchCameraUI();
   // 2D 球场：赛前站位（可点球员）
   await ensureMatchPitch(true);
+
+  // ── 双方首发预览：必须**在球场挂载之后**追加 ──────────────────────────────
+  // `matchview.mount()` 会无条件 `autoLineup(home)` / `autoLineup(away)`
+  // （`js/matchview.js:1797-1798`），它会改写 `club.tactics.lineup` —— 早于它
+  // 渲染，预览里的 11 人就可能与球场上站着的 22 人不是同一批（同一事实两种结果）。
+  // ⚠ 用 `insertAdjacentHTML` 追加，**不能**重设 `panel.innerHTML` ——
+  //   那会把 `bindTeamTalkPicker` 绑在广播按钮上的 change 监听一起冲掉。
+  const lineupPanel = $("#match-pre-brief");
+  if (lineupPanel) {
+    lineupPanel.insertAdjacentHTML("beforeend", renderLineupsPreviewHtml(home, away));
+  }
   $("#btn-sim-fast").disabled = false;
   $("#btn-sim-live").disabled = false;
   const inst = $("#btn-sim-instant");

@@ -12,6 +12,7 @@
     "test:matchview-browser": "node scripts/matchview-audit-in-simdrive.mjs --browser",
     "test:reopen-browser": "node scripts/reopened-match-notice-browser-check.mjs",
     "test:resume-browser": "node scripts/_match-resume-probe.mjs",
+    "test:prematch-lineup-browser": "node scripts/prematch-lineup-browser-check.mjs",
     "test:immersive-browser": "node scripts/_match-immersive-probe.mjs",
     "benchmark": "node scripts/performance-benchmark.mjs",
     "benchmark:spatial": "node scripts/performance-benchmark.mjs --spatial",

@@ -59,6 +59,18 @@ const checks = [
   // ⚠ 约 30 秒；要 Playwright 的整场对照见 `scripts/_fitness-finalize-drain-probe.mjs`。
   "scripts/fitness-finalize-drain-verify.mjs",
 
+  // 点球命中率标定（2026-09-22 v286）：用户问「点球进球率是不是按门将/主罚者能力设的」。
+  // 查证：**是**，唯一公式在 `js/sim/engine.js` 的 `pScore`（读门将 reflexes/handling、
+  // 也读主罚者 finishing/shooting/decisions/kicking；只抽一次随机数）。但旧基线 0.77
+  // 让真实俱乐部平均只有 **67.09%**，而现实 75~80%，且仓库自己的点球 xG 硬编码就是
+  // **0.76** ⇒ 引擎转化率与它自己声明的 xG 不一致。v286 把基线改成 0.85（**只动这一个
+  // 常数**：斜率/门将权重一字未改 ⇒ 能力区分度不减；判罚侧一行没碰 ⇒ 频次不动）。
+  // 本检查守：静态公式形状与区分度常数、受控网格「实测 = 公式」（3σ）、主罚者↑/门将↓
+  // 单调、区分度 ≥15pp/≥8pp、**真实俱乐部锚点落在现实带内**、随机流形状不变，
+  // 并含**变异测试**（把 BASE 换回 0.77 ⇒ 必须掉出现实带）。
+  // ⚠ 它量的是**行为**不是常数本身：将来再标定 BASE，只要这些性质仍成立就该继续通过。
+  "scripts/penalty-conversion-verify.mjs",
+
   // 换边方向/端别（2026-09-22）：审计发现引擎里有一整类「用队名隐式表达方向」的写法
   // （`restartTeam === "home" ? 5 : 95` 之类）—— 上半场恰好正确，**下半场成批失效**：
   // 进球记给错队（还会被判成乌龙）、门将站进球网、越位失效、前场任意球整队摆到另一端。
@@ -91,6 +103,45 @@ const checks = [
   //   `npm run test:reopen-browser` 用真实 Chromium 验 —— 静态断言证明不了这件事，
   //   本仓库有「单测全绿但画面上什么都没发生」的血例（见 AGENTS.md ③）。
   "scripts/reopened-match-notice-audit.mjs",
+
+  // 界外球（2026-09-22 v287）：用户问「观看比赛中就没见过边线球，是平淡过渡了还是
+  // 设计里就没有」。查清是**两个独立缺口**：① 引擎里那条 `b.x <= 0 || b.x >= 100`
+  // 判定**不可达**（17 场 × 90 分钟 = 0 次；根因是 2026-09 把门将大脚落点夹进
+  // `x∈[30,70]` 的过度矫正，而旧实现是「经常出界」）；② UI 侧**零消费者**
+  // （高光窗不含、`caps` 白名单丢弃、`defaultFlavorText` 没有 case ⇒ 会显示「45' 队名」）。
+  // 本审计守：真实路径多场「每场 ≥ 0.4 次」（对 0 次的回归）、≤15 次（防拧爆）、
+  // Law 15 判给最后触球方的对手、摆位 x∈{1,99} 且 y∈[8,92]、同种子双跑逐位相同。
+  // ⚠ 两条探针纪律（本脚本第一版都违反了）：必须走**产品路径**
+  //   （`createMatchSession` + `ensureSimEngine`，只 `new SimEngine` 会差一个量级）；
+  //   世界只能 `createWorld` **一次**再深拷贝（否则两轮是两批比赛）。
+
+  // 伤退 / 罚下者**必须离场，且不得被画在场上**（2026-09-22 v287，用户报）。
+  // 查清是三件事相乘：① 换人本来就会发生（`onInjurySub` → 40 s 热替换），
+  // 只有「名额用尽 / 无合格替补」时才真的少打一人；② 「不动」是引擎设计
+  // （`_think` 的 sentOff 分支把他钉到 `x = 1|99`，而 `clamp(...,1,99)` 让他出不了草皮）；
+  // ③ 🔴 **「还在画面上」是帧字段缺口** —— 直播帧 `compactSimFrame` 没带 `sentOff`
+  // ⇒ `matchview.js` 的离场同步永远拿到 `undefined` ⇒ 既不加 `.sent-off`、
+  // 也不跳过坐标写入、更不被 `drawList` 过滤 ⇒ **他被当正常球员逐帧画在场上**。
+  // 修法：`adapt.js` 的 compact 帧补 `sentOff` / `injuredOff`（表现层，引擎零改动）。
+  // 🔴 **本链路此前零探针**（`scripts/*injur*` 零命中）—— 这就是它能在审计全绿下长期存在的原因。
+  // 本检查是**行为级**的：用它自己的 `_commitInjury` 造一次伤退 + 「无名额」，
+  // 断言帧字段、DOM 标记、坐标冻结、换人后标记不被继承。
+  "scripts/sent-off-off-pitch-audit.mjs",
+  "scripts/throwin-rate-verify.mjs",
+
+  // 界外球「看得见」的消费者（同轮）：高光窗选材 + 风味白名单 + 文案 case
+  // + `liveInterestOfEvent` 密采。⚠ 缺任何一处都是**静默失效**：引擎发了事件、
+  // 玩家什么也看不到（这正是 v281 那条教训的同型）。含 5 项变异测试证明断言有判别力。
+  "scripts/throwin-visibility-audit.mjs",
+
+  // 赛前双方首发预览（2026-09-22）：用户报「比赛开始的时候没有预览双方的首发阵容」。
+  // 本审计守：构造器纯字符串同步、在 `ensureMatchPitch` **之后**渲染（`mount()` 的
+  // `autoLineup` 会改写首发）、用 `assignPlayersToFormationSlots` 与引擎同源排人、
+  // 标题是「预计 / Projected」口径（AI 队会被 `aiTuneTactics` 重排）、
+  // 手机横屏默认折叠（不把**必填**的赛前讲话挤出可视区）、不新增 DOM id、
+  // 不复用 `pre-team-talk` 这个 name。含 11 项变异测试。
+  // ⚠ 「讲话在手机横屏仍然点得到」由 `npm run test:prematch-lineup-browser` 实测。
+  "scripts/prematch-lineup-audit.mjs",
   // 主动突破原语护栏：`beat`/场 落在 [2.68, 5.18]，基线 3.93，半边 1.25（=2SE）。
   // 半边由 96 场噪声标定实测（SD_batch 0.62 @12 场/批），**不是拍脑袋**。
   // ⚠ 24 场只能判「大幅消失 / 大幅爆表」；辨出 1/场 需每组 37 场（本审计不承诺更细）。
