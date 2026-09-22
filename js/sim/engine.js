@@ -2596,6 +2596,17 @@ export class SimEngine {
     const touchBias = (b.x >= 50 ? 1 : -1) * (0.85 + this.random() * 0.3);
     if (this.random() < (underHeavyPressure ? 0.11 : 0.055)) {
       targetX = clamp(50 + touchBias * 56, -6, 106);
+      // 🔴 这一脚注定出界 ⇒ **不能给任何人派接球人**。
+      //   上面那段（`_bestPass` 之后）已经挑了一个 `receiver`，而它会把落点
+      //   `targetX` 写进 `receiver.intent = { type: "receive", tx: targetX … }`
+      //   —— `targetX` 现在在**边线外**，等于命令一名队友全速跑向场外 6 格，
+      //   等球出线、`_restart("throwin")` 把球摆回边线上之后他又得折返。
+      //   实测后果：background 档（0.3 s 步长）的 `player-oscillation` 从 ≤8 抬到 **10**
+      //   （判据：1.2 s 内 3 次 >130° 急转且速度 ≥2.2 m/s），
+      //   `scripts/match-motion-integrity-audit.mjs` 确定性报红 —— 而这条审计在
+      //   改动前的提交上是绿的（`git worktree` 在 `0409570` 上实测通过）。
+      //   没人会去「接」一脚飞向场外的解围球，所以清掉接球人既更真实、也修掉那段折返。
+      receiver = null;
     }
 
     const dx = targetX - b.x;
