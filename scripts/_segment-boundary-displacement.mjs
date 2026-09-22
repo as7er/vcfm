@@ -95,6 +95,11 @@ const INSTALL = ({ ms, mx, my }) => {
     frames: 0,
     cuts: [],            // 每次切段入口的完整快照
     normalMax: [],       // 普通帧的「最大单实体位移」分布
+    // 🔴 **普通帧里的个体跳变**（2026-09-22 补）。
+    // 为什么必须有：判决行原先只分类 `cuts`，于是普通帧里「某个球员被硬置 23.9m」
+    // 完全看不见 —— 而**那正是用户报的「瞬移」**（运动战中，不是切段）。
+    // 一个只分类切段的判决行会输出「个别实体跳 0 次」，读起来像「没有个体跳变」。
+    normalJumps: [],
     pendingCut: null,
     notes: [],
     until: performance.now() + ms,
@@ -202,6 +207,27 @@ const INSTALL = ({ ms, mx, my }) => {
       });
     } else {
       st.normalMax.push(+maxM.toFixed(2));
+      // 普通帧也要分类：>6m 的单实体位移在 0.1~0.35s 的相邻帧里是不可能的
+      // （6m / 0.35s ≈ 17 m/s 已经是短跑），所以它是**硬置**、不是物理。
+      //
+      // ⚠ **必须排除 `sceneCut` 帧**。第一帧的 `_relocLastSimT` 是 NaN ⇒ `sceneCut`
+      //   为真，开球摆位（`pl_903` 24m + 两名助理裁判 21/19m）会落进这里，
+      //   被读成「运动战里的个体瞬移」—— 那是**摆位**，不是瞬移，而且观感上被
+      //   进场动画盖住。2026-09-22 第一版扩展就踩了这个，把开球摆位写成了 24m 硬置。
+      const sorted = per.map((e) => e.m).sort((a, b) => a - b);
+      if (maxM > 6 && !sceneCut) {
+        st.normalJumps.push({
+          simT: Number.isFinite(simT) ? +simT.toFixed(1) : null,
+          maxM: +maxM.toFixed(2),
+          medianM: +sorted[Math.floor(sorted.length / 2)].toFixed(2),
+          movedOver6m: moved,
+          top: per
+            .slice()
+            .sort((a, b) => b.m - a.m)
+            .slice(0, 3)
+            .map((e) => ({ id: e.id, k: e.kind, m: +e.m.toFixed(1) })),
+        });
+      }
     }
     return ret;
   };
@@ -326,6 +352,7 @@ try {
       frames: s.frames,
       cuts: s.cuts,
       normalMax: s.normalMax.length > 4000 ? s.normalMax.filter((_, i) => i % 2 === 0) : s.normalMax,
+      normalJumps: s.normalJumps || [],
       notes: s.notes,
     };
   });
@@ -347,6 +374,17 @@ try {
     );
     console.log(`     top5 ${JSON.stringify(c.top)}`);
   }
+  // 🔴 普通帧里的个体跳变 —— 这才是用户报的「瞬移」。
+  // 判决行原先只分类 `cuts`，于是这一整类完全不在视野里。
+  const nj = raw.normalJumps || [];
+  console.log(`\n普通帧里的个体跳变（>6m，非切段）：${nj.length} 次`);
+  for (const j of nj.slice(0, 10)) {
+    console.log(
+      `  simT=${j.simT} max=${j.maxM}m 中位=${j.medianM}m >6m的=${j.movedOver6m}  ` +
+        `top ${JSON.stringify(j.top)}`
+    );
+  }
+  if (nj.length > 10) console.log(`  …还有 ${nj.length - 10} 次`);
   console.log("NOTES " + JSON.stringify(raw.notes));
   console.log("ERRORS " + JSON.stringify(errors));
 
@@ -377,6 +415,20 @@ try {
     }
     if (fewJump.length) {
       console.log("⇒ 有**个别实体**跳：这是物理/搬运类问题的候选，需在引擎侧定位。");
+    }
+    // ⚠ 判据必须把**普通帧**也纳入，否则「个别实体跳 0 次」会被读成
+    //   「没有个体瞬移」—— 而运动战里的硬置正是用户报的那个现象。
+    //   （2026-09-22 实测：切段分类 0 次，普通帧却有 23.9m 的硬置。）
+    if (nj.length) {
+      const worst = nj.reduce((a, b) => (b.maxM > a.maxM ? b : a));
+      console.log(
+        `⇒ **普通帧里有 ${nj.length} 次个体硬置**（最大 ${worst.maxM}m，中位位移仅 ` +
+          `${worst.medianM}m ⇒ 是**个别实体**不是全队）——**这一类和切段无关**，` +
+          `缓动（\`relocate\`）只在 \`restartFrame\`（死球/重启）时才武装，` +
+          `运动战里的目标跳变是硬置。`
+      );
+    } else {
+      console.log("⇒ 普通帧里没有 >6m 的个体位移（本场样本内）。");
     }
   }
 } finally {
