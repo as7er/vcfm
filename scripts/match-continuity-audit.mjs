@@ -131,7 +131,40 @@ view.applySimSnapshotLerped(incoming, deflected, 1);
 for (let i = 0; i < 12; i++) view.applySimSnapshot(at(0.2 + i * 0.01, deflected.ball));
 assert.equal(view.bursts.length, 1, "one deflection must not burst on every interpolated frame");
 
+/** 记录 `mp-seg-cut` 加减次数的场地替身（`makeView(null)` 的 `fieldEl` 是 null） */
+function makeFieldStub() {
+  const added = [];
+  return {
+    added,
+    classList: {
+      contains: () => false,
+      add: (...names) => added.push(...names),
+      remove: () => {},
+      toggle: () => {},
+    },
+    get offsetWidth() { return 0; },
+  };
+}
+
+// —— 规格变更（2026-09-22）：整队级重启搬运走「剪辑」，不再走 0.7 s 缓动 ——
+//
+// 本块原来断言「摆位从**显示位置**开始、0.7 模拟秒内缓动到位」。实测
+// （`scripts/_restart-snap-census.mjs`，4 场整场确定性普查）显示细化高光里
+// **可见**的 28 次超物理位移帧对**全部**是「21~22 人 / 40~76 m」的整队级搬运：
+// 60 m 摊到 700 ms 是 ~86 m/s 的扫掠（ease-out cubic 首帧 ~258 m/s），
+// 用户报的「球员瞬移到目标站位」就是它。而本仓库对**段首**早已下过同一结论
+// （`js/matchview.js` 的 `_enterSegmentTransition` ⛔ 注释：「缓动本身也是错的
+// 解法 —— 45 m 位移摊到 0.7 s 等于 64 m/s 的扫掠」），于是现在把段首那套
+// 「硬置 + 淡场」推广到段内整队摆位。
+//
+// ⚠ 覆盖没有减少，只是换了承载它的规格分支：
+//   · 「缓动按**模拟时间**推进、暂停时不动」「球与球员共用同一条过渡」
+//     —— 仍由下面的 `small` 块（1.8~2.5 m 摆位）与 historical fixture 块把关；
+//   · 「小范围摆位按缓动摊开而不是一步到位」—— 同样由 `small` 块把关。
 const restartView = makeView(base);
+const field = makeFieldStub();
+restartView.fieldEl = field;
+const cutCount = () => field.added.filter((name) => name === "mp-seg-cut").length;
 restartView.applySimSnapshot(at(0));
 const restart = {
   ...at(0.1, { x: 2, y: 2, z: 0, owner: owner.id, state: "corner", restartType: "corner" },
@@ -141,19 +174,21 @@ const restart = {
   motionContext: { discontinuity: true },
 };
 restartView.applySimSnapshot(restart);
-assert.equal(restartView.ball.x, 60, "restart placement must start at the displayed ball");
-assert.equal(restartView.carrier, null, "corner taker cannot glow while the displayed ball is still far away");
-const playerStart = restartView.players[1].x;
+assert.equal(cutCount(), 1, "整队级摆位必须落一次剪辑（换镜头语汇），而不是伪造位移连续性");
+assert.equal(restartView.ball.x, 2, "整队级摆位必须一步到位：700 ms 摊不平 54 m");
+assert.equal(restartView.ball.y, 2);
+// ⚠ `players[1]` 就是 `owner`（`owner` = 首个非门将）⇒ 它的目标 x 是 2。
+//   要验「非持球球员也同帧落位」必须换一个下标。
+assert.equal(restartView.players[2].x, 10, "球员必须与球同帧落位，不能球到了人还在滑");
+assert.equal(restartView.players[1].x, 2, "角球主罚者也必须在同一帧到位");
+assert.equal(restartView.carrier?.id, owner.id, "落位后持球高亮必须立刻跟上角球主罚者");
+restartView._playSegmentCut();
+assert.equal(cutCount(), 1, "同一个剪辑窗口内的重复调用不得重启动画（满遮时长会翻倍）");
 restartView.applySimSnapshot({ ...restart, t: 0.3 });
-assert.ok(restartView.ball.x > 2 && restartView.ball.x < 60, "restart must move toward its target");
-assert.notEqual(restartView.players[1].x, playerStart, "corner taker must use the same transition as the team");
-const pausedBall = { x: restartView.ball.x, y: restartView.ball.y };
-restartView.applySimSnapshot({ ...restart, t: 0.3 });
-assert.equal(restartView.ball.x, pausedBall.x, "a paused restart must not advance on wall time");
 restartView.applySimSnapshot({ ...restart, t: 0.5 });
 restartView.applySimSnapshot({ ...restart, t: 0.81 });
-assert.equal(restartView.ball.x, 2, "restart must finish in simulation time at every playback speed");
-assert.equal(restartView.carrier?.id, owner.id, "the corner taker must regain ownership after placement");
+assert.equal(cutCount(), 1, "落位完成后的帧不得再判成摆位（判定必须是幂等的）");
+assert.equal(restartView.ball.x, 2);
 
 restartView.applySimSnapshot({ ...restart, t: 0.9, ball: { ...restart.ball, x: 95 } });
 assert.ok(restartView.ball._relocAt, "second restart should start another transition");
@@ -178,7 +213,19 @@ const boundaryView = makeView(beforeRestart);
 boundaryView.applySimSnapshot(beforeRestart);
 for (const alpha of [0.4, 0.45, 0.48, 0.5, 0.9]) {
   boundaryView.applySimSnapshotLerped(beforeRestart, afterRestart, alpha);
-  assert.equal(boundaryView.carrier?.id, owner.id, "held restart geometry cannot acquire the future taker");
+  // 规格变更（2026-09-22）：这一对是**整队摆位**（22 人从 60/80 搬到 20/20，
+  // 最远 75 m）⇒ 走剪辑 + 原子切换。旧断言「插值期间球权必须留在原持球者」是
+  // **缓动路径**才需要的不变量；原子切换下「几何还是旧的、球权已是新的」那个
+  // 窗口根本不存在。所以这里换成**更强**的条件：几何与球权必须同帧一起换，
+  // 不允许出现混合态 —— 混合态本身就是幽灵持球人。
+  const shownCarrier = boundaryView.carrier?.id ?? null;
+  const shownBallX = boundaryView.ball.x;
+  assert.ok(
+    (shownCarrier === owner.id && shownBallX === beforeRestart.ball.x) ||
+      (shownCarrier === taker.id && shownBallX === afterRestart.ball.x),
+    `whole-team placement must switch geometry and ownership in the same frame ` +
+      `(carrier=${shownCarrier} ballX=${shownBallX})`
+  );
 }
 assert.equal(boundaryView.motionMonitor.auditSummary().byType["owner-ball-gap"] || 0, 0,
   "restart interpolation must not create a phantom remote owner");
@@ -233,16 +280,27 @@ for (const incident of historicalRestart.incidents) {
   const to = historicalTo.players.find((p) => p.id === incident.entityId);
   assert.ok(Math.hypot(to.x - from.x, to.y - from.y) < 3, "the historical placement must exercise the old blind spot");
   assert.ok(metres(from, to) / (historicalTo.t - historicalFrom.t) > 10);
+  // 规格变更（2026-09-22）：这一对是**整队摆位**（22 人全部超物理上限，
+  // 最远 45.5 m —— 实测见 `.tmp` 诊断与 `_restart-snap-census.mjs`）⇒ 走剪辑 + 原子切换。
+  // 旧断言要求「插值期间实体必须停在出发点」，那是**缓动路径**的中间态契约；
+  // 原子切换下没有中间态。新断言其实更严：**不允许任何中间几何** ——
+  // 要么全在出发点、要么全在新点。插在两者之间正是用户看到的「球员滑过整个缺口」。
   for (const fps of [30, 60, 120]) {
     const historicalView = makeView(historicalFrom);
+    const historicalField = makeFieldStub();
+    historicalView.fieldEl = historicalField;
     historicalView.applySimSnapshot(historicalFrom);
     const steps = Math.round(fps * (historicalTo.t - historicalFrom.t));
     for (let i = 1; i < steps; i++) {
       historicalView.applySimSnapshotLerped(historicalFrom, historicalTo, i / steps);
       const shown = historicalView.players.find((p) => p.id === incident.entityId);
-      assert.equal(shown.x, from.x, "a historical restart must not leak into the preceding live frame");
-      assert.equal(shown.y, from.y);
+      const atFrom = Math.abs(shown.x - from.x) < 1e-9 && Math.abs(shown.y - from.y) < 1e-9;
+      const atTo = Math.abs(shown.x - to.x) < 1e-9 && Math.abs(shown.y - to.y) < 1e-9;
+      assert.ok(atFrom || atTo,
+        "a whole-team placement must never render an intermediate geometry");
     }
+    assert.ok(historicalField.added.includes("mp-seg-cut"),
+      "a whole-team placement must be announced as a scene cut");
     historicalView.applySimSnapshot(historicalTo);
     assert.equal(historicalView.motionMonitor.auditSummary().byType["player-teleport"] || 0, 0);
   }

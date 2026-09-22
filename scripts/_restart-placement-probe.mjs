@@ -289,11 +289,29 @@ try {
   console.log(`\n>6m 位移帧共 ${raw.big.length} 次，分档：`);
   for (const [k, v] of Object.entries(byBucket)) console.log(`  ${k}: ${v}`);
 
+  // 判据（规格变更 2026-09-22）：整队级摆位现在**走剪辑**（硬置 + 淡场），
+  // 所以「一帧内大位移」不再是 bug —— 关键是**有没有被淡场遮住**。
+  //   · fade ≈ 1 ⇒ 观众看到的是「换镜头」，看不到跳变 ⇒ 正确；
+  //   · fade ≈ 0 ⇒ 观众直接看到硬置 ⇒ 才是 bug。
+  // 旧标签把「相邻帧 + restart 语义 + 大位移」一律叫 bug，那条规格已被推翻
+  // （实测那 28 次全是整队级 40~76 m 搬运，缓动把它们摊成 ~258 m/s 的扫掠）。
+  const covered = (r) => r.fadeOpacity != null && r.fadeOpacity >= 0.99;
   const label = {
     A_sceneCut: "段首剪辑（设计如此，由淡场遮住）",
-    B_should_have_eased: "**该缓动却没缓动**（bug）",
+    B_should_have_eased: "段内整队摆位 —— 应走剪辑；见 fade 值",
     C_other: "两者都不是（另一条路径）",
   };
+  // ⚠ `fade` 是在 `applySimSnapshot` **返回之后**读的，而剪辑类是在调用内部加的
+  //   —— 同步生效，所以同一帧读得到。实测段首剪辑帧 fade = 1（v277 的结论）。
+  const uncovered = raw.big.filter((r) => !covered(r));
+  console.log(`\n>6m 位移帧里**未被淡场遮住**的：${uncovered.length} 次` +
+    `（${raw.big.length} 次中）${uncovered.length ? "  🔴 这些才是观众看得见的瞬移" : "  ✅ 全部被遮住"}`);
+  for (const r of uncovered.slice(0, 8)) {
+    console.log(
+      `  simT=${r.simT} ${r.bucket} ${r.maxSpeed}m/s (${r.maxM}m) ` +
+        `restart=${r.restartType} disc=${r.discontinuity} sceneCut=${r.sceneCut} fade=${r.fadeOpacity}`
+    );
+  }
 
   for (const bucket of ["B_should_have_eased", "C_other", "A_sceneCut"]) {
     const rows = raw.big.filter((r) => r.bucket === bucket);

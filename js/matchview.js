@@ -66,6 +66,42 @@ const RELOCATE_MS = 700;
 const RELOCATE_BALL_JUMP = 6;
 const RELOCATE_PLAYER_MAX_SPEED_MPS = 10;
 
+// —— 整队摆位：走剪辑，不走缓动（推导见 `PLACEMENT_CUT_MIN_ENTITIES` 上方注释）——
+//
+// 实测（`scripts/_restart-snap-census.mjs`，4 场整场确定性普查）：细化高光里
+// **可见**的「超物理位移帧对」共 28 次（约每场 7 次），**无一例外**都是整队级
+// 重启搬运 —— 21~22 人在**一个 0.1 s 帧内**被搬走 **40~76 m**，标记全部是
+// `restartType=corner/goalkick` 或 `motionContext.discontinuity`；
+// 没有任何一次是小范围摆位。
+//
+// ⇒ 旧的 `relocate()` 缓动**会**武装（标记齐全），但它把 60 m 摊到固定 700 ms，
+// 且是 ease-out cubic（首帧 7%、两帧 76%）⇒ 首帧位移 ≈ 4.3 m / 16.7 ms
+// ≈ **258 m/s**，10 倍于物理上限。用户报的「瞬移到目标站位」就是这个扫掠。
+//
+// 本仓库其实早就对同类问题下过结论（见 `_enterSegmentTransition` 的 ⛔ 注释）：
+// 「缓动本身也是错的解法 —— 45 m 位移摊到 0.7 s 等于 64 m/s 的扫掠」，
+// 段首一律走「剪辑 + 淡场」。但那**只覆盖了段首**：角球/门球若落在别的窗
+// （扑救 / 射门窗）内部，同一件事仍然走缓动。同一个事件因为「有没有拿到自己的
+// 高光窗」而被呈现成两种样子，本身就是缺陷。
+//
+// ⇒ 现在把段首那套规则推广到段内整队摆位：**硬置 + 一次淡场**，用同一套
+// 「换镜头了」的语汇，而不是伪造位移连续性。小范围摆位（几个人、几米）
+// 继续走缓动 —— 那本来就是合理的运动。
+//
+// ⚠ 门槛要宽到不可能在运动战里误触发、窄到必然接住 40~76 m 那一类。
+// 实测是「21~22 人 / 40~76 m」；门槛见下面 `PLACEMENT_CUT_MIN_METRES`。
+// ⚠ 判定还要求 `restartFrame`（重启/不连续语义）成立 —— 实测「运动战帧里有
+// 实体在缓动」的比例是 **0.00%**，这条护栏必须继续成立。
+// ⚠ 判据是**距离**，不是人数：一条 2 m 的摆位摊到 700 ms 只有 3.6 m/s（完全合理
+// 的运动，必须继续走缓动）；而 60 m 摊到 700 ms 是 86 m/s。所以「能不能缓动」
+// 只取决于**最远的那个实体**能不能在 700 ms 里用可信速度走完。
+// 25 m 这条线取自实测分布的空档：可见的整队搬运全在 40~76 m，
+// 而小范围摆位（自由球/界外球挪几个人）实测都在 3 m 以内（见
+// `match-continuity-audit` 的 historical fixture：`< 3` 格 ≈ 2.5 m）。
+// 另加 3 人下限，避免「单个实体的异常跳变」把整屏刷成剪辑。
+const PLACEMENT_CUT_MIN_METRES = 25;
+const PLACEMENT_CUT_MIN_ENTITIES = 3;
+
 /**
  * 高光段入场的转场（见 `_enterSegmentTransition`）。
  *
@@ -110,6 +146,39 @@ const MINOR_EVENT_MS = 2200;
  */
 const OFFICIAL_MX = 0.68;
 const OFFICIAL_MY = 1.05;
+
+/**
+ * 一次搬运里「超出物理上限」的规模 —— 整队摆位判定的**唯一**实现。
+ *
+ * 两条调用路径的参考系不同（插值路径用录制帧 `fa`，直接快照路径用**显示坐标**），
+ * 但判据必须同源，否则两处会各自漂移。所以这里只收「一组起点 + 一个按 id 索引的
+ * 终点表」，由调用方各取所需。
+ *
+ * @param {Array<{id:string,x:number,y:number}>} fromPlayers 起点（录制帧或显示坐标）
+ * @param {Map<string,{x:number,y:number}>} byTarget 终点，按球员 id 索引
+ * @param {number} maxSpeedMps 物理上限（米 / 模拟秒）
+ * @param {number} dtSec 这一跳跨过的模拟秒
+ * @returns {{ n:number, maxM:number }} n = 超出上限的人数，maxM = 最大位移（米）
+ */
+function placementShiftOf(fromPlayers, byTarget, maxSpeedMps, dtSec) {
+  const out = { n: 0, maxM: 0 };
+  if (!fromPlayers?.length || !byTarget?.size) return out;
+  const dt = Number.isFinite(dtSec) && dtSec > 0 ? dtSec : 0;
+  const limit = maxSpeedMps * dt;
+  for (const a of fromPlayers) {
+    const b = byTarget.get(a.id);
+    if (!b) continue;
+    const m = Math.hypot((b.x - a.x) * OFFICIAL_MX, (b.y - a.y) * OFFICIAL_MY);
+    if (m > out.maxM) out.maxM = m;
+    if (m > limit + 1e-8) out.n += 1;
+  }
+  return out;
+}
+
+/** 整队摆位？见 `PLACEMENT_CUT_MIN_ENTITIES` 的推导。 */
+function isWholeTeamPlacement(shift) {
+  return !!shift && shift.n >= PLACEMENT_CUT_MIN_ENTITIES && shift.maxM >= PLACEMENT_CUT_MIN_METRES;
+}
 /** 主裁与球的最小间距（米）：低于此值两个圆点会叠在一起，读起来像裁判在带球 */
 const MIN_REF_GAP_M = 5;
 /**
@@ -499,7 +568,7 @@ export class MatchView {
       // 重设为当前显示位、u 重置为 0），缓动一步都走不了——实测球员被冻在
       // 原地几十秒、离引擎位置 38 m（display-divergence 刷屏的根因）。
       if (
-        adjacent && restartFrame && !entity._relocAt &&
+        adjacent && restartFrame && !placementCut && !entity._relocAt &&
         (distance > jumpLimit + 1e-8 || followOwner)
       ) {
         entity._relocFromX = entity.x;
@@ -521,6 +590,21 @@ export class MatchView {
     };
 
     const byId = new Map(sim.players.map((s) => [s.id, s]));
+
+    // 整队摆位（角球 / 门球 / 开球）：硬置 + 一次淡场，而不是缓动。
+    //   · `opts.placementCut` 由插值路径透传 —— 它已经用**录制帧对**判过一次，
+    //     这里不重复判，避免两处判据各自漂移；
+    //   · 直接快照路径（旧的 tick / sim_frame、进球回放）没有插值，用**显示坐标**
+    //     与目标坐标现判，复用同一个 `placementShiftOf`。
+    let placementCut = opts.placementCut === true;
+    if (!placementCut && adjacent && restartFrame) {
+      placementCut = isWholeTeamPlacement(
+        placementShiftOf(this.players, byId, RELOCATE_PLAYER_MAX_SPEED_MPS, simT - lastSimT)
+      );
+    }
+    // 与段首剪辑同一个函数、同一套 CSS：都在**硬置之前**同步触发，
+    // 浏览器下一次绘制时淡场已在 0% 关键帧（opacity 1）⇒ 换场景那一帧被完全遮住。
+    if (placementCut) this._playSegmentCut();
     let carrier = null;
     for (const pl of this.players) {
       const s = byId.get(pl.id);
@@ -736,7 +820,8 @@ export class MatchView {
       return this.applySimSnapshot(fa, { soft: false, interpolationSource });
     }
     if (alpha >= 1) return this.applySimSnapshot(fb, { soft: false, interpolationSource });
-    const t = clamp(alpha, 0, 1);
+    // ⚠ 必须是 `let`：下面判定「整队摆位」时会把 t 钉到 1（见 heldIds 上方的注释）。
+    let t = clamp(alpha, 0, 1);
     const byB = new Map(fb.players.map((p) => [p.id, p]));
     // 重启搬迁（引擎 _restart 单 tick 把球+全员搬到定位球槽位）落在相邻录制帧上
     // 就是 17-28 m 的位移。线性插值会把显示坐标在一个帧跨度内扫过整个缺口——
@@ -750,8 +835,21 @@ export class MatchView {
     const pairDt = (fb.t ?? 0) - (fa.t ?? 0);
     const pairAdjacent = pairDt > 0 && pairDt <= 0.35;
     const restartPair = !!(fb.motionContext?.discontinuity || fb.ball?.restartType);
+
+    // 整队摆位（角球 / 门球 / 开球的重启搬运）**不走缓动** —— 与段首剪辑同一套处理。
+    // 整队摆位（角球 / 门球 / 开球的重启搬运）**不走缓动** —— 与段首剪辑同一套处理。
+    // 推导见 `PLACEMENT_CUT_MIN_METRES` 上方注释：实测细化高光里可见的 28 次超物理
+    // 位移帧对**全部**是「21~22 人 / 40~76 m」的整队级搬运；上面那套「先按住在出发点、
+    // 下一帧对交给 relocate 缓动」对它们等于把 60 m 摊成 ~258 m/s 的扫掠。
+    // 这里把插值**钉到 fb**（不要线性扫过缺口），剪辑淡场由 `applySimSnapshot` 落。
+    // ⚠ 门槛以下的摆位（实测都在 3 m 以内）仍然走上面那套——那是合理的运动。
+    const wholeTeam = pairAdjacent && restartPair &&
+      isWholeTeamPlacement(
+        placementShiftOf(fa.players, byB, RELOCATE_PLAYER_MAX_SPEED_MPS, pairDt)
+      );
+    if (wholeTeam) t = 1;
     const heldIds = new Set();
-    if (pairAdjacent && restartPair) {
+    if (pairAdjacent && restartPair && !wholeTeam) {
       for (const a of fa.players) {
         const b = byB.get(a.id);
         if (b && Math.hypot((b.x - a.x) * OFFICIAL_MX, (b.y - a.y) * OFFICIAL_MY) >
@@ -789,6 +887,7 @@ export class MatchView {
     });
     const ball = interpolateSimBall(fa.ball, fb.ball, t);
     if (
+      !wholeTeam &&
       pairAdjacent &&
       restartPair &&
       (heldIds.has(fa.ball?.owner) || heldIds.has(fb.ball?.owner) ||
@@ -820,7 +919,7 @@ export class MatchView {
         motionContext: t < 0.5 ? fa.motionContext || null : fb.motionContext || null,
         endsSwapped: !!(t < 0.5 ? fa.endsSwapped : fb.endsSwapped),
       },
-      { soft: false, interpolationSource }
+      { soft: false, interpolationSource, placementCut: wholeTeam }
     );
   }
 
@@ -1270,6 +1369,15 @@ export class MatchView {
   _playSegmentCut() {
     const el = this.fieldEl;
     if (!el) return;
+    // ⚠ 去抖：整队摆位那次剪辑是**每个渲染帧**都会判到的（插值路径一个 0.1 s
+    //   录制帧对里有约 6 个渲染帧，`fa`/`fb` 都不变 ⇒ 判定同样的结果）。
+    //   旧实现每次 remove + 强制重排 + add 都会把 @keyframes 重置回 0%，
+    //   于是「满遮 91 ms」被拖成「满遮 190 ms」—— 两倍长的黑屏。
+    //   一次剪辑窗口内只认第一次；真正的下一次剪辑（段首）至少隔几百毫秒，
+    //   不受影响。
+    const now = performance.now();
+    if (this._segCutAt && now - this._segCutAt < SEGMENT_CUT_MS) return;
+    this._segCutAt = now;
     el.classList.remove("mp-seg-cut");
     // 强制重排，保证连续两次剪辑都能重放动画
     void el.offsetWidth;
