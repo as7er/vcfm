@@ -7299,6 +7299,44 @@ html[data-theme="light"] .badge-chip {
     font-size: 1.05rem;
     line-height: 1.1;
   }
+  /* ── 2026-09-22：横屏「非球场高度」再压一轮（用户报「比分模块太大」） ──
+     🔴 先纠一条**错的注释**：上面 7252-7257 声称比分浮层「遮住的是看台装饰带
+     （`.mp-stands.top`），不是比赛区域，所以观感损失很小」——**实测证伪**。
+     `.mp-stands { height: 5.5% }`，800×295 下看台带只有 **11.3px**，
+     而比分条 61.6px **整块都与 `.mp-camera` 相交** ⇒ 约 **50px 压在真实比赛区**。
+
+     实测（`scripts/_mobile-match-chrome-lab.mjs`，800×295 = 等效真机去掉浏览器工具栏）：
+       比分条 61.6px（占视口 **20.9%**）· 控球条 22.1 · 控制条 51 ⇒ 三块合计 **45.7%**
+       球场盒 206.2，被比分条压掉 61.6 ⇒ 可见球场只有 **160.9**
+     （844×390 三块合计 34.5% —— **屏幕越矮，chrome 占比越夸张**，而 800×295 才是常见形态）
+
+     本轮改两处（lab 候选 C7）：**可见球场 160.9 → 189.0（+28.1px，+17.5%）**，零信息损失。
+       ① 比分条中列**三行压成一行** —— 高度主因是中列竖排 赛事名/时钟/LIVE，
+          **不是队徽**（队徽 30px 才是下限）。
+          ⚠ 实测「省掉赛事名」与「保留赛事名」高度**完全一样**（都是 38.1px）
+            ⇒ 那就保留，别白丢信息。
+       ② 控球条去掉上下留白（22.1 → 18.3）。
+     未做（需要交互决策，别静默上）：控球条整条隐藏还能再 +35px，
+       但它同时承载 `.mp-fmm-ticker` 字幕（「⚽ 进球」这类提示）⇒ 要配自动淡出，
+       不能直接藏。详见 `docs/measurements/mobile-match-chrome-2026-09-22.txt`。 */
+  .match-layout.fm-match.fmm-match.live-kick .fmm-scoreboard .fm-sb-center,
+  .match-layout.fm-match.fmm-match.ht-kick .fmm-scoreboard .fm-sb-center,
+  .match-layout.fm-match.fmm-match.pre-kickoff .fmm-scoreboard .fm-sb-center {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .match-layout.fm-match.fmm-match.live-kick .fmm-scoreboard .fm-sb-comp,
+  .match-layout.fm-match.fmm-match.ht-kick .fmm-scoreboard .fm-sb-comp,
+  .match-layout.fm-match.fmm-match.pre-kickoff .fmm-scoreboard .fm-sb-comp {
+    font-size: 0.6rem;
+    max-width: 5rem;
+  }
+  .match-layout.fm-match.fmm-match.live-kick .fmm-scoreboard .fm-sb-live,
+  .match-layout.fm-match.fmm-match.ht-kick .fmm-scoreboard .fm-sb-live,
+  .match-layout.fm-match.fmm-match.pre-kickoff .fmm-scoreboard .fm-sb-live {
+    margin-top: 0;
+  }
   /* 底栏里的「替补席条」在横屏是纯装饰，藏掉让 dock 从 51px 降到 ~24px */
   .match-layout.fm-match.fmm-match.live-kick .mp-bench-strip,
   .match-layout.fm-match.fmm-match.ht-kick .mp-bench-strip,
@@ -7309,8 +7347,9 @@ html[data-theme="light"] .badge-chip {
   .match-layout.fm-match.fmm-match.ht-kick .mp-fmm-dock,
   .match-layout.fm-match.fmm-match.pre-kickoff .mp-fmm-dock {
     min-height: 0;
-    padding: 0.16rem 0.45rem;
-    margin-top: 0.12rem;
+    /* 0.16 → 0.04rem：控球条去掉上下留白（22.1 → 18.3px，实测） */
+    padding: 0.04rem 0.45rem;
+    margin-top: 0.06rem;
     grid-template-rows: auto;
   }
   /* 控制条：压薄 */

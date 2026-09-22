@@ -231,8 +231,35 @@ async function probe(page) {
       commentary: stackOf(".fmm-commentary"),
       bar: stackOf(".fmm-match-bar"),
     };
+    // 「非球场高度」预算 + 比分/控球浮层**遮挡量**（2026-09-22）。
+    // ⚠ 必须减**两个**浮层：只减比分条，会把「控球条改浮层」误读成收益 ——
+    //   它只是从「球场下方」搬到「球场底部压住」，球场盒变大但没多看见。
+    //   （这个坑在 `_mobile-match-chrome-lab.mjs` 的第一版里真踩过。）
+    const rOf = (sel) => document.querySelector(sel)?.getBoundingClientRect() || null;
+    const overlapY = (a, b) =>
+      a && b ? Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)) : 0;
+    const sbR = rOf(".fmm-scoreboard");
+    const barR = rOf(".fmm-match-bar");
+    const dockR = rOf(".mp-fmm-dock");
+    const camR = rOf(".mp-camera");
+    const chrome = {
+      scoreboardH: Math.round(sbR?.height || 0),
+      barH: Math.round(barR?.height || 0),
+      dockH: Math.round(dockR?.height || 0),
+      chromePct: +(
+        (((sbR?.height || 0) + (barR?.height || 0) + (dockR?.height || 0)) / window.innerHeight) *
+        100
+      ).toFixed(1),
+      cameraH: Math.round(camR?.height || 0),
+      occScoreboard: Math.round(overlapY(sbR, camR)),
+      occDock: Math.round(overlapY(dockR, camR)),
+      visiblePitch: camR
+        ? Math.round(camR.height - overlapY(sbR, camR) - overlapY(dockR, camR))
+        : 0,
+    };
     return {
       viewport: { w: window.innerWidth, h: window.innerHeight },
+      chrome,
       hintVisible: vis(hint),
       hintDisplay: hint ? getComputedStyle(hint).display : null,
       hintRect: rectOf(hint),
@@ -519,7 +546,27 @@ try {
       `   球场高 ${r.fieldRect?.h} / 视口高 ${r.viewport.h} = ${(fill * 100).toFixed(1)}%`
     );
     console.log("   高度去向（y/h）:", JSON.stringify(r.stack));
+    console.log("   非球场高度预算:", JSON.stringify(r.chrome));
     await page.screenshot({ path: `${OUT}/mobile-landscape-short.png` });
+
+    // ── 几何护栏（2026-09-22）────────────────────────────────────────────
+    // 为什么钉这几个数：用户报「上面比分模块太大」，实测比分条 61.6px = 视口 20.9%，
+    // 三块 chrome 合计 **45.7%**，可见球场只有 160.9px。
+    // 改成「中列一行 + 控球条去留白」后：38.1 / 37.7% / 189.0。
+    // ⚠ 不加护栏的话，下次有人动横屏布局就会**静默退回** —— 屏幕上没有报错，
+    //   只有用户再报一次「球场太小」。
+    assert.ok(
+      r.chrome.scoreboardH <= 44,
+      `横屏比分条应 ≤44px（一行布局），实测 ${r.chrome.scoreboardH}px（旧实现 61.6）`
+    );
+    assert.ok(
+      r.chrome.chromePct <= 40,
+      `三块 chrome 合计应 ≤40% 视口，实测 ${r.chrome.chromePct}%（旧实现 45.7%）`
+    );
+    assert.ok(
+      r.chrome.visiblePitch >= 180,
+      `可见球场应 ≥180px，实测 ${r.chrome.visiblePitch}px（旧实现 160.9）`
+    );
 
     assert.equal(r.hintVisible, false, "矮屏横持也必须隐藏「请横持手机」提示");
     assert.equal(r.slotVisible, true, "矮屏横持必须显示球场本体 .mp-pitch-slot");
@@ -558,6 +605,14 @@ try {
     // 用 `--fmm-shell-pad` 统一后已归零 ⇒ 改成硬断言，防止再回退。
     assert.ok(r.scrollY <= 0, `桌面不得纵向滚动，超出 ${r.scrollY}px`);
     console.log("   滚动诊断（桌面）:", JSON.stringify(r.scroll));
+    console.log("   非球场高度预算（桌面）:", JSON.stringify(r.chrome));
+    // 2026-09-22 的横屏瘦身规则全在 `@media (pointer: coarse) and (orientation: landscape)`
+    // 里，桌面（pointer: fine）**数学上不可能命中** ⇒ 用数值把这条论证钉住，
+    // 而不是靠「我读过媒体查询」。
+    assert.ok(
+      r.chrome.scoreboardH >= 44,
+      `桌面比分条不应被横屏规则压扁，实测 ${r.chrome.scoreboardH}px`
+    );
     await context.close();
   });
 

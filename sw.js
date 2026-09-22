@@ -18,7 +18,7 @@
 //       同批还修了：越位线取反、庆祝/入网端别、阶段阵型锚点、赛后 xG 与热区归一化。
 // v281：重开直播不再静默重演 —— `openMatch` 按 sessionStorage 记下的进度弹双语提示，
 //       并给「直接出战报」作为替代动作；**续播仍未实现**（本轮只做提示，不是功能）。
-const CACHE = "vcfm-v282";
+const CACHE = "vcfm-v283";
 const isVcfmCache = (name) => /^vcfm-v\d+$/.test(name);
 const ASSETS = [
   "./",
