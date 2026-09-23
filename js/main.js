@@ -57,8 +57,8 @@ import {
   habitLabel,
   startHabitTraining,
 } from "./player-habits.js";
-import { nationFlagHtml } from "./flags.js?v=287";
-import { clubCrestHtml } from "./club-crest.js?v=287";
+import { nationFlagHtml } from "./flags.js?v=288";
+import { clubCrestHtml } from "./club-crest.js?v=288";
 import { applyWorldClubBranding, localizedClubName } from "./branding.js";
 import { recordFinanceEntry } from "./finance-ledger.js";
 import { renderFinance as renderFinanceView } from "./ui/finance.js";
@@ -326,7 +326,7 @@ import {
   selectPlannedSaleCandidate,
   squadPlayerPlan,
   squadPositionPlan,
-} from "./squad-planning.js?v=287";
+} from "./squad-planning.js?v=288";
 import {
   TRAINING_MODES,
   ensureTrainingBoost,
@@ -393,7 +393,7 @@ import {
   staffAvatarHtml,
   avatarHtml,
   hydrateAvatarKitRecolor,
-} from "./avatar.js?v=287";
+} from "./avatar.js?v=288";
 import { attributeArchetypeLabel } from "./player-attributes.js";
 import {
   MANAGER_ONBOARDING_TAB_STEPS,
@@ -567,7 +567,7 @@ function clearMatchResume() {
 
 function loadMatchViewModule() {
   if (!matchViewModulePromise) {
-  matchViewModulePromise = import("./matchview.js?v=287").then((module) => {
+  matchViewModulePromise = import("./matchview.js?v=288").then((module) => {
       matchViewApi = module;
       return module;
     });
@@ -10522,6 +10522,59 @@ function maybeWarnReopenedMatch(fixture) {
   });
 }
 
+/**
+ * 常驻「隐藏/唤出」开关的状态同步（2026-09-22 v288）。
+ *
+ * 为什么需要它：v284 的沉浸模式只能「点空白球场」进出，屏幕上**没有入口**，
+ * 用户发现不到（截图里就没用过）。这个胶囊把开关变得可见。
+ * 两个状态都要更新 —— 只写一次会让图标与真实状态脱节
+ * （v276 全屏键的可发现性就是栽在「状态没反映出来」）。
+ */
+function syncChromeToggle(immersive) {
+  const btn = $("#mp-chrome-toggle");
+  if (!btn) return;
+  const en = getLang() === "en";
+  btn.setAttribute("aria-pressed", immersive ? "true" : "false");
+  const label = immersive
+    ? en
+      ? "Show controls"
+      : "显示控制条"
+    : en
+      ? "Hide controls"
+      : "隐藏控制条";
+  const hint = immersive
+    ? en
+      ? "Bring back the scoreboard, possession bar and control bar"
+      : "恢复比分条 / 控球条 / 控制条"
+    : en
+      ? "Hide scoreboard, possession and control bars to give the pitch all the height"
+      : "隐藏比分/控球/控制条，把高度全让给球场";
+  btn.setAttribute("aria-label", label);
+  btn.setAttribute("title", hint);
+}
+
+/**
+ * 绑定球场内的常驻开关。用**事件委托**而不是直接绑按钮：
+ * `ensureMatchPitch(true)` 会重建整棵球场 DOM，直接绑的监听器会随旧节点一起丢掉。
+ */
+function bindChromeToggle() {
+  const wrap = document.querySelector("#match-pitch-root");
+  if (!wrap || wrap.dataset.chromeToggleBound === "1") return;
+  wrap.dataset.chromeToggleBound = "1";
+  wrap.addEventListener("click", (e) => {
+    if (!e.target?.closest?.("#mp-chrome-toggle")) return;
+    // ⚠ 必须 `stopPropagation`：球场那个既有处理器用排除法，
+    //    它的 `NOT_BLANK` 虽然含 `button`，但保险起见不让这一下继续冒泡 ——
+    //    否则「点按钮进入沉浸」与「点空白进入沉浸」会互相抵消。
+    e.stopPropagation();
+    const layout = document.querySelector(".match-layout");
+    toggleMatchImmersive(!layout?.classList.contains("mp-immersive"));
+  });
+  syncChromeToggle(
+    !!document.querySelector(".match-layout")?.classList.contains("mp-immersive")
+  );
+}
+
 // ---------- 沉浸模式（点空白球场切换） ----------
 /**
  * 点空白球场 → 隐藏 比分条 / 控球率条 / 控制条，把高度全还给球场；再点一次恢复。
@@ -10543,6 +10596,8 @@ function toggleMatchImmersive(force) {
   if (!layout) return;
   const next = force === undefined ? !layout.classList.contains("mp-immersive") : !!force;
   layout.classList.toggle("mp-immersive", next);
+  // 常驻开关要跟着状态变（图标/aria/title），否则它只在第一次点的时候是对的。
+  syncChromeToggle(next);
   // 布局变了（控制条在流里消失/出现）⇒ 让视图重算尺寸与镜头。
   // 有 ResizeObserver 兜底，但这里显式调一次可以让第一帧就不糊。
   if (matchView?.refreshLayout) requestAnimationFrame(() => matchView.refreshLayout());
@@ -11027,6 +11082,8 @@ async function ensureMatchPitch(remount = false) {
     awayGoals: matchState?.ag ?? pendingMatch.awayGoals ?? 0,
   });
   matchView?.refreshLayout?.();
+  // 球场 DOM 可能刚被重建（remount 分支）⇒ 每次 ensure 都确保常驻开关接上。
+  bindChromeToggle();
   updateMotionCaptureUI(matchView?.getMotionDiagnosticStatus?.());
 }
 

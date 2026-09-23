@@ -4011,6 +4011,70 @@ html[data-theme="dark"] .mp-fmm-dock {
   pointer-events: none;
   animation: mp-replay-pulse 1s ease-in-out infinite;
 }
+
+/* ── 隐藏/唤出 常驻开关（2026-09-22 v288） ────────────────────────────────
+   v284 的沉浸模式本身没问题，问题是它**只能**靠「点空白球场」触发 ——
+   屏幕上没有任何可见入口，用户看不见就等于不存在（截图里用户根本没用到它）。
+   这个胶囊把那个开关变成**看得见、随时可用**的东西。
+
+   为什么是「右下角 + 常驻」：
+   · 实测四角命中地图（`scripts/_pitch-top-occlusion-probe.mjs`）：横屏手机上
+     球场盒的左上/右上角被比分浮层压住（最上层是 `fm-sb-name`/`fm-sb-team`），
+     在那里放按钮会被浮层吃掉点击；下半部分才真的点得到。
+   · 左下角已被 `.mp-rec-badge` 占用。
+   · 常驻（两个状态都在）而不是只在沉浸模式出现：沉浸时若按钮消失，
+     用户又回到「找不到怎么退出」的老问题（v276 全屏键踩过的坑）。
+
+   z-index 15：高于球员层（4）与卡片（8），低于比分浮层（30）——
+   但它放在**右下角**、与比分条（顶部）不重叠，所以不会被盖。
+   注意它是 `.mp-field` 的子元素，而沉浸模式只隐藏 `.mp-wrap` **外**的
+   chrome（比分条/控制条/控球条）⇒ 沉浸时它**自动保留**，这正是我们要的。
+   ⚠ 不要把它放进 `.mp-wrap` 之外：那样会被沉浸模式的隐藏规则一起带走。 */
+.mp-chrome-toggle {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  z-index: 15;
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  min-width: 0;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(8, 12, 20, 0.5);
+  color: rgba(255, 255, 255, 0.92);
+  font-size: var(--fs-sm);
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.72;
+  backdrop-filter: blur(4px);
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+.mp-chrome-toggle:hover,
+.mp-chrome-toggle:focus-visible {
+  opacity: 1;
+  background: rgba(8, 12, 20, 0.78);
+}
+.mp-chrome-toggle[aria-pressed="true"] {
+  opacity: 1;
+  border-color: rgba(61, 139, 253, 0.75);
+  background: rgba(30, 58, 138, 0.72);
+  color: #dbeafe;
+}
+.mp-chrome-glyph {
+  pointer-events: none;
+  transform: translateY(-0.5px);
+}
+/* 竖持提示时球场本体被藏掉（`.mp-pitch-slot{display:none}`），
+   按钮是 `.mp-field` 的子元素 ⇒ 跟着一起藏，无需额外规则。 */
+/* 桌面：球场盒很大、chrome 占比不高，按钮照样常驻（一致性优先）。 */
+html[data-theme="light"] .mp-chrome-toggle {
+  background: rgba(255, 255, 255, 0.62);
+  border-color: rgba(15, 23, 42, 0.25);
+  color: #0f172a;
+}
 .mp-rec-badge.hidden { display: none; }
 .match-rec-bar {
   display: flex;

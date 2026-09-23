@@ -14,6 +14,7 @@
     "test:resume-browser": "node scripts/_match-resume-probe.mjs",
     "test:prematch-lineup-browser": "node scripts/prematch-lineup-browser-check.mjs",
     "test:immersive-browser": "node scripts/_match-immersive-probe.mjs",
+    "test:chrome-toggle-browser": "node scripts/_chrome-toggle-browser-check.mjs",
     "benchmark": "node scripts/performance-benchmark.mjs",
     "benchmark:spatial": "node scripts/performance-benchmark.mjs --spatial",
     "benchmark:browser": "node scripts/browser-performance-audit.mjs"

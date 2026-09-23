@@ -25,7 +25,7 @@
 //       赛前加双方**预计首发**预览（手机横屏默认折叠，不挤走必填的赛前讲话）；
 //       修「伤退 / 罚下者被画在场上且不动」（直播帧 `compactSimFrame` 缺 `sentOff`
 //       ⇒ 离场同步永远拿不到真值）。
-const CACHE = "vcfm-v287";
+const CACHE = "vcfm-v288";
 const isVcfmCache = (name) => /^vcfm-v\d+$/.test(name);
 const ASSETS = [
   "./",

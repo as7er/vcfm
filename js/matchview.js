@@ -1636,6 +1636,17 @@ export class MatchView {
         <div class="mp-flash-card hidden" id="mp-flash-card" aria-live="polite"></div>
         <div class="mp-tip hidden" id="mp-tip"></div>
         <div class="mp-card hidden" id="mp-card"></div>
+        <!-- 隐藏/唤出 常驻开关（2026-09-22 v288）：v284 的沉浸模式只能「点空白球场」触发，
+             屏幕上没有任何可见入口 ⇒ 用户根本发现不到（截图即证据）。
+             放在球场**右下角**：实测四角命中地图显示，横屏手机上球场盒的左上/右上
+             正被比分浮层压住（fm-sb-name / fm-sb-team），只有下半部分真的点得到；
+             左下角已被 .mp-rec-badge（录制角标）占用 ⇒ 右下角是唯一干净位置。
+             ⚠ 它是 button 元素：matchview.js 点空白处那个处理器用**排除法**，
+                NOT_BLANK 里已含 button ⇒ 点它**不会**再触发一次沉浸切换（否则会自己抵消自己）。 -->
+        <button type="button" class="mp-chrome-toggle" id="mp-chrome-toggle"
+          aria-pressed="false" aria-label="隐藏控制条" title="隐藏比分/控球/控制条，把高度全让给球场">
+          <span class="mp-chrome-glyph" aria-hidden="true">⤢</span>
+        </button>
       </div>
       </div>
       <!-- 竖持手机提示（B 方案）：球门在左右，竖屏塞不下，改提示横持。
