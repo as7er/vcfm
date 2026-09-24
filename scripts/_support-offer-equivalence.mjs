@@ -50,8 +50,20 @@ if (process.argv.includes("--sample")) {
   const samples = [];
   for (const preloads of [[], ["--import", "./scripts/_v252-baseline.mjs", "--import", "./scripts/_support-offer-actual-distance-candidate.mjs"]]) {
     const result = spawnSync(process.execPath, [...preloads, "scripts/_support-offer-equivalence.mjs", "--sample"], {
-      cwd: fileURLToPath(new URL("../", import.meta.url)), encoding: "utf8", windowsHide: true,
+      cwd: fileURLToPath(new URL("../", import.meta.url)),
+      // ⚠ **必须显式写 `stdio`**：只给 `encoding` 时 Node 用默认 stdio（三路都是 pipe，
+      //   含 stdin），某些 Windows 环境下 `spawnSync` 直接返回 `status: null` +
+      //   `error.code = "EBUSY"`，子进程根本没启动。
+      //   实测（2026-09-24）：`{encoding:"utf8"}` → EBUSY；
+      //   `{stdio:["ignore","pipe","pipe"], encoding:"utf8"}` → 正常。
+      stdio: ["ignore", "pipe", "pipe"],
+      encoding: "utf8",
+      windowsHide: true,
     });
+    // 启动失败要**明确报出来**，别让它伪装成「断言没红」。
+    if (result.error) {
+      throw new Error(`子进程未启动（${result.error.code}）：${result.error.message}`);
+    }
     assert.equal(result.status, 0, result.stderr || "the comparison match must complete");
     const trace = result.stdout.split(/\r?\n/).find((line) => line.startsWith("SUPPORT_TRACE "));
     assert.ok(trace, "a complete trace is required");

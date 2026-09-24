@@ -472,9 +472,29 @@ function checkMutations() {
           THROWIN_AUDIT_JS_ROOT: pathToFileURL(`${join(dir, "js")}/`).href,
           THROWIN_AUDIT_ONLY: m.check,
         },
+        // ⚠ **必须显式写 `stdio`**。只给 `encoding: "utf8"` 时 Node 用默认 stdio
+        //   （三路都是 pipe，**含 stdin**），在某些 Windows 环境下 `spawnSync`
+        //   会直接返回 `status: null` + `error.code = "EBUSY"`，子进程根本没启动。
+        //   实测（2026-09-24）：`{encoding:"utf8"}` → EBUSY；
+        //   `{stdio:["ignore","pipe","pipe"], encoding:"utf8"}` → 正常。
+        stdio: ["ignore", "pipe", "pipe"],
         encoding: "utf8",
         maxBuffer: 64 * 1024 * 1024,
       });
+      // 🔴 先分辨「进程没启动」与「进程跑了但断言没红」。
+      //   旧写法只有 `assert.notEqual(child.status, 0)`，而 **`null !== 0` 也成立**
+      //   ⇒ 启动失败会被放行到下一句，最后报成「红了但不是断言失败（疑似环境错误）」
+      //   —— 把**环境问题**说成**断言判别力问题**，方向完全反了。
+      assert.ok(
+        child.error === undefined,
+        `变异「${m.name}」子进程**根本没启动**（${child.error?.code}）：` +
+          `这是环境问题，不是断言判别力问题。`
+      );
+      assert.notEqual(
+        child.status,
+        null,
+        `变异「${m.name}」子进程没有退出码（signal=${child.signal}）`
+      );
       const err = `${child.stdout || ""}${child.stderr || ""}`.trim();
       assert.notEqual(child.status, 0, `变异「${m.name}」必须让检查 ③${m.check} 变红，但它退出了 0`);
       const line = err.split("\n").find((l) => /AssertionError|Error/.test(l)) || err.split("\n")[0] || "";
