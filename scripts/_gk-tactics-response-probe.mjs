@@ -190,16 +190,16 @@ console.log(`\n=== 判定 ===`);
 if (total === 0) {
   console.log("⚠ 没有取到可用样本（门将持球时刻太少）—— 这不是结论，请加大场数或放宽取样条件。");
 } else if (same === total) {
-  console.log("⇒ 在**完全相同的冻结状态**下，把球队战术从「极致控球」翻到「极致长传」，");
-  console.log(`   门将出球决策 **${total}/${total} 一处都没变** ⇒`);
-  console.log("   **门将出球不读球队战术**，与读代码一致（`_gkDistribute` 只看局面压迫");
-  console.log("   + 门将个人角色/习惯）。");
-  console.log("   ⇒ 用户的观察「设了控球战术门将仍开大脚」在引擎层面**成立且可解释**：");
-  console.log("     要改门将出球，只能改**门将个人**（习惯/角色）或球队的**压迫情境**，");
-  console.log("     改战术旋钮对它**零作用**。");
+  // 2026-09-23 v291 起 `_gkDistribute` 已接入 `style`/`tempo`（短传门槛 ±0.05）
+  // ⇒ 「零响应」现在是**回归**，不再是可解释的现状。
+  console.log("🔴 在**完全相同的冻结状态**下，把球队战术从「极致控球」翻到「极致长传」，");
+  console.log(`   门将出球决策 **${total}/${total} 一处都没变** ⇒ 球队战术**没接进**门将出球。`);
+  console.log("   v291 起 `_gkDistribute` 的短传门槛应读 `style`/`tempo`（`teamShortBias`），");
+  console.log("   这里零响应说明那条线断了（v290 修前实测 71/71 零响应，v291 修后 8/84 不同）。");
 } else {
-  console.log(`🔴 ${total - same}/${total} 个冻结样本在两档下决策不同 ⇒ 门将出球**会**读战术；`);
-  console.log("   读代码的结论被行为推翻，需要重新审 `_gkDistribute`。");
+  console.log(`✅ ${total - same}/${total} 个冻结样本在两档下决策不同 ⇒ 门将出球读到了球队战术；`);
+  console.log("   预期方向：控球档更多短传（pass），长传档更多大脚（gk_clear）。");
+  console.log("   不同的只占少数是设计如此：战术只是修正项，门将个人习惯与局面压迫仍是主因。");
   for (const d of diffs) {
     console.log(`   球(${d.ball.x.toFixed(1)},${d.ball.y.toFixed(1)}) 控球=${JSON.stringify(d.a)} 长传=${JSON.stringify(d.b)}`);
   }

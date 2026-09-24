@@ -2502,22 +2502,51 @@ export class SimEngine {
     // 只有对手确实扑到跟前才放弃出脚选择，其余交给 `_bestPass` 自己的传球线路评估。
     const underHeavyPressure = nearestOpp < 4 || pressureNear >= 2;
     const prefersShort = this._hasHabit(a, "distributes_short") || this._roleBehavior(a, "shortDistribution") > 0.15;
+    // —— 球队战术接进门将出球（2026-09-23）——
+    // 🔴 此前这里**只有门将个人**（习惯/角色），完全没有球队战术：
+    //   冻结状态 A/B 实测「极致控球 ↔ 极致长传」⇒ **71/71 决策零变化**
+    //   （`scripts/_gk-tactics-response-probe.mjs`）。用户报的现象成立。
+    //   真实足球里控球型球队的门将短传比例显著更高，所以把 `style` 与 `tempo` 接进来
+    //   是「机制更接近现实」，不是为了让某个数字好看。
+    //   权重刻意取小（最多 ±0.05 的门槛差，≈ 一个角色行为项的量级）——
+    //   门将个人习惯仍是主因，球队战术只是修正项。
+    const gkTactics = this._teamTactics(a.team);
+    const stylePossession = gkTactics?.style === "possession" ? 1 : gkTactics?.style === "direct" ? -1 : 0;
+    // tempo 1..5，3 为中性；控球型球队门将更愿意短传发动
+    const tempoBias = (3 - this._tacticLevel(a.team, "tempo", 3)) / 2;
+    const teamShortBias = stylePossession * 0.03 + clamp(tempoBias, -1, 1) * 0.02;
     const launchesCounters = this._hasHabit(a, "launches_counters");
     const bypassBuildUp = launchesCounters && !underHeavyPressure && this.random() < 0.62;
-    const passTo = underHeavyPressure || bypassBuildUp ? null : this._bestPass(a);
-    // 有安全接球人且不太靠后 → 手抛/短传发动进攻
-    if (passTo && passTo.value > (prefersShort ? 0.15 : 0.22) - this._roleBehavior(a, "shortDistribution") * 0.04) {
-      const recv = passTo.agent;
-      const recvOk =
-        recv &&
-        // 接球人不能太靠前：必须在「距己方门 ≥ 18 格」的**门那一侧**之外
-        // ⇒ 取反。原式 `home ? recv.y < 82 : recv.y > 18` 就是这个意思。
-        !this._onOwnSide(recv.y, a.team, 18) &&
-        dist(recv.x, recv.y, a.x, a.y) > 8;
-      if (recvOk) {
-        this._pass(a, passTo);
-        return;
+    // —— 短传选择：在**候选表**上找第一个「过门槛且合格」者（2026-09-23）——
+    // 🔴 旧实现 `_bestPass(a)` 取第 1 名之后再单独查 `recvOk`，不合格就整条放弃。
+    //   实测（`scripts/_gk-distribution-shape-probe.mjs`，改前）第 1 名候选
+    //   **96.5%（home 83/86）/ 93.8%（away 61/65）违反「接球人不能太深」**
+    //   （它挑中的是站在六码区边缘的中卫），而那一刻**合格对象中位有 6 个**
+    //   ⇒ 不是无人可传，是**不退而求其次**。
+    // ⚠ 另一件试过并**已撤回**的事：把「接应人」放宽到「纵深 ≥ 20、靠前 ≥ 6 格」
+    //   （理由是真实里门将短传给拉边中卫）。决策层确实更好（短传 30.2%，与下面这项
+    //   叠加后一样），但**后台档 `referenceDelta.passCompletionPct` 从 2.4 抬到 2.8**，
+    //   而那条本来就是既有红 ⇒ 不该让它更差，故只保留逐项筛选这一半。
+    //   结论：**短传比例 24.6% → 30.2%（非门球 8.8% → 15.3%）全部来自这一半。**
+    const shortThreshold =
+      (prefersShort ? 0.15 : 0.22) - this._roleBehavior(a, "shortDistribution") * 0.04 - teamShortBias;
+    let passTo = null;
+    if (!underHeavyPressure && !bypassBuildUp) {
+      for (const option of this._passCandidates(a)) {
+        // 候选已按 value 降序 ⇒ 后续只会更小
+        if (!(option.value > shortThreshold)) break;
+        const recv = option.agent;
+        if (!recv) continue;
+        // 「接球人不能太靠前、也不能太近」：与旧版 `recvOk` 逐字同款的两条判据
+        if (this._onOwnSide(recv.y, a.team, 18)) continue;
+        if (!(dist(recv.x, recv.y, a.x, a.y) > 8)) continue;
+        passTo = option;
+        break;
       }
+    }
+    if (passTo) {
+      this._pass(a, passTo);
+      return;
     }
 
     // —— 大脚解围：瞄中场安全通道，优先落点靠近本方前插队友 ——
@@ -6420,6 +6449,12 @@ export class SimEngine {
           0.46
         );
         if (this.random() >= pBlock) continue;
+        // ⚠ 2026-09-23 试过在这里「让封堵更偏底线以增加角球（改动 3）」——
+        //   把挡出底线那一类的横向降到 1/3、纵向从 9~15 提到 13~21。
+        //   **实测无效、已撤销**：后台档角球 3.75 → 3.67（反而略降），
+        //   而进球 2.63 → 3.54 **破了 3.3 上限**。⇒ 封堵方向不是角球数量的杠杆。
+        //   角球数量的真正来源是「谁把球踢出底线」，属创造角球的事件模型，
+        //   需单独立项（见 docs/measurements/gk-distribution-tactics-2026-09-23.txt §5）。
         const side = o.x <= b.x ? 1 : -1;
         // 约半数封堵挡过自己的底线得角球；否则弹回场内。
         // 己方底线方向 = 朝自己守的那个门 ⇒ 与进攻方向**反号**。

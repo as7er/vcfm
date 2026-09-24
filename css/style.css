@@ -821,6 +821,15 @@ tr:hover td { background: var(--row-hover); }
   border-radius: 8px;
   border: 1px solid var(--border);
 }
+/* #my-rank 分段：只在段与段之间换行，不把「前 3 名升级」劈开 */
+.rank-seg { white-space: nowrap; }
+.rank-box .rank-record { font-weight: 600; }
+.rank-box .rank-rules {
+  margin-top: 0.2rem;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--muted);
+}
 .form-strip { display: flex; gap: 0.35rem; flex-wrap: wrap; }
 .form-dot {
   width: 28px; height: 28px; border-radius: 50%;

@@ -57,8 +57,8 @@ import {
   habitLabel,
   startHabitTraining,
 } from "./player-habits.js";
-import { nationFlagHtml } from "./flags.js?v=288";
-import { clubCrestHtml } from "./club-crest.js?v=288";
+import { nationFlagHtml } from "./flags.js?v=289";
+import { clubCrestHtml } from "./club-crest.js?v=289";
 import { applyWorldClubBranding, localizedClubName } from "./branding.js";
 import { recordFinanceEntry } from "./finance-ledger.js";
 import { renderFinance as renderFinanceView } from "./ui/finance.js";
@@ -326,7 +326,7 @@ import {
   selectPlannedSaleCandidate,
   squadPlayerPlan,
   squadPositionPlan,
-} from "./squad-planning.js?v=288";
+} from "./squad-planning.js?v=289";
 import {
   TRAINING_MODES,
   ensureTrainingBoost,
@@ -393,7 +393,7 @@ import {
   staffAvatarHtml,
   avatarHtml,
   hydrateAvatarKitRecolor,
-} from "./avatar.js?v=288";
+} from "./avatar.js?v=289";
 import { attributeArchetypeLabel } from "./player-attributes.js";
 import {
   MANAGER_ONBOARDING_TAB_STEPS,
@@ -567,7 +567,7 @@ function clearMatchResume() {
 
 function loadMatchViewModule() {
   if (!matchViewModulePromise) {
-  matchViewModulePromise = import("./matchview.js?v=288").then((module) => {
+  matchViewModulePromise = import("./matchview.js?v=289").then((module) => {
       matchViewApi = module;
       return module;
     });
@@ -4837,10 +4837,14 @@ function renderDashboard() {
   const ruleBits = [];
   if (divInfo.promote) ruleBits.push(en ? `top ${divInfo.promote} promoted` : `前 ${divInfo.promote} 名升级`);
   if (divInfo.relegate) ruleBits.push(en ? `bottom ${divInfo.relegate} relegated` : `后 ${divInfo.relegate} 名降级`);
-  const promoHint = ruleBits.length ? ` (${ruleBits.join(en ? " · " : " · ")})` : "";
-  $("#my-rank").textContent = en
-    ? `${divName} · #${pos} · ${row.pts} pts (${row.w}W ${row.d}D ${row.l}L)${promoHint}`
-    : `${divName} 第 ${pos} 名 · ${row.pts} 分（${row.w}胜 ${row.d}平 ${row.l}负）${promoHint}`;
+  // 拆成「联赛 + 名次 / 积分 + 战绩 / 升降级规则」三段，每段内部不断行：
+  // 原来是一整条长串，窄卡片里会把「前 3 名升级」从中间劈成「前 3 / 名升级」。
+  const seg = (s) => `<span class="rank-seg">${escapeHtml(s)}</span>`;
+  $("#my-rank").innerHTML = `
+    <div class="rank-main">${seg(divName)} ${seg(en ? `#${pos}` : `第 ${pos} 名`)}</div>
+    <div class="rank-record">${seg(en ? `${row.pts} pts` : `${row.pts} 分`)} · ${seg(en ? `${row.w}W ${row.d}D ${row.l}L` : `${row.w}胜 ${row.d}平 ${row.l}负`)}</div>
+    ${ruleBits.length ? `<div class="rank-rules">${ruleBits.map(seg).join(" · ")}</div>` : ""}
+  `;
 
   // 当前训练（概览一眼可见）
   const trainDash = document.querySelector("#training-dash");
