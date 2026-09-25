@@ -19,6 +19,7 @@ import { CLUB_TEMPLATES } from "../js/data.js";
 import { createMatchSession } from "../js/match.js";
 import { createWorld } from "../js/models.js";
 import { ensureSimEngine, runSimPeriodRaw } from "../js/sim/adapt.js";
+import { ensureStaff } from "../js/staff.js";
 
 const SEEDS = Math.max(2, Number(process.argv[2]) || 8);
 const MENTAL = ["decisions", "vision", "positioning"];
@@ -37,9 +38,22 @@ function mulberry32(seed) {
 }
 
 const startClub = CLUB_TEMPLATES.find((club) => club.division === 3);
+// ⚠ createWorld / ensureStaff 用的是 Math.random：不固定的话每个进程造出的球员都不同，
+//   改动前后两次运行比的就不是同一批人。教练 ID 还含 Date.now，而教练战术身份按 ID 哈希推出，
+//   所以两者都要固定。造世界期间临时替换，造完还原。
+const realMathRandom = Math.random;
+const realDateNow = Date.now;
+Math.random = mulberry32(0x1a2b3c);
+Date.now = () => 1789000000000;
 const source = createWorld(startClub.id, "Player IQ AB");
 const fixture = source.fixtures.find((f) => f.home === source.userClubId);
 if (!fixture) throw new Error("找不到用户主场赛程");
+// ⚠ 新世界的教练组是懒创建的：`createMatchSession` 里的 `ensureStaff` 用未种子化的 Math.random
+//   现场生成教练 ⇒ 每次克隆都换一套教练 ⇒ simModifiers 与 AI 首发随之漂移，配对 A/B 失效。
+//   必须在克隆前把教练组固化到 source 上（真实存档里教练只生成一次，不受此影响）。
+for (const club of source.clubs) ensureStaff(club);
+Math.random = realMathRandom;
+Date.now = realDateNow;
 
 function runOnce(seed, iq) {
   const world = structuredClone(source);
@@ -137,6 +151,8 @@ for (let s = 0; s < SEEDS; s++) {
 const again = runOnce(0x51a000, LOW);
 const repro = JSON.stringify(again) === JSON.stringify(lows[0]);
 
+// 双尾 5% 临界 t（自由度 n−1）；n 越大越接近 1.96
+const tCrit = (n) => ({ 2: 12.71, 3: 4.3, 4: 3.18, 5: 2.78, 6: 2.57, 7: 2.45, 8: 2.36, 9: 2.31, 10: 2.26, 12: 2.2, 16: 2.13, 24: 2.07, 32: 2.04 })[n] ?? (n < 16 ? 2.3 : n < 32 ? 2.1 : 2.0);
 const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
 console.log(`\n=== 球员智商 A/B（主队外场 ${MENTAL.join("/")} = ${LOW} vs ${HIGH}，${SEEDS} 种子配对）===`);
 console.log(`复现自检：${repro ? "✅ 同种子逐位一致" : "❌ 不可复现 —— 下面的差值不可信"}`);
@@ -146,7 +162,7 @@ for (const [k, label, want] of keys) {
   const md = mean(d);
   const sd = Math.sqrt(d.reduce((x, y) => x + (y - md) ** 2, 0) / Math.max(1, d.length - 1));
   const tval = sd > 0 ? md / (sd / Math.sqrt(d.length)) : md === 0 ? 0 : Infinity;
-  const sig = Math.abs(tval) >= 2.36; // n=8 双尾 5% 约 2.36
+  const sig = Math.abs(tval) >= tCrit(d.length); // 双尾 5%
   const dir = want === 0 ? "（中性）" : !sig ? "不显著" : Math.sign(md) === want ? "✅ 符合预期" : "🔴 方向反了";
   console.log(
     label.padEnd(18) +

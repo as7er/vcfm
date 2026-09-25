@@ -93,6 +93,11 @@ const checks = [
   //   「反击」语义（该不该"丢球后回收"）试改过、**已撤回**：证据只有 0.43σ，且会推翻既有断言。
   "scripts/tactics-response-verify.mjs",
 
+  // 传球读局（2026-09-25 v292）：精神属性 decisions/vision 此前对传球选择无可测影响
+  // （智商 A/B 16 种子：质量指标全不显著、净胜球差 0）。现由 `_perceivedLaneSafety` 接入。
+  // 守两件事：① read 在支点时与旧 `_laneSafety` 逐位相同（联赛标定的前提）；
+  // ② 冻结局面下高 read 选中线路的赛跑安全度 > 低 read。带变异自检。约 20 秒。
+  "scripts/pass-read-verify.mjs",
   // 重开直播提示（2026-09-22 v281）：用户报「直播一段时间后重开，画面好像一样」。
   // 已查清**不是 bug 是设计**（`openMatch` 无条件重置 + `fromMin` 硬编码 1 + `matchSeed`
   // 随存档保留 ⇒ 重放逐位相同）。本检查守那一轮的「提示 + 替代动作」：

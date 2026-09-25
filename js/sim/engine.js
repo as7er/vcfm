@@ -446,6 +446,37 @@ function heightAerial(heightCm) {
 }
 
 /**
+ * 传球读局：持球人「读比赛」能力 read = ½decisions + ½vision（归一后）。
+ * - read 在支点处：线路安全度与旧式 `_laneSafety` 逐位相同（联赛标定不动）。
+ * - 低于支点：看到的是对手 lag 秒前的位置（感知滞后），发现不了正在补位的防守者。
+ * - 高于支点：向「抢点赛跑」估计靠拢——对手跑到线路上某点要多久 vs 球飞到那里要多久。
+ * 依据（`scripts/_lane-safety-auc-probe.mjs`，改动前引擎 6 场 4975 次地面传球，是否被断的 AUC）：
+ * 朴素垂距 0.755，赛跑 0.818。
+ * 支点 0.66 ≈ 15 个级别球员 read 中位数的中段（各级别中位 0.58~0.76）。
+ */
+const PASS_READ = Object.freeze({ pivot: 0.66, span: 0.14, maxLagSec: 0.6 });
+// 赛跑余量（米）→ 安全度：按分位数对齐到旧式安全度的分布（`scripts/_lane-safety-curve-probe.mjs`，
+// 2 场 18299 个候选）。完全改用赛跑估计的球员，看到的安全度整体分布与旧式相同，只是「哪条线安全」判得更准，
+// 因此不会把传球相对盘带/射门的整体权重推高或压低。
+const RACE_SAFETY_CURVE = Object.freeze([
+  [-2.9, 0.1], [-1.6, 0.12], [-0.8, 0.153], [-0.25, 0.196],
+  [0.2, 0.289], [0.75, 0.423], [2.5, 0.735], [5.5, 1],
+]);
+
+function raceMarginToSafety(marginM) {
+  const c = RACE_SAFETY_CURVE;
+  if (marginM <= c[0][0]) return c[0][1];
+  for (let i = 1; i < c.length; i++) {
+    if (marginM <= c[i][0]) {
+      const [x0, y0] = c[i - 1];
+      const [x1, y1] = c[i];
+      return y0 + ((marginM - x0) / (x1 - x0)) * (y1 - y0);
+    }
+  }
+  return c[c.length - 1][1];
+}
+
+/**
  * 加权随机采样：从 [{key, w}] 里按权重 w 概率选一个。
  * temp（温度）控制随机度：temp→0 近似取最大值（确定性），temp 越大越随机。
  * 这是让决策"有概率性、不死板"的核心——同样局面不再永远同一选择，
@@ -3473,6 +3504,7 @@ export class SimEngine {
     const goalY = this.targetGoalY(a.team);
     const offY = this._offsideLineY(a.team);
     const holderPressure = this._pressureOn(a);
+    const read = 0.5 * (a.attr.decisions || 0.58) + 0.5 * (a.attr.vision || 0.58);
     const out = [];
     for (const m of this.agents) {
       if (m === a || m.team !== a.team || m.sentOff) continue;
@@ -3523,7 +3555,7 @@ export class SimEngine {
       const myProg = Math.abs(a.y - goalY);
       const mProg = Math.abs(m.y - goalY);
       const advance = clamp((myProg - mProg) / 40, -0.5, 1);
-      const safety = this._laneSafety(a, m, tx, ty);
+      const safety = this._perceivedLaneSafety(a, m, tx, ty, eta, read);
       const distPen = clamp(1 - d / 55, 0.2, 1);
       // 核心球员：队友更愿意把球给他（进攻绝对权）
       const coreBoost = m.isCore ? 1.65 : 1;
@@ -3604,8 +3636,9 @@ export class SimEngine {
     return out;
   }
 
-  /** 传球线安全度：线段附近对手越近越危险 → 0..1 */
-  _laneSafety(a, m, tx = m.x, ty = m.y) {
+  /** 传球线安全度：线段附近对手越近越危险 → 0..1。
+   *  lagSec > 0：按对手 lagSec 秒前的位置判断（读比赛差的球员的感知滞后）；0 与旧式逐位相同。 */
+  _laneSafety(a, m, tx = m.x, ty = m.y, lagSec = 0) {
     let minPerp = 99;
     const originX = this.ball.owner === a.id ? this.ball.x : a.x;
     const originY = this.ball.owner === a.id ? this.ball.y : a.y;
@@ -3618,15 +3651,54 @@ export class SimEngine {
     const uy = dy / len;
     for (const o of this.agents) {
       if (o.team === a.team || o.role === "GK" || o.sentOff || o.injuredOff) continue;
+      const ox = lagSec ? o.x - (o.vx || 0) * lagSec : o.x;
+      const oy = lagSec ? o.y - (o.vy || 0) * lagSec : o.y;
       // 投影到传球线段
-      const t = ((o.x - originX) * mx * ux + (o.y - originY) * my * uy) / len;
+      const t = ((ox - originX) * mx * ux + (oy - originY) * my * uy) / len;
       if (t < 0 || t > 1) continue;
       const px = originX + ux * len * t / mx;
       const py = originY + uy * len * t / my;
-      const perp = pitchDistanceBetween(o.x, o.y, px, py);
+      const perp = pitchDistanceBetween(ox, oy, px, py);
       if (perp < minPerp) minPerp = perp;
     }
     return clamp(minPerp / 8, 0.1, 1);
+  }
+
+  /** 抢点赛跑安全度：线路上每个投影点，对手按当前速度外推到球到达时刻，
+   *  余量 = 垂距 − 对手可覆盖距离（反应 0.25 s、约 6.5 m/s、伸脚 1 m）；取最小余量映射到 0.1..1。 */
+  _raceLaneSafety(a, tx, ty, eta) {
+    const originX = this.ball.owner === a.id ? this.ball.x : a.x;
+    const originY = this.ball.owner === a.id ? this.ball.y : a.y;
+    const mx = SIM.PITCH_W_METRES / SIM.FIELD_W;
+    const my = SIM.PITCH_H_METRES / SIM.FIELD_H;
+    const dx = (tx - originX) * mx;
+    const dy = (ty - originY) * my;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len;
+    const uy = dy / len;
+    let minMargin = Infinity;
+    for (const o of this.agents) {
+      if (o.team === a.team || o.role === "GK" || o.sentOff || o.injuredOff) continue;
+      let t = ((o.x - originX) * mx * ux + (o.y - originY) * my * uy) / len;
+      if (t < -0.05 || t > 1.05) continue;
+      t = clamp(t, 0, 1);
+      const ballTime = eta * t;
+      const ox = o.x + (o.vx || 0) * ballTime;
+      const oy = o.y + (o.vy || 0) * ballTime;
+      const perp = Math.abs((ox - originX) * mx * uy - (oy - originY) * my * ux);
+      const reach = 1 + 6.5 * Math.max(0, ballTime - 0.25);
+      minMargin = Math.min(minMargin, perp - reach);
+    }
+    return raceMarginToSafety(minMargin === Infinity ? 12 : minMargin);
+  }
+
+  /** 持球人「看到」的线路安全度（见 PASS_READ）。read 恰在支点时与 `_laneSafety` 逐位相同。 */
+  _perceivedLaneSafety(a, m, tx, ty, eta, read) {
+    const edge = (read - PASS_READ.pivot) / PASS_READ.span;
+    if (edge < 0) return this._laneSafety(a, m, tx, ty, Math.min(1, -edge) * PASS_READ.maxLagSec);
+    const naive = this._laneSafety(a, m, tx, ty);
+    const w = Math.min(1, edge);
+    return w > 0 ? naive + (this._raceLaneSafety(a, tx, ty, eta) - naive) * w : naive;
   }
 
   /** 执行传球：给球初速飞向接球点，清 owner（长传/传中/直塞带弧线高度） */
